@@ -1,0 +1,80 @@
+import { isAuthApiError, isAuthRetryableFetchError } from '@supabase/supabase-js';
+
+/**
+ * Nunca se muestra el mensaje crudo del servidor: siempre pasa por acá.
+ * Mapea los códigos de error de Supabase Auth (ver
+ * @supabase/auth-js/src/lib/error-codes.ts) a mensajes propios, amables y
+ * en español rioplatense simple.
+ */
+export function isNetworkError(error: unknown): boolean {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
+  if (isAuthRetryableFetchError(error)) return true;
+  if (error instanceof TypeError) return true; // fetch() tira TypeError si no hay red
+  if (error instanceof Error && /network|fetch/i.test(error.message)) return true;
+  return false;
+}
+
+export const NETWORK_ERROR_MESSAGE = 'No hay conexión. Revisá la señal y probá de nuevo.';
+const GENERIC_MESSAGE = 'Ocurrió un problema. Probá de nuevo en un momento.';
+
+/**
+ * Mensaje neutral para "puede que este email ya tenga cuenta", usado cuando
+ * Supabase tira un error explícito (`user_already_exists` y variantes; pasa
+ * con "Confirm email" desactivado). Con la confirmación activada el registro
+ * no da error y RegisterPage muestra "Revisá tu correo" para ambos casos.
+ * A propósito NO dice "ya existe una cuenta":
+ * eso confirmaría la existencia del email de forma explícita. El texto
+ * sugiere ingresar o recuperar contraseña sin afirmar nada.
+ */
+export const ACCOUNT_MAYBE_EXISTS_MESSAGE =
+  'No pudimos crear la cuenta con esos datos. Si ya te registraste antes, probá ingresar o recuperar la contraseña.';
+
+export function mapAuthError(error: unknown): string {
+  if (isNetworkError(error)) return NETWORK_ERROR_MESSAGE;
+
+  const code = isAuthApiError(error) ? error.code : undefined;
+  const status = isAuthApiError(error) ? error.status : undefined;
+
+  switch (code) {
+    case 'invalid_credentials':
+      return 'El email o la contraseña no son correctos.';
+    case 'email_not_confirmed':
+      return 'Todavía no confirmaste tu cuenta. Revisá tu correo (y la carpeta de spam).';
+    case 'user_not_found':
+      return 'El email o la contraseña no son correctos.';
+    case 'over_request_rate_limit':
+    case 'over_email_send_rate_limit':
+    case 'over_sms_send_rate_limit':
+      return 'Hiciste muchos intentos. Esperá unos minutos y probá de nuevo.';
+    case 'user_already_exists':
+    case 'email_exists':
+    case 'identity_already_exists':
+      return ACCOUNT_MAYBE_EXISTS_MESSAGE;
+    case 'weak_password':
+      return 'La contraseña es muy débil. Usá al menos 8 caracteres, con una letra y un número.';
+    case 'same_password':
+      return 'La contraseña nueva tiene que ser distinta de la que ya tenías.';
+    case 'signup_disabled':
+    case 'email_provider_disabled':
+      return 'No se pueden crear cuentas nuevas en este momento. Probá más tarde.';
+    case 'session_expired':
+    case 'session_not_found':
+    case 'refresh_token_not_found':
+    case 'refresh_token_already_used':
+      return 'Tu sesión venció. Volvé a ingresar.';
+    case 'email_address_invalid':
+    case 'validation_failed':
+    case 'bad_json':
+      return 'Revisá los datos que ingresaste.';
+    case 'otp_expired':
+      return 'El link venció. Pedí uno nuevo.';
+    default:
+      break;
+  }
+
+  if (typeof status === 'number' && status >= 500) {
+    return 'El servicio no está disponible en este momento. Probá de nuevo en un rato.';
+  }
+
+  return GENERIC_MESSAGE;
+}

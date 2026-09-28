@@ -1,0 +1,208 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Sistema de theming de Elan.
+ *
+ * Todas las variables son HSL "sueltas" (sin wrapper hsl(...)), para poder
+ * componerlas en Tailwind como `hsl(var(--x) / <alpha-value>)` (ver
+ * tailwind.config.ts) y habilitar tanto el color plano como modificadores
+ * de opacidad (`bg-destructive/10`, etc.).
+ *
+ * OJO CON LA CONVENCIÓN DE SHADCN/UI:
+ * `--accent` NO es "el color de marca". Es el color sutil que se usa para
+ * estados de hover/foco de elementos no destructivos (items de menú, filas
+ * de tabla, etc.), muy cercano en luminosidad al fondo.
+ *
+ * El color que el usuario personaliza ("color de acento" en Configuración,
+ * Bloque B) es `--primary` (+ `--ring`, que siempre replica a `--primary`
+ * para que el anillo de foco use el mismo color de marca). La lógica de
+ * override en runtime vive en `src/lib/theme.ts`.
+ */
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --background: 40 30% 98%;
+    --foreground: 20 14% 8%;
+
+    --card: 40 30% 99%;
+    --card-foreground: 20 14% 8%;
+
+    --popover: 40 30% 99%;
+    --popover-foreground: 20 14% 8%;
+
+    /* Ámbar de marca (personalizable en runtime, ver src/lib/theme.ts) */
+    --primary: 37.7 92.1% 50.2%;
+    --primary-foreground: 20 14% 4%;
+
+    --secondary: 40 20% 94%;
+    --secondary-foreground: 20 14% 8%;
+
+    --muted: 40 20% 94%;
+    --muted-foreground: 20 8% 40%;
+
+    --accent: 40 20% 92%;
+    --accent-foreground: 20 14% 8%;
+
+    /* Rojo separado del hue del ámbar (0 vs 37.7) para no confundirse con
+       el acento de marca. Ver src/lib/theme.ts#isAccentTooCloseToDestructive */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    /* Texto de error sobre FONDO (no sobre botón): --destructive a secas
+       da 4.61:1 contra --background claro, apenas por encima de AA (4.5:1).
+       Se achica 3 puntos de L para tener margen real. Ver .dark más abajo
+       para el motivo de por qué en oscuro hace falta un valor bien distinto. */
+    --destructive-text: 0 72% 48%;
+
+    --border: 40 10% 48%;
+    --input: 40 10% 48%;
+    --ring: 37.7 92.1% 50.2%;
+
+    --radius: 0.5rem;
+
+    /* Tokens de marca fijos: dorado metálico para wordmark/login, y placa
+       de fondo para el logo (fondo negro sólido). NO son personalizables
+       por el usuario y no se redefinen en .dark: son los mismos en ambos
+       modos (el logo y su placa no cambian con el tema). */
+    --brand-gold-100: 45 90% 75%;
+    --brand-gold-300: 40 85% 60%;
+    --brand-gold-500: 37.7 92.1% 50.2%;
+    --brand-gold-700: 32 80% 38%;
+
+    /* Placa casi negra con borde dorado sutil para el logo (AuthShell,
+       Header). Contraste verificado: foreground vs plate ~18:1, borde vs
+       plate ~3.5:1 (piso del proyecto), dorado de marca vs plate ~9.3:1. */
+    --brand-plate: 20 10% 3%;
+    --brand-plate-border: 37.7 45% 34%;
+    --brand-plate-foreground: 40 8% 95%;
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    /* Fondo casi negro (nunca negro puro) con tinte cálido sutil,
+       coherente con el negro + dorado metálico de la marca. */
+    --background: 20 14% 4%;
+    --foreground: 40 8% 95%;
+
+    /* Superficies apenas elevadas sobre el fondo, para cards/popovers. */
+    --card: 20 14% 7%;
+    --card-foreground: 40 8% 95%;
+
+    --popover: 20 14% 7%;
+    --popover-foreground: 40 8% 95%;
+
+    --primary: 37.7 92.1% 50.2%;
+    --primary-foreground: 20 14% 4%;
+
+    --secondary: 20 10% 14%;
+    --secondary-foreground: 40 8% 95%;
+
+    --muted: 20 10% 14%;
+    --muted-foreground: 40 5% 63%;
+
+    --accent: 20 10% 16%;
+    --accent-foreground: 40 8% 95%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    /* --destructive a secas da solo 4.13:1 como texto chico contra
+       --background oscuro (y 3.92:1 contra --card): no alcanza AA
+       (4.5:1). Este valor da ~7.2:1 contra --background y ~6.8:1 contra
+       --card, con margen real. Usar `text-destructive-text`, nunca
+       `text-destructive`, para texto de error sobre fondo. */
+    --destructive-text: 0 72% 70%;
+
+    --border: 20 8% 38%;
+    --input: 20 8% 38%;
+    --ring: 37.7 92.1% 50.2%;
+  }
+
+  /*
+   * Pantallas de autenticación (login, registro, recuperar/restablecer
+   * contraseña, bienvenida): siempre oscuras y doradas, sin importar el
+   * modo o el acento que el usuario tenga guardado — antes de loguearse no
+   * sabemos sus preferencias, y este flujo puntual no debería cambiar con
+   * ellas. Se aplica en un contenedor (ver AuthShell), NO en <html>: un
+   * elemento que declara su propio valor para una variable nunca hereda el
+   * de un ancestro (ni siquiera un override inline puesto en <html> por
+   * src/lib/theme.ts), así que alcanza con una redeclaración normal, sin
+   * `!important`.
+   */
+  .theme-auth {
+    color-scheme: dark;
+    --background: 20 14% 4%;
+    --foreground: 40 8% 95%;
+    --card: 20 14% 7%;
+    --card-foreground: 40 8% 95%;
+    --popover: 20 14% 7%;
+    --popover-foreground: 40 8% 95%;
+    --primary: 37.7 92.1% 50.2%;
+    --primary-foreground: 20 14% 4%;
+    --secondary: 20 10% 14%;
+    --secondary-foreground: 40 8% 95%;
+    --muted: 20 10% 14%;
+    --muted-foreground: 40 5% 63%;
+    --accent: 20 10% 16%;
+    --accent-foreground: 40 8% 95%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --destructive-text: 0 72% 70%;
+    --border: 20 8% 38%;
+    --input: 20 8% 38%;
+    --ring: 37.7 92.1% 50.2%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    /* Evita el "flash" de blanco al cargar y respeta el safe-area en
+       dispositivos con notch (iPhone) tanto en portrait como landscape. */
+    @apply bg-background;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground min-h-dvh;
+    min-height: 100vh; /* fallback para navegadores sin soporte de dvh */
+    -webkit-tap-highlight-color: transparent;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  #root {
+    @apply min-h-dvh;
+  }
+
+  /* iOS hace zoom automático al enfocar inputs con font-size < 16px.
+     Forzamos un piso de 16px en los controles que reciben foco de teclado.
+     (No incluye <button>: no dispara zoom y rompería variantes chicas de
+     shadcn como Button size="sm"/"icon"). */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1rem);
+  }
+
+  /*
+   * Cuando el acento elegido por el usuario se confunde con el rojo de
+   * error (ver isAccentTooCloseToDestructive en src/lib/theme.ts, que
+   * togglea este atributo en <html>), los elementos destructivos suman un
+   * contorno adicional: no hay que depender solo del matiz para
+   * distinguir "esto es una acción/aviso destructivo" de "esto es mi color
+   * de marca". Los componentes marcan `data-accent-emphasis="destructive"`
+   * (Button variant="destructive", Alert variant="destructive").
+   */
+  html[data-accent-warn] [data-accent-emphasis='destructive'] {
+    outline: 2px solid hsl(var(--destructive-foreground));
+    outline-offset: 2px;
+  }
+}

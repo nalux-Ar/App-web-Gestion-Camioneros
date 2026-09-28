@@ -1,0 +1,28 @@
+# Dependencias y build
+node_modules
+dist
+dist-ssr
+*.tsbuildinfo
+
+# Variables de entorno (nunca se commitean; solo .env.example)
+.env
+.env.local
+.env*.local
+.env.*
+!.env.example
+
+# Vercel
+.vercel
+
+# Logs
+*.log
+npm-debug.log*
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea
+
+# Documentos privados (datos del cliente y del negocio): nunca se suben
+docs-privados/
