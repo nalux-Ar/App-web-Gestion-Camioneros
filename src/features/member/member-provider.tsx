@@ -54,7 +54,7 @@ export function MemberProvider({ children }: { children: ReactNode }) {
 
       if (queryError) {
         setStatus('error');
-        setError('No pudimos cargar tu cuenta. Probá de nuevo.');
+        setError('No pudimos cargar tu cuenta. Prueba de nuevo.');
         return;
       }
 

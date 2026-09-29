@@ -12,7 +12,7 @@ import { FormError } from '../components/form-error';
 import { isNetworkError, mapAuthError } from '../auth-errors';
 
 const GENERIC_SENT_MESSAGE =
-  'Si ese email tiene una cuenta en Elan, te mandamos un link para que elijas una contraseña nueva. Revisá tu correo (y la carpeta de spam).';
+  'Si ese email tiene una cuenta en Elan, te mandamos un link para que elijas una contraseña nueva. Revisa tu correo (y la carpeta de spam).';
 
 /**
  * Por diseño, este formulario muestra SIEMPRE el mismo resultado exista o
@@ -53,7 +53,7 @@ export function ForgotPasswordPage() {
       <Card>
         <CardHeader className="items-center space-y-3 text-center">
           <MailCheck className="size-10 text-primary" aria-hidden="true" />
-          <CardTitle className="text-2xl">Revisá tu correo</CardTitle>
+          <CardTitle className="text-2xl">Revisa tu correo</CardTitle>
           <CardDescription>{GENERIC_SENT_MESSAGE}</CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
@@ -68,8 +68,8 @@ export function ForgotPasswordPage() {
   return (
     <Card>
       <CardHeader className="space-y-1.5 text-center">
-        <CardTitle className="text-2xl">¿Te olvidaste la contraseña?</CardTitle>
-        <CardDescription>Poné tu email y te mandamos un link para elegir una nueva.</CardDescription>
+        <CardTitle className="text-2xl">¿Olvidaste tu contraseña?</CardTitle>
+        <CardDescription>Pon tu email y te mandamos un link para elegir una nueva.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">

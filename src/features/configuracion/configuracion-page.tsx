@@ -53,7 +53,7 @@ export function ConfiguracionPage() {
     async (nextTema: ThemeMode, nextColor: string) => {
       if (!user) {
         setSaveState('error');
-        setSaveError('Tu sesión venció. Volvé a ingresar.');
+        setSaveError('Tu sesión venció. Vuelve a ingresar.');
         return;
       }
 
@@ -67,7 +67,7 @@ export function ConfiguracionPage() {
 
       if (error) {
         setSaveState('error');
-        setSaveError('No pudimos guardar el cambio. Probá de nuevo.');
+        setSaveError('No pudimos guardar el cambio. Prueba de nuevo.');
         return;
       }
 
@@ -114,7 +114,7 @@ export function ConfiguracionPage() {
       normalized = `#${normalized}`;
     }
     if (!hexToHslTriplet(normalized)) {
-      setHexError('Formato inválido. Usá #RRGGBB (6 dígitos, 0-9 y A-F).');
+      setHexError('Formato inválido. Usa #RRGGBB (6 dígitos, 0-9 y A-F).');
       return;
     }
     applyValidColor(normalized);
@@ -130,7 +130,7 @@ export function ConfiguracionPage() {
     <div className="max-w-xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Configuración</h1>
-        <p className="text-muted-foreground">Elegí cómo se ve la app para vos.</p>
+        <p className="text-muted-foreground">Elige cómo se ve la app para ti.</p>
       </div>
 
       <OfflineBanner />
@@ -226,8 +226,8 @@ export function ConfiguracionPage() {
               <AlertTriangle aria-hidden="true" />
               <AlertDescription>
                 Este color se parece al rojo que usamos para los avisos de error. Los errores igual se van a
-                distinguir (siempre llevan ícono, texto y un contorno extra), pero si preferís más contraste,
-                probá otro tono.
+                distinguir (siempre llevan ícono, texto y un contorno extra), pero si prefieres más contraste,
+                prueba otro tono.
               </AlertDescription>
             </Alert>
           ) : null}

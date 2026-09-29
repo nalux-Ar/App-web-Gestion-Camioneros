@@ -33,7 +33,7 @@ export function RegisterPage() {
     setError(null);
 
     if (!isPasswordValid(password)) {
-      setError('Completá los requisitos de la contraseña.');
+      setError('Completa los requisitos de la contraseña.');
       return;
     }
     if (password !== confirmPassword) {
@@ -87,9 +87,9 @@ export function RegisterPage() {
       <Card>
         <CardHeader className="items-center space-y-3 text-center">
           <MailCheck className="size-10 text-primary" aria-hidden="true" />
-          <CardTitle className="text-2xl">Revisá tu correo</CardTitle>
+          <CardTitle className="text-2xl">Revisa tu correo</CardTitle>
           <CardDescription>
-            Si el email es nuevo, te mandamos un mail para confirmar la cuenta. Abrilo y tocá el link (fijate
+            Si el email es nuevo, te mandamos un mail para confirmar la cuenta. Ábrelo y toca el link (fíjate
             también en correo no deseado).
           </CardDescription>
         </CardHeader>
@@ -127,7 +127,7 @@ export function RegisterPage() {
           <PasswordChecklist password={password} />
           <div className="space-y-1.5">
             <PasswordInput
-              label="Repetí la contraseña"
+              label="Repite la contraseña"
               value={confirmPassword}
               onChange={setConfirmPassword}
               autoComplete="new-password"
@@ -147,9 +147,9 @@ export function RegisterPage() {
             )}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
-            ¿Ya tenés cuenta?{' '}
+            ¿Ya tienes cuenta?{' '}
             <Link to="/ingresar" className="text-primary underline-offset-4 hover:underline">
-              Ingresá acá
+              Ingresa aquí
             </Link>
           </p>
         </CardFooter>

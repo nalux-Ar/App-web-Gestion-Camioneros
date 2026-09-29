@@ -15,7 +15,7 @@ Marcá cada ítem al probarlo. Si algo falla, anotá qué hiciste y qué viste.
 - [ ] Contraseña y confirmación distintas → avisa y no envía.
 - [ ] Registro correcto con el email A → entra directo a **/bienvenida** (con "Confirm email" desactivado).
 - [ ] Intentar registrarse de nuevo con el email A (después de salir) → mensaje neutral ("No pudimos crear la cuenta con esos datos…"). No dice "ya existe".
-- [ ] (Opcional, antes de producción) Con "Confirm email" **activado**: registrarse con un email nuevo → pantalla "Revisá tu correo" y llega el mail; con el email A → la misma pantalla (no se distingue). Volver a desactivarlo si seguís probando.
+- [ ] (Opcional, antes de producción) Con "Confirm email" **activado**: registrarse con un email nuevo → pantalla "Revisa tu correo" y llega el mail; con el email A → la misma pantalla (no se distingue). Volver a desactivarlo si seguís probando.
 
 ## 2. Onboarding
 - [ ] En /bienvenida, enviar vacío → no deja.
@@ -40,7 +40,7 @@ Marcá cada ítem al probarlo. Si algo falla, anotá qué hiciste y qué viste.
 - [ ] Abrir `http://localhost:3000/ingresar?volver=//google.com` e ingresar → termina en Inicio de la app, **nunca** en otro sitio.
 
 ## 6. Recuperación de contraseña
-- [ ] "¿Te olvidaste la contraseña?" con el email A → mensaje "Si ese email tiene una cuenta, te mandamos un link…".
+- [ ] "¿Olvidaste tu contraseña?" con el email A → mensaje "Si ese email tiene una cuenta en Elan, te mandamos un link…".
 - [ ] Lo mismo con un email que NO está registrado → **el mismo mensaje**.
 - [ ] Abrir el link del mail (idealmente desde la app de correo del celular, en otro navegador) → cae en **/restablecer-contrasena**.
 - [ ] La barra de direcciones **no** muestra `#access_token=…` (se limpió al instante).

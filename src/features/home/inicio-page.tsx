@@ -17,7 +17,7 @@ export function InicioPage() {
         <h1 className="text-2xl font-semibold">
           Hola{member?.transportistaNombre ? `, ${member.transportistaNombre}` : ''}
         </h1>
-        <p className="text-muted-foreground">¿Qué querés hacer hoy?</p>
+        <p className="text-muted-foreground">¿Qué quieres hacer hoy?</p>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {accesos.map((item) => (

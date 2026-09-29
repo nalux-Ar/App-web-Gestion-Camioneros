@@ -14,8 +14,8 @@ export function isNetworkError(error: unknown): boolean {
   return false;
 }
 
-export const NETWORK_ERROR_MESSAGE = 'No hay conexión. Revisá la señal y probá de nuevo.';
-const GENERIC_MESSAGE = 'Ocurrió un problema. Probá de nuevo en un momento.';
+export const NETWORK_ERROR_MESSAGE = 'No hay conexión. Revisa la señal y prueba de nuevo.';
+const GENERIC_MESSAGE = 'Ocurrió un problema. Prueba de nuevo en un momento.';
 
 /**
  * Mensaje neutral para "puede que este email ya tenga cuenta", usado cuando
@@ -27,7 +27,7 @@ const GENERIC_MESSAGE = 'Ocurrió un problema. Probá de nuevo en un momento.';
  * sugiere ingresar o recuperar contraseña sin afirmar nada.
  */
 export const ACCOUNT_MAYBE_EXISTS_MESSAGE =
-  'No pudimos crear la cuenta con esos datos. Si ya te registraste antes, probá ingresar o recuperar la contraseña.';
+  'No pudimos crear la cuenta con esos datos. Si ya te registraste antes, intenta ingresar o recuperar la contraseña.';
 
 export function mapAuthError(error: unknown): string {
   if (isNetworkError(error)) return NETWORK_ERROR_MESSAGE;
@@ -39,41 +39,41 @@ export function mapAuthError(error: unknown): string {
     case 'invalid_credentials':
       return 'El email o la contraseña no son correctos.';
     case 'email_not_confirmed':
-      return 'Todavía no confirmaste tu cuenta. Revisá tu correo (y la carpeta de spam).';
+      return 'Todavía no confirmaste tu cuenta. Revisa tu correo (y la carpeta de spam).';
     case 'user_not_found':
       return 'El email o la contraseña no son correctos.';
     case 'over_request_rate_limit':
     case 'over_email_send_rate_limit':
     case 'over_sms_send_rate_limit':
-      return 'Hiciste muchos intentos. Esperá unos minutos y probá de nuevo.';
+      return 'Hiciste muchos intentos. Espera unos minutos y prueba de nuevo.';
     case 'user_already_exists':
     case 'email_exists':
     case 'identity_already_exists':
       return ACCOUNT_MAYBE_EXISTS_MESSAGE;
     case 'weak_password':
-      return 'La contraseña es muy débil. Usá al menos 8 caracteres, con una letra y un número.';
+      return 'La contraseña es muy débil. Usa al menos 8 caracteres, con una letra y un número.';
     case 'same_password':
       return 'La contraseña nueva tiene que ser distinta de la que ya tenías.';
     case 'signup_disabled':
     case 'email_provider_disabled':
-      return 'No se pueden crear cuentas nuevas en este momento. Probá más tarde.';
+      return 'No se pueden crear cuentas nuevas en este momento. Prueba más tarde.';
     case 'session_expired':
     case 'session_not_found':
     case 'refresh_token_not_found':
     case 'refresh_token_already_used':
-      return 'Tu sesión venció. Volvé a ingresar.';
+      return 'Tu sesión venció. Vuelve a ingresar.';
     case 'email_address_invalid':
     case 'validation_failed':
     case 'bad_json':
-      return 'Revisá los datos que ingresaste.';
+      return 'Revisa los datos que ingresaste.';
     case 'otp_expired':
-      return 'El link venció. Pedí uno nuevo.';
+      return 'El link venció. Pide uno nuevo.';
     default:
       break;
   }
 
   if (typeof status === 'number' && status >= 500) {
-    return 'El servicio no está disponible en este momento. Probá de nuevo en un rato.';
+    return 'El servicio no está disponible en este momento. Prueba de nuevo en un rato.';
   }
 
   return GENERIC_MESSAGE;

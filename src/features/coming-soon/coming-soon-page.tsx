@@ -12,7 +12,7 @@ export function ComingSoonPage({ title }: ComingSoonPageProps) {
       <Construction className="size-10 text-muted-foreground" aria-hidden="true" />
       <h1 className="text-xl font-semibold">{title}</h1>
       <p className="max-w-sm text-muted-foreground">
-        Todavía estamos armando esta sección. Pronto vas a poder usarla acá.
+        Todavía estamos armando esta sección. Pronto vas a poder usarla aquí.
       </p>
     </div>
   );

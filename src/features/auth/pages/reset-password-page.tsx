@@ -50,7 +50,7 @@ export function ResetPasswordPage() {
         <CardHeader className="items-center space-y-3 text-center">
           <AlertTriangle className="size-10 text-destructive" aria-hidden="true" />
           <CardTitle className="text-2xl">El link venció o ya se usó</CardTitle>
-          <CardDescription>Pedí un link nuevo para elegir tu contraseña.</CardDescription>
+          <CardDescription>Pide un link nuevo para elegir tu contraseña.</CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
           <Button asChild size="lg">
@@ -68,7 +68,7 @@ export function ResetPasswordPage() {
     setError(null);
 
     if (!isPasswordValid(password)) {
-      setError('Completá los requisitos de la contraseña.');
+      setError('Completa los requisitos de la contraseña.');
       return;
     }
     if (password !== confirmPassword) {
@@ -108,7 +108,7 @@ export function ResetPasswordPage() {
   return (
     <Card>
       <CardHeader className="space-y-1.5 text-center">
-        <CardTitle className="text-2xl">Elegí tu nueva contraseña</CardTitle>
+        <CardTitle className="text-2xl">Elige tu nueva contraseña</CardTitle>
         <CardDescription>Después de guardarla vas a entrar directo a la app.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
@@ -124,7 +124,7 @@ export function ResetPasswordPage() {
           />
           <PasswordChecklist password={password} />
           <PasswordInput
-            label="Repetí la contraseña"
+            label="Repite la contraseña"
             value={confirmPassword}
             onChange={setConfirmPassword}
             autoComplete="new-password"

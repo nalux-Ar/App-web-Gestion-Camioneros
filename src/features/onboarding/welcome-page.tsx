@@ -37,7 +37,7 @@ export function WelcomePage() {
     if (submitting) return;
 
     if (!isValid) {
-      setError('Poné un nombre (hasta 200 caracteres).');
+      setError('Pon un nombre (hasta 200 caracteres).');
       return;
     }
 
@@ -60,11 +60,11 @@ export function WelcomePage() {
     }
 
     if (rpcError.code === '22023') {
-      setError('Poné un nombre entre 1 y 200 caracteres.');
+      setError('Pon un nombre entre 1 y 200 caracteres.');
       return;
     }
 
-    setError(isNetworkError(rpcError) ? NETWORK_ERROR_MESSAGE : 'No pudimos crear tu cuenta. Probá de nuevo.');
+    setError(isNetworkError(rpcError) ? NETWORK_ERROR_MESSAGE : 'No pudimos crear tu cuenta. Prueba de nuevo.');
   }
 
   return (
@@ -72,7 +72,7 @@ export function WelcomePage() {
       <CardHeader className="space-y-1.5 text-center">
         <CardTitle className="text-2xl">¡Bienvenido a Elan!</CardTitle>
         <CardDescription>
-          ¿Cómo se llama tu empresa o vos? Por ejemplo "Juan Pérez" o "Transportes Pérez SRL".
+          ¿Cómo se llama tu empresa o cómo te llamas tú? Por ejemplo "Juan Pérez" o "Transportes Pérez SRL".
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>

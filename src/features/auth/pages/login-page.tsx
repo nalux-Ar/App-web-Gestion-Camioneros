@@ -47,7 +47,7 @@ export function LoginPage() {
     <Card>
       <CardHeader className="space-y-1.5 text-center">
         <CardTitle className="text-2xl">Ingresar</CardTitle>
-        <CardDescription>Entrá con tu email y tu contraseña.</CardDescription>
+        <CardDescription>Ingresa con tu email y tu contraseña.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">
@@ -64,7 +64,7 @@ export function LoginPage() {
             />
             <div className="text-right">
               <Link to="/recuperar-contrasena" className="text-sm text-primary underline-offset-4 hover:underline">
-                ¿Te olvidaste la contraseña?
+                ¿Olvidaste tu contraseña?
               </Link>
             </div>
           </div>
@@ -80,9 +80,9 @@ export function LoginPage() {
             )}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
-            ¿Todavía no tenés cuenta?{' '}
+            ¿Aún no tienes cuenta?{' '}
             <Link to="/registro" className="text-primary underline-offset-4 hover:underline">
-              Creá una acá
+              Regístrate aquí
             </Link>
           </p>
         </CardFooter>
