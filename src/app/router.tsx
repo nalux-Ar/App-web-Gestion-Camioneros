@@ -69,8 +69,9 @@ export function AppRouter() {
             }
           />
           {/* Sin RequireGuest a propósito: se llega acá con una sesión de
-              recuperación recién creada por el link del mail (Supabase
-              dispara PASSWORD_RECOVERY y el AuthProvider redirige acá). */}
+              recuperación recién creada al canjear el enlace del correo
+              (src/lib/process-auth-redirect.ts); RecoveryGuard mantiene al
+              usuario en esta ruta hasta que guarde la contraseña o cancele. */}
           <Route path="/restablecer-contrasena" element={<ResetPasswordPage />} />
           <Route
             path="/bienvenida"

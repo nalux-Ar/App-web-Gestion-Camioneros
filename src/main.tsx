@@ -5,7 +5,7 @@ import App from './App';
 import './index.css';
 import { DEFAULT_THEME, applyAccentColor, applyTheme, resetAccentColor } from './lib/theme';
 import { clearCachedThemePreference, readCachedThemePreference } from './lib/theme-cache';
-import { processAuthHash } from './lib/process-auth-hash';
+import { processAuthRedirect, type AuthRedirectResult } from './lib/process-auth-redirect';
 import { clearRecoveryPending, isRecoveryPending } from './lib/recovery-lock';
 import { supabase } from './lib/supabase';
 
@@ -31,25 +31,45 @@ if (!rootElement) {
 }
 
 /**
- * Todo esto corre ANTES de montar <App/> (y por lo tanto antes de que
- * AuthProvider llame a `getSession()`), a propósito: si el link de
- * recuperación que se acaba de abrir crea una sesión nueva, queremos que
- * ya esté guardada cuando el resto de la app arranque a leerla. Si lo
- * hiciéramos al revés (montar primero, procesar el hash después) habría
- * una ventana en la que `getSession()` contesta "sin sesión" de forma
- * incorrecta, apenas antes de que la sesión de recuperación aparezca.
+ * Orden de arranque (todo esto corre ANTES de montar <App/>, y por lo tanto
+ * antes de que AuthProvider llame a `getSession()`):
+ *   1. `processAuthRedirect()`: interpreta el enlace del correo, sea
+ *      `?token_hash=...&type=recovery` (canje con `verifyOtp`) o el
+ *      fragmento `#access_token=...` (canje con `setSession`). Limpia la URL
+ *      de forma síncrona antes de cualquier `await` (ver ese módulo).
+ *   2. Si ese enlace era de recuperación, ya quedó la sesión guardada y el
+ *      marcador de recuperación pendiente puesto.
+ *   3. Cierre de la recuperación ABANDONADA (abajo), solo si este arranque
+ *      NO procesó un enlace de recuperación nuevo.
+ *   4. Recién entonces se monta <App/>.
+ * Es a propósito en este orden: si se montara primero y se procesara el
+ * enlace después, habría una ventana en la que `getSession()` contesta "sin
+ * sesión" de forma incorrecta, justo antes de que aparezca la sesión de
+ * recuperación.
  */
 async function bootstrap(container: HTMLElement) {
-  const hashResult = await processAuthHash();
+  // <App/> tiene que montarse SIEMPRE: si el procesamiento del enlace
+  // tirara una excepción inesperada, el resultado por defecto es "sin
+  // recuperación pendiente, con error" (falla cerrado: si había una
+  // recuperación abandonada, igual se cierra abajo) y la app arranca.
+  let redirectResult: AuthRedirectResult = { recoveryPending: false, hadError: true };
+  try {
+    redirectResult = await processAuthRedirect();
+  } catch {
+    // Se queda con el resultado por defecto.
+  }
 
   // Marcador de recuperación pendiente de un arranque ANTERIOR (el
   // usuario cerró la pestaña en `/restablecer-contrasena` sin elegir
-  // contraseña ni cancelar) Y este arranque no acaba de procesar un link
-  // de recuperación nuevo: es una sesión de recuperación abandonada,
-  // capaz de navegar a toda la app sin haber elegido contraseña. Se
-  // cierra antes de fijar cualquier estado de auth/routing, para que la
-  // app nunca llegue a mostrarse con esa sesión viva.
-  if (isRecoveryPending() && !hashResult.recoveryPending) {
+  // contraseña ni cancelar) Y este arranque no acaba de procesar un enlace
+  // de recuperación nuevo (`redirectResult.recoveryPending`, que vale tanto
+  // para `token_hash` como para el fragmento): es una sesión de recuperación
+  // abandonada, capaz de navegar a toda la app sin haber elegido contraseña.
+  // Se cierra antes de fijar cualquier estado de auth/routing, para que la
+  // app nunca llegue a mostrarse con esa sesión viva. Si el enlace nuevo
+  // falló (vencido/ya usado), también se cierra: el marcador viejo sigue
+  // siendo una recuperación abandonada.
+  if (isRecoveryPending() && !redirectResult.recoveryPending) {
     try {
       // scope: 'local' = cierra solo la sesión de este navegador. Si hay
       // señal, además la revoca en el servidor; si no hay, supabase-js

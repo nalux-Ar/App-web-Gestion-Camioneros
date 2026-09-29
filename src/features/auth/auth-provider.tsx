@@ -10,9 +10,14 @@ import { AuthContext, type AuthContextValue, type AuthStatus } from './auth-cont
 /**
  * Sesión: `getSession()` inicial + un único listener `onAuthStateChange`
  * para toda la app (nada de listeners duplicados por componente). Vive
- * dentro de <BrowserRouter> porque necesita `useNavigate` para el evento
- * `PASSWORD_RECOVERY` (Supabase lo dispara solo, al procesar el link de
- * "restablecer contraseña" del mail) y para el logout.
+ * dentro de <BrowserRouter> porque necesita `useNavigate` para el logout
+ * y para el evento `PASSWORD_RECOVERY`. Ojo: el enlace de recuperación del
+ * correo se canjea al arrancar (src/lib/process-auth-redirect.ts), ANTES
+ * de montar este provider, así que ese evento normalmente ya pasó cuando
+ * se suscribe el listener; quien mantiene al usuario en
+ * `/restablecer-contrasena` es RecoveryGuard (src/app/guards.tsx). El
+ * manejo del evento queda como red de seguridad por si otro flujo lo
+ * dispara con la app ya montada.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);

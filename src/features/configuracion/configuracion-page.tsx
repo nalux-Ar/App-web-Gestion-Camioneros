@@ -135,6 +135,22 @@ export function ConfiguracionPage() {
 
       <OfflineBanner />
 
+      {/* Cuenta visible a propósito: un enlace de correo (recuperación,
+          confirmación) de otra persona puede abrir una sesión en la cuenta
+          de un atacante sin que se note. Mostrar el correo completo, sin
+          enmascarar, permite darse cuenta de con qué cuenta se está. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Tu cuenta</CardTitle>
+          <CardDescription>
+            Esta es la cuenta con la que iniciaste sesión. Si no es la tuya, cierra sesión.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="break-all text-base font-medium">{user?.email ?? 'No disponible'}</p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Tema</CardTitle>

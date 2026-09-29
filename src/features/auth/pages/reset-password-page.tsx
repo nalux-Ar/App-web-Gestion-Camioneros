@@ -16,12 +16,13 @@ import { mapAuthError } from '../auth-errors';
 import { isPasswordValid } from '../password';
 
 /**
- * `src/lib/process-auth-hash.ts` procesa el link del mail apenas arranca
- * la app (antes de montar cualquier pantalla), así que para cuando este
- * componente se monta ya sabemos si hay sesión o no. Sin sesión = link
- * vencido, ya usado, o la página se abrió directo sin pasar por el mail
- * (los tres casos muestran el mismo mensaje: no hay forma de distinguirlos
- * de forma útil para quien lo está leyendo).
+ * `src/lib/process-auth-redirect.ts` procesa el enlace del correo apenas
+ * arranca la app (antes de montar cualquier pantalla): canjea el
+ * `token_hash` con `verifyOtp` (o el fragmento legado con `setSession`),
+ * así que para cuando este componente se monta ya sabemos si hay sesión o
+ * no. Sin sesión = enlace vencido, ya usado, o la página se abrió directo
+ * sin pasar por el correo (los tres casos muestran el mismo mensaje: no hay
+ * forma de distinguirlos de manera útil para quien lo está leyendo).
  */
 export function ResetPasswordPage() {
   const { session, status } = useAuth();
@@ -109,7 +110,21 @@ export function ResetPasswordPage() {
     <Card>
       <CardHeader className="space-y-1.5 text-center">
         <CardTitle className="text-2xl">Elige tu nueva contraseña</CardTitle>
-        <CardDescription>Después de guardarla vas a entrar directo a la app.</CardDescription>
+        {/* Se muestra el correo completo, sin enmascarar, a propósito: si
+            alguien le manda a la víctima un enlace de recuperación propio,
+            la sesión que se abre es la de la cuenta del atacante. Ver de
+            qué cuenta es la contraseña que se está por elegir es lo que le
+            permite darse cuenta y presionar Cancelar. */}
+        <CardDescription>
+          {session.user.email ? (
+            <>
+              Vas a elegir la contraseña de <strong className="break-all">{session.user.email}</strong>. Si no es tu
+              cuenta, presiona Cancelar.
+            </>
+          ) : (
+            'Vas a elegir la contraseña de esta cuenta. Si no es tu cuenta, presiona Cancelar.'
+          )}
+        </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">

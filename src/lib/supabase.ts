@@ -60,27 +60,44 @@ if (isLikelySecretKey(SUPABASE_PUBLISHABLE_KEY)) {
 
 /**
  * Flujo de autenticación: IMPLÍCITO, no PKCE (decisión tomada — Bloque B).
- * Sigue siendo implícito después de la auditoría de seguridad; lo único
- * que cambió es quién procesa el fragmento de la URL (ver más abajo).
+ * Sigue siendo implícito; lo que cambió después es quién interpreta el
+ * enlace del correo y cómo se canjea el de recuperación (ver más abajo).
  *
  * Motivo: el camionero suele pedir "olvidé mi contraseña" desde el
- * navegador del celular y abrir el link del mail en otra app o navegador
- * (el cliente de correo tiene su propio WebView, o el pedido se hizo desde
- * un navegador y el link se abre en otro). Con PKCE, el "code verifier"
- * queda guardado únicamente en el storage del navegador/pestaña que
- * INICIÓ el pedido; si el link se abre en otro contexto (lo más común acá),
- * el intercambio de código falla con "code verifier not found" y el
+ * navegador del celular y abrir el enlace del correo en otra app o
+ * navegador (el cliente de correo tiene su propio WebView, o el pedido se
+ * hizo desde un navegador y el enlace se abre en otro). Con PKCE, el "code
+ * verifier" queda guardado únicamente en el storage del navegador/pestaña
+ * que INICIÓ el pedido; si el enlace se abre en otro contexto (lo más común
+ * aquí), el intercambio de código falla con "code verifier not found" y el
  * usuario queda trabado sin poder elegir una contraseña nueva. El flujo
- * implícito no tiene ese problema: el token de sesión viaja en el propio
- * link (hash de la URL) y no depende de storage previo en ese navegador.
+ * implícito no tiene ese problema: no depende de storage previo en ese
+ * navegador. (`verifyOtp` con `token_hash`, que se usa para recuperación,
+ * tampoco depende del flujo ni del storage: `flowType` no lo afecta.)
  *
- * `detectSessionInUrl: false`: el procesamiento del fragmento
- * `#access_token=...` NO lo hace supabase-js solo. Lo hace
- * `src/lib/process-auth-hash.ts`, a mano, antes de montar la app. Motivo:
- * la limpieza de hash de supabase-js (`location.hash = ''`) agrega una
- * entrada nueva al historial del navegador y deja los tokens accesibles
- * apretando "atrás"; nuestro `processAuthHash` usa `history.replaceState`
- * (no agrega entrada) antes de leer/usar los tokens. Ver ese archivo.
+ * `detectSessionInUrl: false`: supabase-js NO lee la URL por su cuenta.
+ * Lo hace `src/lib/process-auth-redirect.ts`, a mano, antes de montar la
+ * app, y maneja dos formatos de enlace:
+ *
+ * - Recuperación de contraseña: `?token_hash=...&type=recovery` (query),
+ *   canjeado con `supabase.auth.verifyOtp`. La plantilla del correo es
+ *   `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery`, en vez
+ *   del `{{ .ConfirmationURL }}` por defecto. Motivo: Gmail y otros
+ *   clientes/antivirus precargan los enlaces de los correos para
+ *   escanearlos; `{{ .ConfirmationURL }}` consume el token de un solo uso
+ *   con un simple GET, así que el usuario veía "el enlace venció o ya se
+ *   usó" en su primer clic. Un escáner que solo hace GET no ejecuta JS: con
+ *   `token_hash` el token se gasta recién cuando el JS del navegador llama a
+ *   `verifyOtp`.
+ * - Fragmento `#access_token=...` / `#error=...`: lo siguen usando los
+ *   demás correos (confirmación de registro, cambio de email) y cualquier
+ *   correo de recuperación viejo. Se procesa con `setSession`. La limpieza
+ *   de fragmento de supabase-js (`location.hash = ''`) agrega una entrada
+ *   nueva al historial y deja los tokens visibles al apretar "atrás"; el
+ *   módulo propio usa `history.replaceState` (no agrega entrada).
+ *
+ * En ambos casos la URL se limpia de forma síncrona antes de cualquier
+ * `await`, y nunca se loguea ni se guarda el token.
  */
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
