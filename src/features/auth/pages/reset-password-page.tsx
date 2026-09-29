@@ -38,7 +38,7 @@ export function ResetPasswordPage() {
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
           <Spinner className="size-8 text-primary" />
-          <p className="text-sm text-muted-foreground">Comprobando el link…</p>
+          <p className="text-sm text-muted-foreground">Comprobando el enlace…</p>
         </CardContent>
       </Card>
     );
@@ -49,12 +49,12 @@ export function ResetPasswordPage() {
       <Card>
         <CardHeader className="items-center space-y-3 text-center">
           <AlertTriangle className="size-10 text-destructive" aria-hidden="true" />
-          <CardTitle className="text-2xl">El link venció o ya se usó</CardTitle>
-          <CardDescription>Pide un link nuevo para elegir tu contraseña.</CardDescription>
+          <CardTitle className="text-2xl">El enlace venció o ya se usó</CardTitle>
+          <CardDescription>Pide un enlace nuevo para elegir tu contraseña.</CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
           <Button asChild size="lg">
-            <Link to="/recuperar-contrasena">Pedir un link nuevo</Link>
+            <Link to="/recuperar-contrasena">Pedir un enlace nuevo</Link>
           </Button>
         </CardFooter>
       </Card>

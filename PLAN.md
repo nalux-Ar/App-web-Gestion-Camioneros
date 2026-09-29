@@ -22,6 +22,7 @@
 | 2026-09-28 | Bloque B: auditoría de seguridad de auth (flujo implícito, recuperación, enumeración, `?volver=`, sesión, storage) | `appsec-secure-coding` |
 | 2026-09-28 | URL y publishable key por MCP, tipos TS generados por MCP, logos WebP y favicon (`sharp`), puerto 3000, docs, checklist, commits | Hilo principal (tooling/assets/docs; no hay subagente dedicado) |
 | 2026-09-28 | Repo público: auditoría de contenido e historial, `docs-privados/`, historial reiniciado en un commit limpio, LICENSE, README, autor noreply local | Hilo principal (tooling/git; no hay subagente dedicado) |
+| 2026-09-28 | UI a español neutro (tú) | `frontend-architect` (42 textos); ajustes puntuales posteriores (Escribe, enviar/enlace, mensajes de desarrollador y 3 comentarios) en el hilo principal por ser solo texto |
 | 2026-09-28 | Revisión de las correcciones de appsec: restaurar la pantalla "Revisá tu correo" del registro (el subagente la había sacado; hace falta con Confirm email activado) y corregir comentarios de `main.tsx`/`auth-errors.ts` | Hilo principal (ajuste chico detectado al revisar; no pasó de nuevo por `frontend-architect` ni `appsec-secure-coding`) |
 
 ## Pendientes / notas para próximos bloques

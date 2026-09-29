@@ -4,7 +4,7 @@ import { isAuthApiError, isAuthRetryableFetchError } from '@supabase/supabase-js
  * Nunca se muestra el mensaje crudo del servidor: siempre pasa por acá.
  * Mapea los códigos de error de Supabase Auth (ver
  * @supabase/auth-js/src/lib/error-codes.ts) a mensajes propios, amables y
- * en español rioplatense simple.
+ * en español neutro y simple.
  */
 export function isNetworkError(error: unknown): boolean {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
@@ -21,7 +21,7 @@ const GENERIC_MESSAGE = 'Ocurrió un problema. Prueba de nuevo en un momento.';
  * Mensaje neutral para "puede que este email ya tenga cuenta", usado cuando
  * Supabase tira un error explícito (`user_already_exists` y variantes; pasa
  * con "Confirm email" desactivado). Con la confirmación activada el registro
- * no da error y RegisterPage muestra "Revisá tu correo" para ambos casos.
+ * no da error y RegisterPage muestra "Revisa tu correo" para ambos casos.
  * A propósito NO dice "ya existe una cuenta":
  * eso confirmaría la existencia del email de forma explícita. El texto
  * sugiere ingresar o recuperar contraseña sin afirmar nada.
@@ -67,7 +67,7 @@ export function mapAuthError(error: unknown): string {
     case 'bad_json':
       return 'Revisa los datos que ingresaste.';
     case 'otp_expired':
-      return 'El link venció. Pide uno nuevo.';
+      return 'El enlace venció. Pide uno nuevo.';
     default:
       break;
   }

@@ -4,7 +4,7 @@ import type { Database } from './database.types';
 
 function requireEnv(name: keyof ImportMetaEnv, value: string): string {
   if (!value || value.trim().length === 0) {
-    throw new Error(`Falta la variable de entorno ${name}. Revisá .env.local (ver .env.example).`);
+    throw new Error(`Falta la variable de entorno ${name}. Revisa .env.local (ver .env.example).`);
   }
   return value;
 }
@@ -54,7 +54,7 @@ function isLikelySecretKey(key: string): boolean {
 if (isLikelySecretKey(SUPABASE_PUBLISHABLE_KEY)) {
   throw new Error(
     'VITE_SUPABASE_PUBLISHABLE_KEY parece una key con privilegios de servicio (service_role). ' +
-      'Nunca debe usarse en el frontend: usá la publishable key (prefijo sb_publishable_), nunca la service_role.',
+      'Nunca debe usarse en el frontend: usa la publishable key (prefijo sb_publishable_), nunca la service_role.',
   );
 }
 

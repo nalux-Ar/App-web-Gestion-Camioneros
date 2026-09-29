@@ -40,7 +40,7 @@ Marcá cada ítem al probarlo. Si algo falla, anotá qué hiciste y qué viste.
 - [ ] Abrir `http://localhost:3000/ingresar?volver=//google.com` e ingresar → termina en Inicio de la app, **nunca** en otro sitio.
 
 ## 6. Recuperación de contraseña
-- [ ] "¿Olvidaste tu contraseña?" con el email A → mensaje "Si ese email tiene una cuenta en Elan, te mandamos un link…".
+- [ ] "¿Olvidaste tu contraseña?" con el email A → mensaje "Si ese email tiene una cuenta en Elan, te enviamos un enlace…".
 - [ ] Lo mismo con un email que NO está registrado → **el mismo mensaje**.
 - [ ] Abrir el link del mail (idealmente desde la app de correo del celular, en otro navegador) → cae en **/restablecer-contrasena**.
 - [ ] La barra de direcciones **no** muestra `#access_token=…` (se limpió al instante).
@@ -49,7 +49,7 @@ Marcá cada ítem al probarlo. Si algo falla, anotá qué hiciste y qué viste.
 - [ ] "Cancelar" → cierra la sesión y vuelve a /ingresar.
 - [ ] Pedir otro link, abrirlo y **cerrar la pestaña sin guardar**. Volver a abrir `http://localhost:3000` → pide ingresar (la sesión de recuperación se cerró sola).
 - [ ] Pedir otro link, abrirlo, poner contraseña nueva válida y guardar → entra a la app. Salir e ingresar con la contraseña nueva → funciona; con la vieja → no.
-- [ ] Usar un link ya usado o viejo → "el link venció o ya se usó" con opción de pedir otro.
+- [ ] Usar un link ya usado o viejo → "el enlace venció o ya se usó" con opción de pedir otro.
 
 ## 7. Configuración: tema y color
 - [ ] Cambiar a modo claro → se aplica al toque, sin recargar; aparece "Guardando…" y después "Guardado".

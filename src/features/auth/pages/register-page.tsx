@@ -69,7 +69,7 @@ export function RegisterPage() {
     // "Confirm email" ACTIVADO. En ese modo Supabase contesta igual para un
     // email nuevo (manda el mail de confirmación) que para uno ya
     // registrado (no manda nada y no da error), así que la pantalla tiene
-    // que servir para los dos casos sin decir cuál es: "revisá tu correo"
+    // que servir para los dos casos sin decir cuál es: "revisa tu correo"
     // + la salida para quien ya tenía cuenta. Así no se revela si el
     // email existe.
     //
@@ -89,7 +89,7 @@ export function RegisterPage() {
           <MailCheck className="size-10 text-primary" aria-hidden="true" />
           <CardTitle className="text-2xl">Revisa tu correo</CardTitle>
           <CardDescription>
-            Si el email es nuevo, te mandamos un mail para confirmar la cuenta. Ábrelo y toca el link (fíjate
+            Si el email es nuevo, te enviamos un correo para confirmar la cuenta. Ábrelo y toca el enlace (fíjate
             también en correo no deseado).
           </CardDescription>
         </CardHeader>

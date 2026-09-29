@@ -37,7 +37,7 @@ export function WelcomePage() {
     if (submitting) return;
 
     if (!isValid) {
-      setError('Pon un nombre (hasta 200 caracteres).');
+      setError('Escribe un nombre (hasta 200 caracteres).');
       return;
     }
 
@@ -60,7 +60,7 @@ export function WelcomePage() {
     }
 
     if (rpcError.code === '22023') {
-      setError('Pon un nombre entre 1 y 200 caracteres.');
+      setError('Escribe un nombre entre 1 y 200 caracteres.');
       return;
     }
 
