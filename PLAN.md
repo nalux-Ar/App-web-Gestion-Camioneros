@@ -25,6 +25,9 @@
 | 2026-09-28 | UI a español neutro (tú) | `frontend-architect` (42 textos); ajustes puntuales posteriores (Escribe, enviar/enlace, mensajes de desarrollador y 3 comentarios) en el hilo principal por ser solo texto |
 | 2026-09-29 | Recuperación de contraseña con `token_hash` + `verifyOtp` (bug del prefetch de Gmail) + correcciones de su auditoría (email visible, limpieza de URL, arranque robusto) | `frontend-architect` |
 | 2026-09-29 | Auditoría del cambio a `token_hash` (sin críticos/altos; 1 medio y 3 bajos corregidos) | `appsec-secure-coding` |
+| 2026-09-30 | Cloudflare Turnstile en login, registro y recuperación (+ ajustes de su auditoría) | `frontend-architect` |
+| 2026-09-30 | Auditoría de Turnstile (sin críticos/altos) | `appsec-secure-coding` |
+| 2026-09-30 | Chequeo de variables de entorno en `vite.config.ts` (el build de producción falla si falta alguna; hallazgo medio de la auditoría de Turnstile) | Hilo principal (config de build de pocas líneas, aprobada explícitamente) |
 | 2026-09-28 | Revisión de las correcciones de appsec: restaurar la pantalla "Revisá tu correo" del registro (el subagente la había sacado; hace falta con Confirm email activado) y corregir comentarios de `main.tsx`/`auth-errors.ts` | Hilo principal (ajuste chico detectado al revisar; no pasó de nuevo por `frontend-architect` ni `appsec-secure-coding`) |
 
 ## Pendientes / notas para próximos bloques
@@ -40,6 +43,13 @@
   - Verificar en Supabase que la expiración de los OTP de email siga en ≤ 1 h, y en Vercel que Web Analytics / Speed Insights y Log Drains a terceros estén apagados (el `token_hash` viaja en el query y puede quedar en logs).
   - Con SMTP propio: desactivar click tracking y open tracking en los mails de auth.
   - Mejoras opcionales: mensaje distinto si `verifyOtp` falla por falta de red (hoy dice "El enlace venció" aunque el token no se gastó) y un loader estático en `index.html` mientras se canjea el enlace.
+- **Turnstile — configuración a cuidar (auditoría 2026-09-30)**:
+  - **Antes de pushear**: cargar `VITE_TURNSTILE_SITE_KEY` en Vercel (Production y Preview). Sin ella, las pantallas de ingreso fallan.
+  - Cloudflare → Turnstile: en producción permitir solo el dominio real (con `localhost` permitido, la restricción de dominio es cosmética).
+  - Verificar que Supabase → Attack Protection → CAPTCHA esté activado: si no, Supabase ignora el token y el captcha no protege nada. Prueba: una request de login sin token tiene que dar `captcha_failed`.
+  - Cualquier `resend`/`signInWithOtp` futuro tiene que mandar `captchaToken`.
+  - Aviso de privacidad: mencionar que Cloudflare procesa IP y señales del navegador para el captcha.
+  - CSP futuro: permitir `https://challenges.cloudflare.com` en `script-src`, `frame-src` y `connect-src` (probar primero en modo Report-Only). No agregar `preconnect` a Cloudflare en `index.html`: pegaría también en `/restablecer-contrasena`.
 - **Pendientes de decisión (auth)**:
   - ~~Migrar el link de recuperación a `token_hash` + `verifyOtp`~~ → hecho el 2026-09-29 (bug del prefetch de Gmail). Requiere que la plantilla "Reset Password" del dashboard use `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery`.
   - Endurecimiento opcional: algunos escáneres de correo (p.ej. los que abren el link en un navegador real) sí ejecutan JS y podrían consumir el `token_hash`. Si vuelve a pasar, pedir un clic en "Continuar" antes de llamar a `verifyOtp`.

@@ -73,3 +73,11 @@ Marcá cada ítem al probarlo. Si algo falla, anotá qué hiciste y qué viste.
 
 ## 10. Aislamiento (sanity)
 - [ ] Registrar el email B y crear otro transportista → ve solo su nombre; nada del transportista de A.
+
+## 11. Turnstile (captcha) en login, registro y recuperación
+- [ ] Prerrequisitos: `.env.local` con `VITE_TURNSTILE_SITE_KEY`; en Cloudflare → Turnstile, el widget permite `localhost`; en Supabase → Authentication → Attack Protection, CAPTCHA activado con Turnstile y la secret key.
+- [ ] En /ingresar, /registro y /recuperar-contrasena normalmente **no se ve ningún captcha**: el botón muestra "Verificando…" y en menos de un segundo pasa a su texto normal.
+- [ ] Login con contraseña incorrecta → mensaje de error; corregir la contraseña y volver a intentar **sin recargar** → entra (cada intento usa un token nuevo).
+- [ ] Registro y "Enviar enlace" funcionan igual; el mensaje de recuperación sigue siendo el genérico.
+- [ ] En DevTools → Network, bloquear `challenges.cloudflare.com` (o usar un bloqueador de anuncios) y recargar /ingresar → aparece el aviso "No pudimos verificar que no eres un robot…" con "Reintentar", el botón queda deshabilitado y lo tipeado no se pierde.
+- [ ] En /restablecer-contrasena (abriendo un enlace de recuperación), DevTools → Network **no** muestra ninguna request a `challenges.cloudflare.com`.

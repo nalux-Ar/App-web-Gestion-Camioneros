@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { MailCheck } from 'lucide-react';
 
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { OfflineBanner } from '@/components/shared/offline-banner';
 import { Spinner } from '@/components/shared/spinner';
+import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/shared/turnstile-widget';
 import { supabase } from '@/lib/supabase';
 import { EmailField } from '../components/email-field';
 import { PasswordInput } from '../components/password-input';
@@ -23,12 +24,15 @@ export function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkEmail, setCheckEmail] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaActionRequired, setCaptchaActionRequired] = useState(false);
+  const captchaRef = useRef<TurnstileWidgetHandle>(null);
 
   const passwordsMatch = confirmPassword.length === 0 || password === confirmPassword;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || !captchaToken) return;
 
     setError(null);
 
@@ -43,22 +47,35 @@ export function RegisterPage() {
 
     setSubmitting(true);
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/ingresar`,
-      },
-    });
+    let failure: unknown = null;
+    let hasSession = false;
+    try {
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/ingresar`,
+          captchaToken,
+        },
+      });
+      failure = signUpError;
+      hasSession = data.session !== null;
+    } catch (thrown) {
+      failure = thrown;
+    }
 
+    // El token de Turnstile sirve una sola vez: se descarta y se pide uno
+    // nuevo después de CADA intento, salga bien o mal (incluido un error de
+    // red). Lo tipeado no se toca.
+    captchaRef.current?.reset();
     setSubmitting(false);
 
-    if (signUpError) {
-      setError(mapAuthError(signUpError));
+    if (failure) {
+      setError(mapAuthError(failure));
       return;
     }
 
-    if (data.session) {
+    if (hasSession) {
       // Cuenta nueva, sesión inmediata (así está configurado el proyecto
       // hoy: sin confirmación de email). Directo al onboarding.
       navigate('/', { replace: true });
@@ -135,12 +152,23 @@ export function RegisterPage() {
             />
             {!passwordsMatch && <p className="text-sm text-destructive-text">Las contraseñas no coinciden.</p>}
           </div>
+          <TurnstileWidget
+            ref={captchaRef}
+            onTokenChange={setCaptchaToken}
+            onActionRequiredChange={setCaptchaActionRequired}
+          />
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <Button type="submit" size="lg" className="w-full" disabled={submitting}>
+          <Button type="submit" size="lg" className="w-full" disabled={submitting || !captchaToken}>
             {submitting ? (
               <>
                 <Spinner /> Creando cuenta…
+              </>
+            ) : captchaActionRequired ? (
+              'Completa la verificación'
+            ) : !captchaToken ? (
+              <>
+                <Spinner /> Verificando…
               </>
             ) : (
               'Crear cuenta'

@@ -17,6 +17,14 @@ export function isNetworkError(error: unknown): boolean {
 export const NETWORK_ERROR_MESSAGE = 'No hay conexión. Revisa la señal y prueba de nuevo.';
 const GENERIC_MESSAGE = 'Ocurrió un problema. Prueba de nuevo en un momento.';
 
+export const CAPTCHA_ERROR_MESSAGE = 'No pudimos verificar que no eres un robot. Prueba de nuevo.';
+
+/** Supabase Auth rechazó el token de Turnstile (código `captcha_failed`:
+ *  token vencido, ya usado o inválido). */
+export function isCaptchaError(error: unknown): boolean {
+  return isAuthApiError(error) && error.code === 'captcha_failed';
+}
+
 /**
  * Mensaje neutral para "puede que este email ya tenga cuenta", usado cuando
  * Supabase tira un error explícito (`user_already_exists` y variantes; pasa
@@ -36,6 +44,8 @@ export function mapAuthError(error: unknown): string {
   const status = isAuthApiError(error) ? error.status : undefined;
 
   switch (code) {
+    case 'captcha_failed':
+      return CAPTCHA_ERROR_MESSAGE;
     case 'invalid_credentials':
       return 'El email o la contraseña no son correctos.';
     case 'email_not_confirmed':

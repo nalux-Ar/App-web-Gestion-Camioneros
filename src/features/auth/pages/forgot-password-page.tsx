@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { MailCheck } from 'lucide-react';
 
@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { OfflineBanner } from '@/components/shared/offline-banner';
 import { Spinner } from '@/components/shared/spinner';
+import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/shared/turnstile-widget';
 import { supabase } from '@/lib/supabase';
 import { EmailField } from '../components/email-field';
 import { FormError } from '../components/form-error';
-import { isNetworkError, mapAuthError } from '../auth-errors';
+import { isCaptchaError, isNetworkError, mapAuthError } from '../auth-errors';
 
 const GENERIC_SENT_MESSAGE =
   'Si ese email tiene una cuenta en Elan, te enviamos un enlace para que elijas una contraseña nueva. Revisa tu correo (y la carpeta de spam).';
@@ -18,30 +19,48 @@ const GENERIC_SENT_MESSAGE =
  * Por diseño, este formulario muestra SIEMPRE el mismo resultado exista o
  * no una cuenta con ese email (evita que alguien use el formulario para
  * confirmar qué emails están registrados). La única excepción es un error
- * de red real: ahí sí conviene avisar distinto, porque el pedido ni
- * siquiera llegó a Supabase y tiene sentido reintentar.
+ * de red real (el pedido ni siquiera llegó a Supabase y tiene sentido
+ * reintentar) y un error de captcha (el token no valió: no hubo pedido real
+ * y también hay que reintentar). Ninguno de los dos dice nada sobre si el
+ * email existe.
  */
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [networkError, setNetworkError] = useState<string | null>(null);
+  const [retryableError, setRetryableError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaActionRequired, setCaptchaActionRequired] = useState(false);
+  const captchaRef = useRef<TurnstileWidgetHandle>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || !captchaToken) return;
 
     setSubmitting(true);
-    setNetworkError(null);
+    setRetryableError(null);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/restablecer-contrasena`,
-    });
+    // `resetPasswordForEmail` recibe `captchaToken` directamente en su objeto
+    // de opciones (a diferencia de signIn/signUp, que lo llevan en `options`).
+    let failure: unknown = null;
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/restablecer-contrasena`,
+        captchaToken,
+      });
+      failure = error;
+    } catch (thrown) {
+      failure = thrown;
+    }
 
+    // El token de Turnstile sirve una sola vez: se descarta y se pide uno
+    // nuevo después de CADA intento, salga bien o mal (incluido un error de
+    // red). Lo tipeado no se toca.
+    captchaRef.current?.reset();
     setSubmitting(false);
 
-    if (error && isNetworkError(error)) {
-      setNetworkError(mapAuthError(error));
+    if (failure && (isNetworkError(failure) || isCaptchaError(failure))) {
+      setRetryableError(mapAuthError(failure));
       return;
     }
 
@@ -74,14 +93,25 @@ export function ForgotPasswordPage() {
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">
           <OfflineBanner />
-          <FormError message={networkError} />
+          <FormError message={retryableError} />
           <EmailField value={email} onChange={setEmail} disabled={submitting} />
+          <TurnstileWidget
+            ref={captchaRef}
+            onTokenChange={setCaptchaToken}
+            onActionRequiredChange={setCaptchaActionRequired}
+          />
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <Button type="submit" size="lg" className="w-full" disabled={submitting}>
+          <Button type="submit" size="lg" className="w-full" disabled={submitting || !captchaToken}>
             {submitting ? (
               <>
                 <Spinner /> Enviando…
+              </>
+            ) : captchaActionRequired ? (
+              'Completa la verificación'
+            ) : !captchaToken ? (
+              <>
+                <Spinner /> Verificando…
               </>
             ) : (
               'Enviar enlace'
