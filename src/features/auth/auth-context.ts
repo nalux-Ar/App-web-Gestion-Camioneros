@@ -11,11 +11,16 @@ import type { Session, User } from '@supabase/supabase-js';
  */
 export type AuthStatus = 'loading' | 'ready';
 
+/** Resultado de cerrar sesión. `signOut` NUNCA rechaza: si no se pudo cerrar
+ *  (la sesión sigue viva), devuelve `ok: false` con un mensaje para mostrar,
+ *  y en ese caso no navega. */
+export type SignOutResult = { ok: true } | { ok: false; message: string };
+
 export interface AuthContextValue {
   session: Session | null;
   user: User | null;
   status: AuthStatus;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<SignOutResult>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

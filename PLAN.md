@@ -3,7 +3,13 @@
 ## Bloques
 - [x] **Bloque A**: esquema + RLS + test de aislamiento con 2 tenants — cerrado 2026-09-23. Auditado por `appsec-secure-coding` (sin críticos/altos; los medios/bajos quedaron corregidos). Validado localmente en PGlite (`OK: 80/80`) y **aplicado en la base real el 2026-09-28** vía MCP (`001_schema`, `002_functions`, `003_rls`): `aislamiento.sql` contra Supabase → `OK: 80/80`, sin datos residuales, RLS activo en las 9 tablas, 4 categorías globales.
 - [x] **Bloque B**: auth (login email/contraseña, registro, recuperar contraseña, onboarding del transportista) + pantalla de Login con fondo oscuro, detalles dorados y el logo de Elan centrado + layout compartido con el logo (versión chica) en el header, visible en toda la app ya logueado + pantalla de Configuración con toggle claro/oscuro y selector de color de acento — implementado 2026-09-28, auditado por `appsec-secure-coding` (1 crítico, 2 altos, 1 medio y 1 bajo, todos corregidos). Sin migraciones nuevas. **Pendiente del responsable del proyecto**: prueba manual con `docs/checklist-bloque-b.md`.
-- [ ] **Bloque C**: carga de viajes, entregas, devoluciones y gastos
+- [ ] **Bloque C**: carga de viajes, entregas, devoluciones y gastos — en curso, por etapas (cada una cierra con auditoría de `appsec-secure-coding`):
+  - [ ] Etapa 0: base compartida (TanStack Query, números y fechas, componentes para el celular, errores, resiliencia de formularios). Implementada y auditada; correcciones en curso; sin commitear.
+  - [ ] Migración `005_gastos_combustible` (`km_odometro`, `tanque_lleno`) y, a decidir, `006` con `client_ref` (idempotencia de reintentos): redactadas y validadas en PGlite (`OK: 88/88`), **pendientes de aprobación y de aplicar** por MCP.
+  - [ ] Etapa 1: Gastos (listado con filtro por mes y categoría, carga en pocos toques, combustible con litros, km y tanque lleno, editar y borrar).
+  - [ ] Etapa 2: Viajes (fecha, origen, destino, km, entregas con incidencias, "+ Nuevo cliente" solo con nombre; decidir si se guarda viaje + entregas con una función atómica).
+  - [ ] Etapa 3: vínculo gasto ↔ viaje.
+  - Después, otra etapa: devoluciones, clientes y camión, resumen.
 - [ ] **Bloque D**: reportes (gasto total, ganancia si hay ingreso cargado, consumo y rendimiento de combustible, estimado mensual)
 
 ## Registro de subagentes
@@ -28,6 +34,10 @@
 | 2026-09-30 | Cloudflare Turnstile en login, registro y recuperación (+ ajustes de su auditoría) | `frontend-architect` |
 | 2026-09-30 | Auditoría de Turnstile (sin críticos/altos) | `appsec-secure-coding` |
 | 2026-09-30 | Chequeo de variables de entorno en `vite.config.ts` (el build de producción falla si falta alguna; hallazgo medio de la auditoría de Turnstile) | Hilo principal (config de build de pocas líneas, aprobada explícitamente) |
+| 2026-09-30 | Bloque C, Etapa 0: base compartida (TanStack Query, números y fechas locales, componentes para el celular, errores, resiliencia de formularios) y sus correcciones | `frontend-architect` |
+| 2026-09-30 | Bloque C: migración `005_gastos_combustible` (redactada y validada en PGlite; sin aplicar) y análisis de `client_ref` | `database-architect` |
+| 2026-09-30 | Bloque C, Etapa 0: auditoría (sin críticos ni altos; 2 medios y varios bajos, corregidos) | `appsec-secure-coding` |
+| 2026-09-30 | Bloque C: lectura del esquema real por MCP (solo lectura), plan por etapas, verificación y documentación | Hilo principal (coordinación y docs; no hay subagente dedicado) |
 | 2026-09-28 | Revisión de las correcciones de appsec: restaurar la pantalla "Revisá tu correo" del registro (el subagente la había sacado; hace falta con Confirm email activado) y corregir comentarios de `main.tsx`/`auth-errors.ts` | Hilo principal (ajuste chico detectado al revisar; no pasó de nuevo por `frontend-architect` ni `appsec-secure-coding`) |
 
 ## Pendientes / notas para próximos bloques
@@ -61,4 +71,5 @@
   - Ediciones por UPDATE, nunca upsert por `id` (la base genera el id).
   - Policies de Storage para las fotos de gastos (carpeta por `transportista_id`) y validación de `gastos.foto_url` (guardar el path del bucket, nunca aceptar `javascript:`/`data:`).
   - Resiliencia liviana de formularios (no perder lo tipeado si falla el guardado). Si se necesita idempotencia de reintentos, usar una columna tipo `client_ref` con UNIQUE por tenant.
+- **Confirmación de email en el registro: en pausa.** El código está en la rama local `feat/confirmacion-email` (commit `wip`, sin pushear y sin auditar). Antes de retomar: auditoría de `appsec-secure-coding`, prueba local, rebase sobre `main`, y activar "Confirm email" y la plantilla "Confirm signup" de Supabase **junto con el deploy** (el código desplegado y la configuración tienen que cambiar a la vez; si no, el registro en producción se rompe).
 - Agregar componentes de shadcn con `npx shadcn@2.3.0 add <componente>` (compatible con Tailwind v3), no con `@latest`.

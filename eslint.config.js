@@ -18,6 +18,18 @@ export default tseslint.config(
     },
     rules: {
       ...reactRefresh.configs.vite.rules,
+      // Invariante de datos: las mutaciones NO se reintentan solas ni se
+      // pausan sin red (src/lib/query-client.ts). Un reintento automático de
+      // un INSERT duplica el registro si el primer pedido sí llegó al servidor
+      // y solo se perdió la respuesta. Se bloquea a nivel de cada llamada.
+      'no-restricted-syntax': [
+        'error',
+        ...['name', 'value'].map((keyProp) => ({
+          selector: `CallExpression[callee.name=/^(useMutation|mutationOptions)$/] > ObjectExpression > Property[key.${keyProp}=/^(retry|retryDelay|networkMode)$/]`,
+          message:
+            "No configures 'retry', 'retryDelay' ni 'networkMode' en una mutación: los valores por defecto (retry: 0, networkMode: 'always', ver src/lib/query-client.ts) existen para no duplicar registros si se corta la señal. El reintento es manual (useSubmitFeedback).",
+        })),
+      ],
     },
   },
 );

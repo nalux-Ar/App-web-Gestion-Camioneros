@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { supabase } from '@/lib/supabase';
-import { DEFAULT_ACCENT, applyAccentColor, applyTheme, hexToHslTriplet } from '@/lib/theme';
-import { writeCachedThemePreference } from '@/lib/theme-cache';
+import {
+  DEFAULT_ACCENT,
+  DEFAULT_THEME,
+  applyAccentColor,
+  applyTheme,
+  hexToHslTriplet,
+  resetAccentColor,
+} from '@/lib/theme';
+import { clearCachedThemePreference, writeCachedThemePreference } from '@/lib/theme-cache';
 import { useAuth } from '@/features/auth/use-auth';
 import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
 import type { Enums } from '@/lib/database.types';
@@ -34,7 +41,52 @@ export function MemberProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<MemberStatus>('idle');
   const [error, setError] = useState<string | null>(null);
 
+  // A qué usuario pertenece `member`/`status`/`error`. Si el usuario cambia
+  // (otra pestaña entra con otra cuenta SIN pasar por "sin sesión"), lo del
+  // anterior se descarta en ESTE MISMO render, antes de que lo vea cualquier
+  // pantalla: si no, durante un tick se mostraría el transportista (nombre,
+  // rol, `transportista_id` de las query keys) del usuario anterior con la
+  // sesión del nuevo, y si el pedido del nuevo fallara, se quedaría ahí. Es el
+  // patrón "ajustar estado durante el render" de React (un setState
+  // condicional al propio estado): React descarta este pasaje y renderiza de
+  // nuevo enseguida, sin mostrar el estado viejo.
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  if (ownerId !== userId) {
+    setOwnerId(userId);
+    setMember(null);
+    setStatus(userId ? 'loading' : 'idle');
+    setError(null);
+  }
+
+  // Número del último pedido de miembro y usuario vigente. Una respuesta vieja
+  // (de otro usuario, o de un reintento anterior) nunca debe pisar al estado
+  // actual. Se actualizan en un LAYOUT effect (en el mismo commit en que
+  // cambia `userId`, antes de que pueda correr cualquier callback asíncrono) y
+  // no en un `useEffect` pasivo, que corre después del paint.
+  const requestIdRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    const previousUserId = currentUserIdRef.current;
+    currentUserIdRef.current = userId;
+    requestIdRef.current += 1;
+
+    // A -> B sin pasar por "sin sesión": las preferencias visuales de A no
+    // pueden quedar aplicadas (y en localStorage) mientras carga B, ni si el
+    // pedido de B falla. (Con sesión -> null lo hace AuthProvider.)
+    if (previousUserId !== null && userId !== null && previousUserId !== userId) {
+      resetAccentColor();
+      applyTheme(DEFAULT_THEME);
+      clearCachedThemePreference();
+    }
+  }, [userId]);
+
   const fetchMember = useCallback(async () => {
+    // Un `refetch` guardado de un render anterior (otro usuario) no hace nada.
+    if (userId !== currentUserIdRef.current) return;
+
+    const requestId = ++requestIdRef.current;
+
     if (!userId) {
       setMember(null);
       setStatus('idle');
@@ -52,7 +104,10 @@ export function MemberProvider({ children }: { children: ReactNode }) {
         .eq('user_id', userId)
         .maybeSingle();
 
+      if (requestId !== requestIdRef.current) return;
+
       if (queryError) {
+        setMember(null);
         setStatus('error');
         setError('No pudimos cargar tu cuenta. Prueba de nuevo.');
         return;
@@ -67,6 +122,8 @@ export function MemberProvider({ children }: { children: ReactNode }) {
       setMember(normalizeMember(data));
       setStatus('ready');
     } catch {
+      if (requestId !== requestIdRef.current) return;
+      setMember(null);
       setStatus('error');
       setError(NETWORK_ERROR_MESSAGE);
     }

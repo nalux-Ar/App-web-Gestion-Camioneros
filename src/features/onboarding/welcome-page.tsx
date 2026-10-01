@@ -10,7 +10,8 @@ import { Spinner } from '@/components/shared/spinner';
 import { supabase } from '@/lib/supabase';
 import { useMember } from '@/features/member/use-member';
 import { FormError } from '@/features/auth/components/form-error';
-import { isNetworkError, NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
+import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
+import { classifyDataError } from '@/lib/data-errors';
 
 const MAX_NOMBRE_LENGTH = 200;
 
@@ -64,7 +65,13 @@ export function WelcomePage() {
       return;
     }
 
-    setError(isNetworkError(rpcError) ? NETWORK_ERROR_MESSAGE : 'No pudimos crear tu cuenta. Prueba de nuevo.');
+    // `rpcError` es un objeto plano de PostgREST (no un Error): la falla de red
+    // llega como { message: 'TypeError: Failed to fetch', code: '' }.
+    setError(
+      classifyDataError(rpcError) === 'network'
+        ? NETWORK_ERROR_MESSAGE
+        : 'No pudimos crear tu cuenta. Prueba de nuevo.',
+    );
   }
 
   return (

@@ -6,16 +6,29 @@ import { isAuthApiError, isAuthRetryableFetchError } from '@supabase/supabase-js
  * @supabase/auth-js/src/lib/error-codes.ts) a mensajes propios, amables y
  * en español neutro y simple.
  */
+/** Mensajes de fetch() cuando no hay red, según el navegador: Chrome "Failed
+ *  to fetch", Firefox "NetworkError when attempting to fetch resource",
+ *  Safari/iOS "Load failed". Exportado para que `data-errors.ts` reconozca
+ *  también los errores de red que supabase-js devuelve como objetos planos
+ *  (no `Error`) en las consultas a la base. */
+export const NETWORK_MESSAGE_PATTERN = /network|fetch|load failed/i;
+
 export function isNetworkError(error: unknown): boolean {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
   if (isAuthRetryableFetchError(error)) return true;
+  // Un AuthApiError es una RESPUESTA del servidor (hubo red): su mensaje no
+  // dice nada de la conexión, aunque contenga "fetch" o "network".
+  if (isAuthApiError(error)) return false;
   if (error instanceof TypeError) return true; // fetch() tira TypeError si no hay red
-  if (error instanceof Error && /network|fetch/i.test(error.message)) return true;
+  if (error instanceof Error && NETWORK_MESSAGE_PATTERN.test(error.message)) return true;
   return false;
 }
 
 export const NETWORK_ERROR_MESSAGE = 'No hay conexión. Revisa la señal y prueba de nuevo.';
-const GENERIC_MESSAGE = 'Ocurrió un problema. Prueba de nuevo en un momento.';
+export const GENERIC_ERROR_MESSAGE = 'Ocurrió un problema. Prueba de nuevo en un momento.';
+export const SESSION_EXPIRED_MESSAGE = 'Tu sesión venció. Vuelve a ingresar.';
+export const INVALID_DATA_MESSAGE = 'Revisa los datos que ingresaste.';
+export const SERVER_ERROR_MESSAGE = 'El servicio no está disponible en este momento. Prueba de nuevo en un rato.';
 
 export const CAPTCHA_ERROR_MESSAGE = 'No pudimos verificar que no eres un robot. Prueba de nuevo.';
 
@@ -71,11 +84,11 @@ export function mapAuthError(error: unknown): string {
     case 'session_not_found':
     case 'refresh_token_not_found':
     case 'refresh_token_already_used':
-      return 'Tu sesión venció. Vuelve a ingresar.';
+      return SESSION_EXPIRED_MESSAGE;
     case 'email_address_invalid':
     case 'validation_failed':
     case 'bad_json':
-      return 'Revisa los datos que ingresaste.';
+      return INVALID_DATA_MESSAGE;
     case 'otp_expired':
       return 'El enlace venció. Pide uno nuevo.';
     default:
@@ -83,8 +96,8 @@ export function mapAuthError(error: unknown): string {
   }
 
   if (typeof status === 'number' && status >= 500) {
-    return 'El servicio no está disponible en este momento. Prueba de nuevo en un rato.';
+    return SERVER_ERROR_MESSAGE;
   }
 
-  return GENERIC_MESSAGE;
+  return GENERIC_ERROR_MESSAGE;
 }
