@@ -31,6 +31,10 @@ const InicioPage = lazy(() => import('@/features/home/inicio-page').then((m) => 
 const ComingSoonPage = lazy(() =>
   import('@/features/coming-soon/coming-soon-page').then((m) => ({ default: m.ComingSoonPage })),
 );
+const GastosPage = lazy(() => import('@/features/gastos/gastos-page').then((m) => ({ default: m.GastosPage })));
+const GastoFormPage = lazy(() =>
+  import('@/features/gastos/gasto-form-page').then((m) => ({ default: m.GastoFormPage })),
+);
 const ConfiguracionPage = lazy(() =>
   import('@/features/configuracion/configuracion-page').then((m) => ({ default: m.ConfiguracionPage })),
 );
@@ -97,7 +101,9 @@ export function AppRouter() {
         >
           <Route index element={<InicioPage />} />
           <Route path="viajes" element={<ComingSoonPage title="Viajes" />} />
-          <Route path="gastos" element={<ComingSoonPage title="Gastos" />} />
+          <Route path="gastos" element={<GastosPage />} />
+          <Route path="gastos/nuevo" element={<GastoFormPage modo="nuevo" />} />
+          <Route path="gastos/:id/editar" element={<GastoFormPage modo="editar" />} />
           <Route path="clientes" element={<ComingSoonPage title="Clientes" />} />
           <Route path="reportes" element={<ComingSoonPage title="Reportes" />} />
           <Route path="configuracion" element={<ConfiguracionPage />} />

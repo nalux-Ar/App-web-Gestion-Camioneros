@@ -5,6 +5,14 @@ import { FieldShell } from '@/components/shared/field-shell';
 import { LITROS_HINT, validateOptionalNumber, validateRequiredNumber, type NumberKind } from '@/lib/numbers';
 import { cn } from '@/lib/utils';
 
+/**
+ * Tope de caracteres que acepta el campo. Cubre el formato válido más largo con separadores de miles:
+ * monto "9.999.999.999,99" (16), litros "999.999,999" (11), km "99.999.999,9" (12), con margen para ceros
+ * a la izquierda. Se corta DESPUÉS de descartar lo que no es número (no con el atributo `maxLength`,
+ * que corta antes: al pegar "Total: $ 12.500,00" se perdería parte del número en silencio).
+ */
+const MAX_NUMBER_INPUT_LENGTH = 20;
+
 interface NumberFieldProps {
   label: string;
   /** El texto tal cual lo tipeó el usuario ("1.234,5"). El estado vive en el formulario. */
@@ -88,7 +96,7 @@ export function NumberField({
             placeholder={placeholder}
             disabled={disabled}
             value={value}
-            onChange={(event) => onChange(event.target.value.replace(/[^0-9.,]/g, ''))}
+            onChange={(event) => onChange(event.target.value.replace(/[^0-9.,]/g, '').slice(0, MAX_NUMBER_INPUT_LENGTH))}
             onBlur={() => {
               setTouched(true);
               onBlur?.();

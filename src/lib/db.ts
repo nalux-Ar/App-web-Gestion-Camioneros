@@ -35,13 +35,24 @@ type ServerManagedColumn = (typeof SERVER_MANAGED_COLUMNS)[number];
 /** Datos para CREAR: el Insert generado, sin `id`, `transportista_id` ni timestamps. */
 export type NewRow<T extends BusinessTable> = Omit<TablesInsert<T>, ServerManagedColumn>;
 
-/** Datos para EDITAR: el Update generado, sin `id`, `transportista_id` ni timestamps. */
-export type RowChanges<T extends BusinessTable> = Omit<TablesUpdate<T>, ServerManagedColumn>;
+/**
+ * Columnas que se escriben UNA vez al crear y después son inmutables: un
+ * UPDATE que las cambie lo rechaza un trigger (`client_ref`, migración 006:
+ * es la clave de idempotencia con la que el front reconoce "este gasto ya lo
+ * guardé"). Se pueden mandar en un INSERT, nunca en un UPDATE.
+ */
+const INSERT_ONLY_COLUMNS = ['client_ref'] as const;
+type InsertOnlyColumn = (typeof INSERT_ONLY_COLUMNS)[number];
+
+/** Datos para EDITAR: el Update generado, sin `id`, `transportista_id`, timestamps ni columnas solo-INSERT (`client_ref`). */
+export type RowChanges<T extends BusinessTable> = Omit<TablesUpdate<T>, ServerManagedColumn | InsertOnlyColumn>;
+
+function withoutColumns<V extends object>(values: V, columns: readonly string[]): V {
+  return Object.fromEntries(Object.entries(values).filter(([key]) => !columns.includes(key))) as V;
+}
 
 function withoutServerManaged<V extends object>(values: V): V {
-  return Object.fromEntries(
-    Object.entries(values).filter(([key]) => !(SERVER_MANAGED_COLUMNS as readonly string[]).includes(key)),
-  ) as V;
+  return withoutColumns(values, SERVER_MANAGED_COLUMNS);
 }
 
 /**
@@ -63,12 +74,13 @@ export function insertPayload<T extends BusinessTable>(values: NewRow<T>): Table
 /**
  * Payload para `.update(...)`. Las ediciones van SIEMPRE por UPDATE con
  * `.eq('id', id)` (nunca upsert por id: la base es la dueña de los ids). Quita
- * `id`, `transportista_id` y timestamps aunque vengan en el objeto.
+ * `id`, `transportista_id`, timestamps y `client_ref` (inmutable) aunque vengan
+ * en el objeto.
  *
  *   await supabase.from('gastos').update(updatePayload<'gastos'>({ monto })).eq('id', id).select()
  */
 export function updatePayload<T extends BusinessTable>(values: RowChanges<T>): TablesUpdate<T> {
-  return withoutServerManaged(values) as TablesUpdate<T>;
+  return withoutColumns(withoutServerManaged(values), INSERT_ONLY_COLUMNS) as TablesUpdate<T>;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,9 +123,10 @@ export function unwrap<T>(result: PostgrestSingleResponse<T>): T {
  *        .select().abortSignal(writeTimeoutSignal())
  *
  * OJO: un timeout de ESCRITURA es el caso "respuesta perdida": el pedido pudo
- * haber llegado al servidor y guardarse igual. "Reintentar" puede duplicar el
- * registro. La idempotencia (columna `client_ref` UNIQUE por tenant) se cierra
- * en la Etapa 1, no acá.
+ * haber llegado al servidor y guardarse igual. Un "Reintentar" de un INSERT
+ * duplicaría el registro salvo que la tabla tenga una clave de idempotencia:
+ * `gastos` ya la tiene (`client_ref`, ver src/features/gastos/gasto-save.ts);
+ * las demás tablas la tendrán cuando se construya su pantalla.
  */
 export const WRITE_TIMEOUT_MS = 20_000;
 

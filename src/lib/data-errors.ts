@@ -80,11 +80,14 @@ export class RecordNotFoundError extends Error {
 export class DataRequestError extends Error {
   readonly code: string;
   readonly status: number | undefined;
+  /** `details` de PostgREST (a veces trae el nombre del constraint). Interno: no se muestra. */
+  readonly details: string;
 
-  constructor(source: { message?: unknown; code?: unknown }, status?: number) {
+  constructor(source: { message?: unknown; code?: unknown; details?: unknown }, status?: number) {
     super(typeof source.message === 'string' ? source.message : 'Error de datos');
     this.name = 'DataRequestError';
     this.code = typeof source.code === 'string' ? source.code : '';
+    this.details = typeof source.details === 'string' ? source.details : '';
     this.status = status;
   }
 }

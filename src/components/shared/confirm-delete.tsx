@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils';
 interface ConfirmDeleteProps {
   /** Hace el borrado y TIRA el error si falla (con TanStack: `() => eliminar.mutateAsync(id)`). */
   onConfirm: () => Promise<unknown>;
+  /** Texto del botón inicial. Por defecto "Eliminar"; p.ej. "Eliminar gasto" cuando es la acción de una pantalla de edición. */
+  label?: string;
   /** Qué se borra, para el lector de pantalla cuando hay varios botones en una lista: "gasto del 30 sep". */
   itemLabel?: string;
   /** Mensajes propios de error, p.ej. `{ foreignKey: 'No se puede eliminar porque tiene gastos asociados.' }`.
@@ -45,7 +47,14 @@ interface ConfirmDeleteProps {
  * contenedor (estable: no se reemplaza mientras borra, falla o termina) y el
  * lector de pantalla sigue anunciando su etiqueta y los avisos.
  */
-export function ConfirmDelete({ onConfirm, itemLabel, context, disabled = false, className }: ConfirmDeleteProps) {
+export function ConfirmDelete({
+  onConfirm,
+  label = 'Eliminar',
+  itemLabel,
+  context,
+  disabled = false,
+  className,
+}: ConfirmDeleteProps) {
   const [confirming, setConfirming] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const { run, pending, error, retryable, clearError } = useSubmitFeedback({ context });
@@ -90,7 +99,7 @@ export function ConfirmDelete({ onConfirm, itemLabel, context, disabled = false,
         disabled={disabled}
         onClick={() => setConfirming(true)}
       >
-        <Trash2 aria-hidden="true" /> Eliminar
+        <Trash2 aria-hidden="true" /> {label}
       </Button>
     );
   }

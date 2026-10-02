@@ -228,13 +228,17 @@ function decimalSeparator(): string {
  * Texto para precargar un campo al EDITAR un registro: sin separador de miles
  * (los campos se tipean sin miles y "1.234" se lee como 1,234) y con el
  * decimal del dispositivo. 1234.5 → "1234,5".
+ *
+ * `separator` fuerza la coma o el punto en vez del del dispositivo. Útil con
+ * los litros: con punto, 40,125 daría "40.125", que `validateRequiredNumber`
+ * rechaza como ambiguo; con coma se lee igual en cualquier idioma.
  */
-export function formatForInput(value: number | null | undefined): string {
+export function formatForInput(value: number | null | undefined, separator?: ',' | '.'): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '';
   // String(1e-7) da "1e-7": los valores de las columnas nunca son tan chicos,
   // pero si pasara, mejor un decimal plano que una notación que no se puede editar.
   const plain = /e/i.test(String(value)) ? value.toFixed(6).replace(/\.?0+$/, '') : String(value);
-  return (plain === '-0' ? '0' : plain).replace('.', decimalSeparator());
+  return (plain === '-0' ? '0' : plain).replace('.', separator ?? decimalSeparator());
 }
 
 // ---------------------------------------------------------------------------
