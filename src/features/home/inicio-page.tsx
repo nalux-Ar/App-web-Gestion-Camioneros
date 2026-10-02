@@ -14,7 +14,7 @@ export function InicioPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">
+        <h1 className="break-words text-2xl font-semibold">
           Hola{member?.transportistaNombre ? `, ${member.transportistaNombre}` : ''}
         </h1>
         <p className="text-muted-foreground">¿Qué quieres hacer hoy?</p>

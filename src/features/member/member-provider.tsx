@@ -147,20 +147,39 @@ export function MemberProvider({ children }: { children: ReactNode }) {
   // iniciar sesión y al recargar con sesión activa). La página de
   // Configuración además aplica en vivo por su cuenta mientras el usuario
   // elige colores; este efecto es el responsable del estado "de entrada".
+  // Depende solo de `tema` y `colorAcento` (no de todo `member`): otros cambios del
+  // miembro, como confirmar el nombre de la cuenta, no deben reaplicar el tema con
+  // un valor que un guardado de color todavía en vuelo está por reemplazar.
+  const temaMiembro = member?.tema;
+  const colorAcentoMiembro = member?.colorAcento;
   useEffect(() => {
-    if (!member) return;
-    applyTheme(member.tema);
-    applyAccentColor(member.colorAcento);
-    writeCachedThemePreference({ tema: member.tema, colorAcento: member.colorAcento });
-  }, [member]);
+    if (!temaMiembro || !colorAcentoMiembro) return;
+    applyTheme(temaMiembro);
+    applyAccentColor(colorAcentoMiembro);
+    writeCachedThemePreference({ tema: temaMiembro, colorAcento: colorAcentoMiembro });
+  }, [temaMiembro, colorAcentoMiembro]);
 
   const updateLocalPreferences = useCallback((patch: Partial<Pick<MemberInfo, 'tema' | 'colorAcento'>>) => {
     setMember((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
 
+  // Update funcional: la comparación de tenant se hace contra el estado MÁS
+  // RECIENTE (`prev`), no contra el de un render viejo. Así, si mientras volvía
+  // la respuesta de la base cambió el usuario o el tenant (`member` pasó a
+  // `null` o a otro `transportistaId`), el nombre no se escribe en el miembro
+  // equivocado. Si el nombre ya es el mismo devuelve `prev` tal cual: no hay
+  // re-render ni se vuelve a correr el efecto que aplica el tema.
+  const updateLocalTransportistaNombre = useCallback((transportistaId: string, nombre: string) => {
+    setMember((prev) =>
+      prev && prev.transportistaId === transportistaId && prev.transportistaNombre !== nombre
+        ? { ...prev, transportistaNombre: nombre }
+        : prev,
+    );
+  }, []);
+
   const value = useMemo<MemberContextValue>(
-    () => ({ member, status, error, refetch: fetchMember, updateLocalPreferences }),
-    [member, status, error, fetchMember, updateLocalPreferences],
+    () => ({ member, status, error, refetch: fetchMember, updateLocalPreferences, updateLocalTransportistaNombre }),
+    [member, status, error, fetchMember, updateLocalPreferences, updateLocalTransportistaNombre],
   );
 
   return <MemberContext.Provider value={value}>{children}</MemberContext.Provider>;

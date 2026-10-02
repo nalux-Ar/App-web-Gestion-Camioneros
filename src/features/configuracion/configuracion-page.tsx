@@ -22,6 +22,7 @@ import {
 import { writeCachedThemePreference } from '@/lib/theme-cache';
 import { useAuth } from '@/features/auth/use-auth';
 import { useMember } from '@/features/member/use-member';
+import { NombreCard } from './nombre-card';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -130,7 +131,7 @@ export function ConfiguracionPage() {
     <div className="max-w-xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Configuración</h1>
-        <p className="text-muted-foreground">Elige cómo se ve la app para ti.</p>
+        <p className="text-muted-foreground">Tu cuenta y cómo se ve la app para ti.</p>
       </div>
 
       <OfflineBanner />
@@ -150,6 +151,8 @@ export function ConfiguracionPage() {
           <p className="break-all text-base font-medium">{user?.email ?? 'No disponible'}</p>
         </CardContent>
       </Card>
+
+      <NombreCard />
 
       <Card>
         <CardHeader>

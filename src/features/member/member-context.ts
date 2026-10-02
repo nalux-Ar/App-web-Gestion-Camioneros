@@ -34,6 +34,14 @@ export interface MemberContextValue {
   error: string | null;
   refetch: () => Promise<void>;
   updateLocalPreferences: (patch: Partial<Pick<MemberInfo, 'tema' | 'colorAcento'>>) => void;
+  /**
+   * Refleja en `member.transportistaNombre` un nombre que la base ya confirmó,
+   * para que el encabezado y el saludo se actualicen sin recargar. Solo actúa
+   * si el miembro actual sigue siendo de ESE transportista: si mientras
+   * tanto cambió el usuario o el tenant, no hace nada (no se puede escribir
+   * el nombre de una cuenta en el contexto de otra).
+   */
+  updateLocalTransportistaNombre: (transportistaId: string, nombre: string) => void;
 }
 
 export const MemberContext = createContext<MemberContextValue | null>(null);
