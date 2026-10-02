@@ -1,5 +1,15 @@
 # PLAN — Elan
 
+> **⚠️ PAUSADO: Cloudflare Turnstile (captcha) — hay que REACTIVARLO antes de que haya usuarios reales o de lanzar la app.**
+> Desde el 2026-10-02 está apagado en Supabase (Authentication → Attack Protection → "Enable Captcha protection") y en el front (`TURNSTILE_ENABLED = false` en `src/lib/turnstile-config.ts`: sin widget, sin script de Cloudflare y sin `captchaToken`).
+> Para reactivarlo, los dos lados a la vez (si no, el ingreso se rompe):
+> 1. Poner `TURNSTILE_ENABLED = true` y desplegar.
+> 2. Volver a activar "Enable Captcha protection" en Supabase con la secret key de Cloudflare.
+> 3. Confirmar que `VITE_TURNSTILE_SITE_KEY` sigue cargada en Vercel (Production y Preview).
+> 4. Probar login, registro y recuperación de contraseña.
+>
+> Riesgo mientras esté pausado: la web pública comparte el mismo Supabase y el registro no exige confirmar el email, así que cualquiera que tenga el link puede crear cuentas y datos. Aceptado porque hoy solo la usa el equipo del proyecto.
+
 ## Bloques
 - [x] **Bloque A**: esquema + RLS + test de aislamiento con 2 tenants — cerrado 2026-09-23. Auditado por `appsec-secure-coding` (sin críticos/altos; los medios/bajos quedaron corregidos). Validado localmente en PGlite (`OK: 80/80`) y **aplicado en la base real el 2026-09-28** vía MCP (`001_schema`, `002_functions`, `003_rls`): `aislamiento.sql` contra Supabase → `OK: 80/80`, sin datos residuales, RLS activo en las 9 tablas, 4 categorías globales.
 - [x] **Bloque B**: auth (login email/contraseña, registro, recuperar contraseña, onboarding del transportista) + pantalla de Login con fondo oscuro, detalles dorados y el logo de Elan centrado + layout compartido con el logo (versión chica) en el header, visible en toda la app ya logueado + pantalla de Configuración con toggle claro/oscuro y selector de color de acento — implementado 2026-09-28, auditado por `appsec-secure-coding` (1 crítico, 2 altos, 1 medio y 1 bajo, todos corregidos). Sin migraciones nuevas. **Pendiente del responsable del proyecto**: prueba manual con `docs/checklist-bloque-b.md`.
@@ -38,6 +48,7 @@
 | 2026-09-30 | Bloque C: migración `005_gastos_combustible` (redactada y validada en PGlite; sin aplicar) y análisis de `client_ref` | `database-architect` |
 | 2026-09-30 | Bloque C, Etapa 0: auditoría (sin críticos ni altos; 2 medios y varios bajos, corregidos) | `appsec-secure-coding` |
 | 2026-09-30 | Bloque C: lectura del esquema real por MCP (solo lectura), plan por etapas, verificación y documentación | Hilo principal (coordinación y docs; no hay subagente dedicado) |
+| 2026-10-02 | Pausar Turnstile en el front con el interruptor `TURNSTILE_ENABLED` (login, registro y recuperación sin captcha; el build ya no exige la site key mientras esté apagado) | `frontend-architect` |
 | 2026-09-28 | Revisión de las correcciones de appsec: restaurar la pantalla "Revisá tu correo" del registro (el subagente la había sacado; hace falta con Confirm email activado) y corregir comentarios de `main.tsx`/`auth-errors.ts` | Hilo principal (ajuste chico detectado al revisar; no pasó de nuevo por `frontend-architect` ni `appsec-secure-coding`) |
 
 ## Pendientes / notas para próximos bloques
@@ -53,7 +64,7 @@
   - Verificar en Supabase que la expiración de los OTP de email siga en ≤ 1 h, y en Vercel que Web Analytics / Speed Insights y Log Drains a terceros estén apagados (el `token_hash` viaja en el query y puede quedar en logs).
   - Con SMTP propio: desactivar click tracking y open tracking en los mails de auth.
   - Mejoras opcionales: mensaje distinto si `verifyOtp` falla por falta de red (hoy dice "El enlace venció" aunque el token no se gastó) y un loader estático en `index.html` mientras se canjea el enlace.
-- **Turnstile — configuración a cuidar (auditoría 2026-09-30)**:
+- **Turnstile — configuración a cuidar (auditoría 2026-09-30)** (hoy **pausado**, ver el aviso al inicio de este archivo; lo siguiente aplica al reactivarlo):
   - **Antes de pushear**: cargar `VITE_TURNSTILE_SITE_KEY` en Vercel (Production y Preview). Sin ella, las pantallas de ingreso fallan.
   - Cloudflare → Turnstile: en producción permitir solo el dominio real (con `localhost` permitido, la restricción de dominio es cosmética).
   - Verificar que Supabase → Attack Protection → CAPTCHA esté activado: si no, Supabase ignora el token y el captcha no protege nada. Prueba: una request de login sin token tiene que dar `captcha_failed`.

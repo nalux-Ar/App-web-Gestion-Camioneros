@@ -7,6 +7,7 @@ import { OfflineBanner } from '@/components/shared/offline-banner';
 import { Spinner } from '@/components/shared/spinner';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/shared/turnstile-widget';
 import { supabase } from '@/lib/supabase';
+import { TURNSTILE_ENABLED } from '@/lib/turnstile-config';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { EmailField } from '../components/email-field';
 import { PasswordInput } from '../components/password-input';
@@ -25,10 +26,13 @@ export function LoginPage() {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaActionRequired, setCaptchaActionRequired] = useState(false);
   const captchaRef = useRef<TurnstileWidgetHandle>(null);
+  // Con Turnstile pausado (src/lib/turnstile-config.ts) no se espera ningún
+  // token: el botón no exige verificación y no se manda captcha a Supabase.
+  const captchaPending = TURNSTILE_ENABLED && !captchaToken;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting || !captchaToken) return;
+    if (submitting || captchaPending) return;
 
     setSubmitting(true);
     setError(null);
@@ -38,7 +42,7 @@ export function LoginPage() {
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
-        options: { captchaToken },
+        options: { captchaToken: captchaToken ?? undefined },
       });
       failure = signInError;
     } catch (thrown) {
@@ -91,14 +95,14 @@ export function LoginPage() {
           />
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <Button type="submit" size="lg" className="w-full" disabled={submitting || !captchaToken}>
+          <Button type="submit" size="lg" className="w-full" disabled={submitting || captchaPending}>
             {submitting ? (
               <>
                 <Spinner /> Ingresando…
               </>
             ) : captchaActionRequired ? (
               'Completa la verificación'
-            ) : !captchaToken ? (
+            ) : captchaPending ? (
               <>
                 <Spinner /> Verificando…
               </>

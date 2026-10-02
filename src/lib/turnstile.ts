@@ -5,10 +5,18 @@
  * pantallas: ni `/restablecer-contrasena` (ahí llega el `token_hash` y no
  * queremos scripts de terceros) ni el resto de la app cargan nada de esto.
  *
- * Igual que src/lib/supabase.ts, valida su variable de entorno al cargar el
- * módulo y falla fuerte y claro si falta, en vez de mostrar un captcha que
- * nunca va a poder validarse.
+ * Pausa: todo depende del interruptor `TURNSTILE_ENABLED` de
+ * src/lib/turnstile-config.ts. Apagado, este módulo es inerte: no valida la
+ * variable de entorno (no lanza si falta) y `loadTurnstile` nunca se llama
+ * (el widget no la invoca), así que no se carga el script de Cloudflare ni se
+ * hace ningún pedido de red.
+ *
+ * Encendido, igual que src/lib/supabase.ts, valida su variable de entorno al
+ * cargar el módulo y falla fuerte y claro si falta, en vez de mostrar un
+ * captcha que nunca va a poder validarse.
  */
+
+import { TURNSTILE_ENABLED } from './turnstile-config';
 
 function requireEnv(name: keyof ImportMetaEnv, value: string): string {
   if (!value || value.trim().length === 0) {
@@ -18,8 +26,11 @@ function requireEnv(name: keyof ImportMetaEnv, value: string): string {
 }
 
 /** Site key PÚBLICA (va en el bundle por diseño). La secret key vive solo en
- *  la configuración de Supabase Auth, nunca en el front. */
-export const TURNSTILE_SITE_KEY = requireEnv('VITE_TURNSTILE_SITE_KEY', import.meta.env.VITE_TURNSTILE_SITE_KEY);
+ *  la configuración de Supabase Auth, nunca en el front. Con Turnstile
+ *  pausado queda vacía y no se exige. */
+export const TURNSTILE_SITE_KEY = TURNSTILE_ENABLED
+  ? requireEnv('VITE_TURNSTILE_SITE_KEY', import.meta.env.VITE_TURNSTILE_SITE_KEY)
+  : '';
 
 /** Tipado mínimo de `window.turnstile`: solo lo que usa el widget. */
 export interface TurnstileRenderOptions {

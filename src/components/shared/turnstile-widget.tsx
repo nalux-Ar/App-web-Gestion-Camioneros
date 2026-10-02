@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { TURNSTILE_ENABLED } from '@/lib/turnstile-config';
 import { TURNSTILE_SITE_KEY, loadTurnstile } from '@/lib/turnstile';
 
 export interface TurnstileWidgetHandle {
@@ -61,6 +62,11 @@ const RETRYABLE_SAFETY_NET_MS = 20_000;
  * vencido tampoco es una falla: con `refresh-expired: 'auto'` Cloudflare lo
  * renueva solo. El padre no pierde nada de lo tipeado: este componente no
  * toca el formulario.
+ *
+ * Pausa: con `TURNSTILE_ENABLED` apagado (src/lib/turnstile-config.ts) no
+ * renderiza nada, no carga el script de Cloudflare y no crea timers. Los
+ * hooks se llaman igual (las reglas de hooks no admiten un return temprano
+ * antes de ellos): el efecto y `reset` simplemente no hacen nada.
  */
 export function TurnstileWidget({ onTokenChange, onActionRequiredChange, ref }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -94,6 +100,9 @@ export function TurnstileWidget({ onTokenChange, onActionRequiredChange, ref }: 
   }, []);
 
   useEffect(() => {
+    // Pausado: no se carga el script de Cloudflare ni se arma ningún timer.
+    if (!TURNSTILE_ENABLED) return;
+
     const container = containerRef.current;
     if (!container) return;
 
@@ -185,6 +194,10 @@ export function TurnstileWidget({ onTokenChange, onActionRequiredChange, ref }: 
   }, [loadAttempt, updatePhase, clearSafetyNet]);
 
   const reset = useCallback(() => {
+    // Pausado: no hay widget ni token que descartar (y no hay que re-armar
+    // el efecto de montaje con `setLoadAttempt`).
+    if (!TURNSTILE_ENABLED) return;
+
     clearSafetyNet();
     onTokenChangeRef.current(null);
     updatePhase('working');
@@ -204,6 +217,8 @@ export function TurnstileWidget({ onTokenChange, onActionRequiredChange, ref }: 
   }, [clearSafetyNet, updatePhase]);
 
   useImperativeHandle(ref, () => ({ reset }), [reset]);
+
+  if (!TURNSTILE_ENABLED) return null;
 
   return (
     <div>
