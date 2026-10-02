@@ -5,6 +5,7 @@ import { CheckCircle2, Info, Plus, Receipt, X } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/shared/empty-state';
+import { FixedActionBar } from '@/components/shared/fixed-action-bar';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { MonthPicker } from '@/components/shared/month-picker';
@@ -95,6 +96,7 @@ export function GastosPage() {
   const mesLabel = formatMonthLabel(filtro.mes);
   const categoriaFiltrada = filtro.categoriaId ? categoriasPorId.get(filtro.categoriaId) : undefined;
 
+  // El mismo botón se ofrece en el encabezado y el estado vacío (desde `md`) y fijo abajo (celular).
   const nuevoGasto = (
     <Button asChild size="lg">
       <Link to="/gastos/nuevo" state={{ volver }}>
@@ -142,6 +144,7 @@ export function GastosPage() {
               : 'Carga el primero para empezar a llevar el control.'
           }
           action={nuevoGasto}
+          actionDesktopOnly
         />
       </>
     );
@@ -181,7 +184,7 @@ export function GastosPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Gastos" action={nuevoGasto} />
+      <PageHeader title="Gastos" action={nuevoGasto} actionDesktopOnly />
 
       {aviso ? (
         <Alert role="status" className="border-primary/50 bg-primary/10">
@@ -213,6 +216,9 @@ export function GastosPage() {
       {errorCategorias}
 
       {contenido}
+
+      {/* En el celular el botón queda fijo abajo (en escritorio vive en el encabezado). */}
+      <FixedActionBar>{nuevoGasto}</FixedActionBar>
     </div>
   );
 }
