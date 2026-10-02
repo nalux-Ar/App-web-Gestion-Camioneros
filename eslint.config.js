@@ -32,4 +32,15 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Pruebas (vitest). Los componentes de prueba exponen a la prueba lo que
+    // devuelve un hook (`probe.ctx = useMember()`, `ctl.setUser = setUserId`)
+    // guardándolo en una variable del módulo: es justo lo que esta regla de
+    // código de app prohíbe, y en una prueba es el mecanismo para leer el
+    // estado real de un componente.
+    files: ['**/*.test.{ts,tsx}'],
+    rules: {
+      'react-hooks/immutability': 'off',
+    },
+  },
 );
