@@ -8,8 +8,11 @@
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
--- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql y
--- 003_rls.sql. NO agregar BEGIN/COMMIT: el SQL Editor ya manda todo
+-- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql, 003_rls.sql,
+-- 005_gastos_combustible.sql, 006_gastos_client_ref.sql y
+-- 007_viajes_client_ref_y_funciones.sql (las secciones 11 a 15 usan sus
+-- columnas y funciones; la 004 no hace falta para este test). NO agregar
+-- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
 -- lanza una excepción a propósito (pasen o no los tests) para forzar el
@@ -32,7 +35,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (el último test, justo antes del resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 15 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -72,7 +75,8 @@ create temporary table _test_ctx (
 create or replace function public._test_chk(p_caso text, p_ok boolean, p_detalle text default null)
 returns void language plpgsql security definer set search_path = pg_temp, public as $$
 begin
-  insert into _test_resultados (caso, ok, detalle) values (p_caso, p_ok, p_detalle);
+  -- coalesce: una condición que da NULL (p.ej. porque faltó un dato) cuenta como fallo.
+  insert into _test_resultados (caso, ok, detalle) values (p_caso, coalesce(p_ok, false), p_detalle);
 end;
 $$;
 
@@ -1189,6 +1193,1588 @@ begin
       );
     end;
   end if;
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 11) Combustible (migración 005): km_odometro / tanque_lleno en gastos
+-- ---------------------------------------------------------------------
+-- Requiere 005_gastos_combustible.sql aplicada. Las columnas nuevas no
+-- llevan policy ni grant propios: las cubren el grant de tabla y la
+-- policy por fila de gastos (por eso se prueba el aislamiento acá). Los
+-- casos 11.4 y 11.5 cubren el check de coherencia
+-- gastos_tanque_lleno_litros_chk (tanque_lleno = true exige litros).
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_id uuid; v_tid uuid; v_km numeric; v_lleno boolean;
+begin
+  insert into public.gastos (categoria_id, monto, litros, precio_por_litro, km_odometro, tanque_lleno)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 60000, 50.5, 1200, 123456.7, true)
+    returning id, transportista_id, km_odometro, tanque_lleno into v_id, v_tid, v_km, v_lleno;
+  perform public._test_set('gasto_comb_a_id', v_id::text);
+  perform public._test_chk(
+    '11.1 A carga un gasto de combustible con km_odometro y tanque_lleno y queda en su tenant',
+    v_tid = (public._test_get('tenant_a_id'))::uuid and v_km = 123456.7 and v_lleno is true,
+    format('tenant=%s km=%s lleno=%s', v_tid, v_km, v_lleno));
+exception when others then
+  perform public._test_chk(
+    '11.1 A carga un gasto de combustible con km_odometro y tanque_lleno y queda en su tenant',
+    false, sqlerrm);
+end
+$$;
+
+do $$
+begin
+  insert into public.gastos (categoria_id, monto, litros, km_odometro)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 1000, 10, -1);
+  perform public._test_chk('11.2 km_odometro negativo falla', false, 'no lanzó excepción');
+exception
+  when check_violation then
+    perform public._test_chk('11.2 km_odometro negativo falla',
+      sqlerrm like '%gastos_km_odometro_chk%', sqlerrm);
+  when others then
+    perform public._test_chk('11.2 km_odometro negativo falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_km numeric; v_lleno boolean;
+begin
+  insert into public.gastos (categoria_id, monto)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 500)
+    returning km_odometro, tanque_lleno into v_km, v_lleno;
+  perform public._test_chk('11.3 Un gasto sin las columnas nuevas sigue funcionando y las deja en NULL',
+    v_km is null and v_lleno is null, format('km=%s lleno=%s', v_km, v_lleno));
+exception when others then
+  perform public._test_chk('11.3 Un gasto sin las columnas nuevas sigue funcionando y las deja en NULL', false, sqlerrm);
+end
+$$;
+
+do $$
+begin
+  insert into public.gastos (categoria_id, monto, km_odometro, tanque_lleno)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 1000, 123500, true);
+  perform public._test_chk('11.4 tanque_lleno = true sin litros falla', false, 'no lanzó excepción');
+exception
+  when check_violation then
+    perform public._test_chk('11.4 tanque_lleno = true sin litros falla',
+      sqlerrm like '%gastos_tanque_lleno_litros_chk%', sqlerrm);
+  when others then
+    perform public._test_chk('11.4 tanque_lleno = true sin litros falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+-- Borrar litros de una carga "llena" falla y la fila queda intacta; borrar
+-- litros Y tanque_lleno juntos sí se puede.
+do $$
+declare v_fallo boolean := false; v_litros numeric; v_lleno boolean; v_rows int;
+begin
+  begin
+    update public.gastos set litros = null
+      where id = (public._test_get('gasto_comb_a_id'))::uuid;
+  exception when check_violation then
+    v_fallo := true;
+  end;
+
+  select litros, tanque_lleno into v_litros, v_lleno
+    from public.gastos where id = (public._test_get('gasto_comb_a_id'))::uuid;
+
+  update public.gastos set litros = null, tanque_lleno = null
+    where id = (public._test_get('gasto_comb_a_id'))::uuid;
+  get diagnostics v_rows = row_count;
+
+  -- Se restaura la fila para los casos siguientes.
+  update public.gastos set litros = 50.5, tanque_lleno = true
+    where id = (public._test_get('gasto_comb_a_id'))::uuid;
+
+  perform public._test_chk('11.5 UPDATE que borra litros de una carga con tanque_lleno = true falla',
+    v_fallo and v_litros = 50.5 and v_lleno is true and v_rows = 1,
+    format('fallo=%s; tras el fallo litros=%s lleno=%s; borrar ambos juntos afectó %s fila(s)', v_fallo, v_litros, v_lleno, v_rows));
+exception when others then
+  perform public._test_chk('11.5 UPDATE que borra litros de una carga con tanque_lleno = true falla',
+    false, sqlerrm);
+end
+$$;
+
+reset role;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_con_km int; v_de_a int;
+begin
+  insert into public.gastos (categoria_id, monto, litros, km_odometro, tanque_lleno)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 30000, 25, 50000.0, true);
+  select count(*) into v_con_km from public.gastos where km_odometro is not null;
+  select count(*) into v_de_a from public.gastos where id = (public._test_get('gasto_comb_a_id'))::uuid;
+  perform public._test_chk(
+    '11.6 B, con su propio gasto de combustible, ve 1 solo gasto con km_odometro (el suyo) y ninguno de A',
+    v_con_km = 1 and v_de_a = 0, format('con_km=%s de_a=%s', v_con_km, v_de_a));
+exception when others then
+  perform public._test_chk(
+    '11.6 B, con su propio gasto de combustible, ve 1 solo gasto con km_odometro (el suyo) y ninguno de A',
+    false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_rows int;
+begin
+  update public.gastos set km_odometro = 1, tanque_lleno = false
+    where id = (public._test_get('gasto_comb_a_id'))::uuid;
+  get diagnostics v_rows = row_count;
+  perform public._test_chk('11.7 UPDATE de B sobre km_odometro/tanque_lleno de un gasto de A afecta 0 filas',
+    v_rows = 0, 'afectó ' || v_rows);
+end
+$$;
+
+reset role;
+
+-- Como postgres: el gasto de A quedó intacto tras los intentos de B.
+do $$
+declare v_km numeric; v_lleno boolean; v_litros numeric;
+begin
+  select km_odometro, tanque_lleno, litros into v_km, v_lleno, v_litros
+    from public.gastos where id = (public._test_get('gasto_comb_a_id'))::uuid;
+  perform public._test_chk('11.8 El gasto de combustible de A quedó intacto tras los intentos de B',
+    v_km = 123456.7 and v_lleno is true and v_litros = 50.5,
+    format('km=%s lleno=%s litros=%s', v_km, v_lleno, v_litros));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 12) client_ref (migración 006): idempotencia de reintentos en gastos
+-- ---------------------------------------------------------------------
+-- Requiere 006_gastos_client_ref.sql aplicada. client_ref es un uuid que
+-- genera el front: un reintento con el mismo valor choca contra el índice
+-- único parcial (transportista_id, client_ref) y no duplica el gasto.
+-- Referencias usadas: X (la usan A y B, cada uno la suya), Y (la usa A; B
+-- la manda forzando el transportista_id de A) y V (solo A). W es un valor
+-- nuevo para intentar reescribir un client_ref.
+
+select public._test_set('cref_x', 'dddddddd-0000-4000-8000-000000000001');
+select public._test_set('cref_y', 'dddddddd-0000-4000-8000-000000000002');
+select public._test_set('cref_v', 'dddddddd-0000-4000-8000-000000000003');
+select public._test_set('cref_w', 'dddddddd-0000-4000-8000-000000000004');
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_id uuid; v_tid_x uuid; v_ref_x uuid; v_tid_y uuid; v_tid_v uuid;
+begin
+  insert into public.gastos (categoria_id, monto, client_ref)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 1001, (public._test_get('cref_x'))::uuid)
+    returning id, transportista_id, client_ref into v_id, v_tid_x, v_ref_x;
+  perform public._test_set('gasto_ref_x_a_id', v_id::text);
+
+  insert into public.gastos (categoria_id, monto, client_ref)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 1002, (public._test_get('cref_y'))::uuid)
+    returning transportista_id into v_tid_y;
+
+  insert into public.gastos (categoria_id, monto, client_ref)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 1003, (public._test_get('cref_v'))::uuid)
+    returning id, transportista_id into v_id, v_tid_v;
+  perform public._test_set('gasto_ref_v_a_id', v_id::text);
+
+  perform public._test_chk(
+    '12.1 A inserta gastos con client_ref (X, Y, V): quedan en su tenant con el client_ref intacto',
+    v_tid_x = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_y = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_v = (public._test_get('tenant_a_id'))::uuid
+      and v_ref_x = (public._test_get('cref_x'))::uuid,
+    format('tenants=%s/%s/%s ref_x=%s', v_tid_x, v_tid_y, v_tid_v, v_ref_x));
+exception when others then
+  perform public._test_chk(
+    '12.1 A inserta gastos con client_ref (X, Y, V): quedan en su tenant con el client_ref intacto',
+    false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_constraint text; v_n int;
+begin
+  insert into public.gastos (categoria_id, monto, client_ref)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 1001, (public._test_get('cref_x'))::uuid);
+  perform public._test_chk(
+    '12.2 Reintento con el mismo client_ref falla con 23505 (índice gastos_transportista_client_ref_uidx) y sigue habiendo 1 fila',
+    false, 'no lanzó excepción');
+exception
+  when unique_violation then
+    get stacked diagnostics v_constraint = constraint_name;
+    select count(*) into v_n from public.gastos where client_ref = (public._test_get('cref_x'))::uuid;
+    perform public._test_chk(
+      '12.2 Reintento con el mismo client_ref falla con 23505 (índice gastos_transportista_client_ref_uidx) y sigue habiendo 1 fila',
+      v_constraint = 'gastos_transportista_client_ref_uidx' and v_n = 1,
+      format('constraint=%s filas=%s :: %s', v_constraint, v_n, sqlerrm));
+  when others then
+    perform public._test_chk(
+      '12.2 Reintento con el mismo client_ref falla con 23505 (índice gastos_transportista_client_ref_uidx) y sigue habiendo 1 fila',
+      false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_ref uuid;
+begin
+  update public.gastos set client_ref = (public._test_get('cref_w'))::uuid
+    where id = (public._test_get('gasto_ref_x_a_id'))::uuid;
+  perform public._test_chk('12.3 UPDATE que cambia client_ref (valor -> otro valor) falla', false, 'no lanzó excepción');
+exception
+  when insufficient_privilege then
+    select client_ref into v_ref from public.gastos where id = (public._test_get('gasto_ref_x_a_id'))::uuid;
+    perform public._test_chk('12.3 UPDATE que cambia client_ref (valor -> otro valor) falla',
+      sqlerrm like 'No se puede cambiar el client_ref%' and v_ref = (public._test_get('cref_x'))::uuid, sqlerrm);
+  when others then
+    perform public._test_chk('12.3 UPDATE que cambia client_ref (valor -> otro valor) falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_ref uuid;
+begin
+  update public.gastos set client_ref = null
+    where id = (public._test_get('gasto_ref_x_a_id'))::uuid;
+  perform public._test_chk('12.4 UPDATE que borra client_ref (valor -> NULL) falla', false, 'no lanzó excepción');
+exception
+  when insufficient_privilege then
+    select client_ref into v_ref from public.gastos where id = (public._test_get('gasto_ref_x_a_id'))::uuid;
+    perform public._test_chk('12.4 UPDATE que borra client_ref (valor -> NULL) falla',
+      sqlerrm like 'No se puede cambiar el client_ref%' and v_ref = (public._test_get('cref_x'))::uuid, sqlerrm);
+  when others then
+    perform public._test_chk('12.4 UPDATE que borra client_ref (valor -> NULL) falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_ref uuid;
+begin
+  -- gasto_a_id es el gasto de peaje del setup, cargado sin client_ref.
+  update public.gastos set client_ref = (public._test_get('cref_w'))::uuid
+    where id = (public._test_get('gasto_a_id'))::uuid;
+  perform public._test_chk('12.5 UPDATE que asigna client_ref a una fila que no tenía (NULL -> valor) falla', false, 'no lanzó excepción');
+exception
+  when insufficient_privilege then
+    select client_ref into v_ref from public.gastos where id = (public._test_get('gasto_a_id'))::uuid;
+    perform public._test_chk('12.5 UPDATE que asigna client_ref a una fila que no tenía (NULL -> valor) falla',
+      sqlerrm like 'No se puede cambiar el client_ref%' and v_ref is null, sqlerrm);
+  when others then
+    perform public._test_chk('12.5 UPDATE que asigna client_ref a una fila que no tenía (NULL -> valor) falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_rows1 int; v_rows2 int; v_ref uuid; v_monto numeric; v_desc text;
+begin
+  update public.gastos set descripcion = 'editado'
+    where id = (public._test_get('gasto_ref_x_a_id'))::uuid;
+  get diagnostics v_rows1 = row_count;
+  -- Mandar el mismo client_ref de nuevo (como haría un formulario que reenvía todo) tampoco molesta.
+  update public.gastos set monto = 1234, client_ref = client_ref
+    where id = (public._test_get('gasto_ref_x_a_id'))::uuid;
+  get diagnostics v_rows2 = row_count;
+  select client_ref, monto, descripcion into v_ref, v_monto, v_desc
+    from public.gastos where id = (public._test_get('gasto_ref_x_a_id'))::uuid;
+  perform public._test_chk('12.6 UPDATE de otras columnas (con o sin reenviar el mismo client_ref) sigue funcionando',
+    v_rows1 = 1 and v_rows2 = 1 and v_ref = (public._test_get('cref_x'))::uuid and v_monto = 1234 and v_desc = 'editado',
+    format('filas=%s/%s ref=%s monto=%s desc=%s', v_rows1, v_rows2, v_ref, v_monto, v_desc));
+exception when others then
+  perform public._test_chk('12.6 UPDATE de otras columnas (con o sin reenviar el mismo client_ref) sigue funcionando', false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_rows int;
+begin
+  update public.gastos set descripcion = 'editado por A'
+    where client_ref = (public._test_get('cref_v'))::uuid;
+  get diagnostics v_rows = row_count;
+  perform public._test_chk('12.7 UPDATE ... WHERE client_ref = V del dueño (A) afecta 1 fila', v_rows = 1, 'afectó ' || v_rows);
+end
+$$;
+
+do $$
+declare v_antes int; v_despues int;
+begin
+  select count(*) into v_antes from public.gastos where client_ref is null;
+  insert into public.gastos (categoria_id, monto)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 10);
+  insert into public.gastos (categoria_id, monto)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 11);
+  insert into public.gastos (categoria_id, monto, client_ref)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 12, null);
+  select count(*) into v_despues from public.gastos where client_ref is null;
+  perform public._test_chk('12.8 Varias filas con client_ref NULL conviven (el índice parcial las ignora)',
+    v_despues = v_antes + 3, format('antes=%s despues=%s', v_antes, v_despues));
+exception when others then
+  perform public._test_chk('12.8 Varias filas con client_ref NULL conviven (el índice parcial las ignora)', false, sqlerrm);
+end
+$$;
+
+reset role;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_tid uuid; v_ref uuid;
+begin
+  insert into public.gastos (categoria_id, monto, client_ref)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 777, (public._test_get('cref_x'))::uuid)
+    returning transportista_id, client_ref into v_tid, v_ref;
+  perform public._test_chk('12.9 B inserta con el MISMO client_ref X que ya usó A: funciona y queda en su tenant',
+    v_tid = (public._test_get('tenant_b_id'))::uuid and v_ref = (public._test_get('cref_x'))::uuid,
+    format('tenant=%s ref=%s', v_tid, v_ref));
+exception when others then
+  perform public._test_chk('12.9 B inserta con el MISMO client_ref X que ya usó A: funciona y queda en su tenant', false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_n int; v_tid uuid; v_monto numeric;
+begin
+  select count(*), min(transportista_id::text)::uuid, min(monto) into v_n, v_tid, v_monto
+    from public.gastos where client_ref = (public._test_get('cref_x'))::uuid;
+  perform public._test_chk('12.10 B ve una sola fila con client_ref X y es la suya (no la de A)',
+    v_n = 1 and v_tid = (public._test_get('tenant_b_id'))::uuid and v_monto = 777,
+    format('filas=%s tenant=%s monto=%s', v_n, v_tid, v_monto));
+end
+$$;
+
+-- Sin oráculo de existencia: B manda el transportista_id de A y un client_ref
+-- que A ya usó (Y). Si el índice se evaluara contra el tenant de A, daría 23505
+-- y B sabría que Y existe en A. El trigger pisa transportista_id antes.
+do $$
+declare v_tid uuid;
+begin
+  insert into public.gastos (transportista_id, categoria_id, monto, client_ref)
+    values ((public._test_get('tenant_a_id'))::uuid,
+            (public._test_get('categoria_global_combustible_id'))::uuid, 555,
+            (public._test_get('cref_y'))::uuid)
+    returning transportista_id into v_tid;
+  perform public._test_chk(
+    '12.11 B forzando el transportista_id de A + un client_ref que A ya usó: sin error (sin oráculo) y la fila queda en B',
+    v_tid = (public._test_get('tenant_b_id'))::uuid, 'quedó en ' || v_tid);
+exception
+  when unique_violation then
+    perform public._test_chk(
+      '12.11 B forzando el transportista_id de A + un client_ref que A ya usó: sin error (sin oráculo) y la fila queda en B',
+      false, 'B recibió 23505: hay oráculo de existencia :: ' || sqlerrm);
+  when others then
+    perform public._test_chk(
+      '12.11 B forzando el transportista_id de A + un client_ref que A ya usó: sin error (sin oráculo) y la fila queda en B',
+      false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_rows int;
+begin
+  update public.gastos set descripcion = 'editado por B'
+    where client_ref = (public._test_get('cref_v'))::uuid;
+  get diagnostics v_rows = row_count;
+  perform public._test_chk('12.12 UPDATE ... WHERE client_ref = V de B (V es solo de A) afecta 0 filas', v_rows = 0, 'afectó ' || v_rows);
+end
+$$;
+
+reset role;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_nx int; v_monto_x numeric; v_ny int; v_monto_y numeric;
+begin
+  select count(*), min(monto) into v_nx, v_monto_x
+    from public.gastos where client_ref = (public._test_get('cref_x'))::uuid;
+  select count(*), min(monto) into v_ny, v_monto_y
+    from public.gastos where client_ref = (public._test_get('cref_y'))::uuid;
+  perform public._test_chk('12.13 A ve una sola fila con client_ref X y una con Y, las suyas (no las de B)',
+    v_nx = 1 and v_monto_x = 1234 and v_ny = 1 and v_monto_y = 1002,
+    format('X: filas=%s monto=%s | Y: filas=%s monto=%s', v_nx, v_monto_x, v_ny, v_monto_y));
+end
+$$;
+
+reset role;
+
+-- Como postgres: X e Y existen una vez por tenant, V solo en A, no hay
+-- duplicados por (tenant, client_ref) y V conserva la edición de A (no la de B).
+do $$
+declare v_x int; v_y int; v_v int; v_dups int; v_desc text;
+begin
+  select count(*) into v_x from public.gastos where client_ref = (public._test_get('cref_x'))::uuid;
+  select count(*) into v_y from public.gastos where client_ref = (public._test_get('cref_y'))::uuid;
+  select count(*) into v_v from public.gastos where client_ref = (public._test_get('cref_v'))::uuid;
+  select count(*) into v_dups from (
+    select transportista_id, client_ref from public.gastos
+      where client_ref is not null group by 1, 2 having count(*) > 1
+  ) d;
+  select descripcion into v_desc from public.gastos where client_ref = (public._test_get('cref_v'))::uuid;
+  perform public._test_chk(
+    '12.14 Como postgres: X e Y una vez por tenant, V solo en A, sin duplicados por (tenant, client_ref) y V conserva la edición de A',
+    v_x = 2 and v_y = 2 and v_v = 1 and v_dups = 0 and v_desc = 'editado por A',
+    format('X=%s Y=%s V=%s duplicados=%s desc_v=%s', v_x, v_y, v_v, v_dups, v_desc));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 13) client_ref de viajes (migración 007)
+-- ---------------------------------------------------------------------
+-- Requiere 007_viajes_client_ref_y_funciones.sql aplicada. Mismo contrato
+-- que gastos (sección 12): único por tenant (índice parcial), sin oráculo
+-- de existencia entre tenants e inmutable en todos los sentidos. Acá se
+-- prueba con INSERT/UPDATE directos; el uso desde la función de creación
+-- está en la sección 14.
+-- Referencias: X (la usan A y B, cada uno la suya), Y (la usa A; B la manda
+-- forzando el transportista_id de A), W (solo A) y N (un valor nuevo con el
+-- que se intenta reescribir un client_ref).
+
+-- Ejecuta una sentencia y devuelve 'OK' o 'sqlstate|constraint|mensaje'.
+-- SECURITY INVOKER (por defecto): corre con el rol activo de la sesión, así
+-- que sirve para probar permisos y RLS. El savepoint implícito del bloque
+-- EXCEPTION deshace lo que haya hecho la sentencia si falla.
+create or replace function public._test_sqlstate(p_sql text)
+returns text language plpgsql as $$
+declare v_state text; v_msg text; v_cons text;
+begin
+  execute p_sql;
+  return 'OK';
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text, v_cons = constraint_name;
+  return v_state || '|' || coalesce(v_cons, '') || '|' || v_msg;
+end;
+$$;
+
+select public._test_set('vref_x', 'eeeeeeee-0000-4000-8000-000000000001');
+select public._test_set('vref_y', 'eeeeeeee-0000-4000-8000-000000000002');
+select public._test_set('vref_w', 'eeeeeeee-0000-4000-8000-000000000003');
+select public._test_set('vref_n', 'eeeeeeee-0000-4000-8000-000000000009');
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_id uuid; v_tid_x uuid; v_ref_x uuid; v_tid_y uuid; v_tid_w uuid;
+begin
+  insert into public.viajes (origen, destino, client_ref)
+    values ('Origen X', 'Destino X', (public._test_get('vref_x'))::uuid)
+    returning id, transportista_id, client_ref into v_id, v_tid_x, v_ref_x;
+  perform public._test_set('viaje_ref_x_a_id', v_id::text);
+
+  insert into public.viajes (origen, destino, client_ref)
+    values ('Origen Y', 'Destino Y', (public._test_get('vref_y'))::uuid)
+    returning transportista_id into v_tid_y;
+
+  insert into public.viajes (origen, destino, client_ref)
+    values ('Origen W', 'Destino W', (public._test_get('vref_w'))::uuid)
+    returning id, transportista_id into v_id, v_tid_w;
+  perform public._test_set('viaje_ref_w_a_id', v_id::text);
+
+  perform public._test_chk(
+    '13.1 A inserta viajes con client_ref (X, Y, W): quedan en su tenant con el client_ref intacto',
+    v_tid_x = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_y = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_w = (public._test_get('tenant_a_id'))::uuid
+      and v_ref_x = (public._test_get('vref_x'))::uuid,
+    format('tenants=%s/%s/%s ref_x=%s', v_tid_x, v_tid_y, v_tid_w, v_ref_x));
+exception when others then
+  perform public._test_chk(
+    '13.1 A inserta viajes con client_ref (X, Y, W): quedan en su tenant con el client_ref intacto',
+    false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_constraint text; v_n int;
+begin
+  insert into public.viajes (origen, destino, client_ref)
+    values ('Origen X', 'Destino X', (public._test_get('vref_x'))::uuid);
+  perform public._test_chk(
+    '13.2 Reintento (INSERT directo) con el mismo client_ref falla con 23505 (índice viajes_transportista_client_ref_uidx) y sigue habiendo 1 fila',
+    false, 'no lanzó excepción');
+exception
+  when unique_violation then
+    get stacked diagnostics v_constraint = constraint_name;
+    select count(*) into v_n from public.viajes where client_ref = (public._test_get('vref_x'))::uuid;
+    perform public._test_chk(
+      '13.2 Reintento (INSERT directo) con el mismo client_ref falla con 23505 (índice viajes_transportista_client_ref_uidx) y sigue habiendo 1 fila',
+      v_constraint = 'viajes_transportista_client_ref_uidx' and v_n = 1,
+      format('constraint=%s filas=%s :: %s', v_constraint, v_n, sqlerrm));
+  when others then
+    perform public._test_chk(
+      '13.2 Reintento (INSERT directo) con el mismo client_ref falla con 23505 (índice viajes_transportista_client_ref_uidx) y sigue habiendo 1 fila',
+      false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_ref uuid;
+begin
+  update public.viajes set client_ref = (public._test_get('vref_n'))::uuid
+    where id = (public._test_get('viaje_ref_x_a_id'))::uuid;
+  perform public._test_chk('13.3 UPDATE que cambia client_ref de un viaje (valor -> otro valor) falla', false, 'no lanzó excepción');
+exception
+  when insufficient_privilege then
+    select client_ref into v_ref from public.viajes where id = (public._test_get('viaje_ref_x_a_id'))::uuid;
+    perform public._test_chk('13.3 UPDATE que cambia client_ref de un viaje (valor -> otro valor) falla',
+      sqlerrm like 'No se puede cambiar el client_ref de un viaje%' and v_ref = (public._test_get('vref_x'))::uuid, sqlerrm);
+  when others then
+    perform public._test_chk('13.3 UPDATE que cambia client_ref de un viaje (valor -> otro valor) falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_ref uuid;
+begin
+  update public.viajes set client_ref = null
+    where id = (public._test_get('viaje_ref_x_a_id'))::uuid;
+  perform public._test_chk('13.4 UPDATE que borra client_ref de un viaje (valor -> NULL) falla', false, 'no lanzó excepción');
+exception
+  when insufficient_privilege then
+    select client_ref into v_ref from public.viajes where id = (public._test_get('viaje_ref_x_a_id'))::uuid;
+    perform public._test_chk('13.4 UPDATE que borra client_ref de un viaje (valor -> NULL) falla',
+      sqlerrm like 'No se puede cambiar el client_ref de un viaje%' and v_ref = (public._test_get('vref_x'))::uuid, sqlerrm);
+  when others then
+    perform public._test_chk('13.4 UPDATE que borra client_ref de un viaje (valor -> NULL) falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_ref uuid;
+begin
+  -- viaje_a_id es el viaje del setup, cargado sin client_ref.
+  update public.viajes set client_ref = (public._test_get('vref_n'))::uuid
+    where id = (public._test_get('viaje_a_id'))::uuid;
+  perform public._test_chk('13.5 UPDATE que asigna client_ref a un viaje que no tenía (NULL -> valor) falla', false, 'no lanzó excepción');
+exception
+  when insufficient_privilege then
+    select client_ref into v_ref from public.viajes where id = (public._test_get('viaje_a_id'))::uuid;
+    perform public._test_chk('13.5 UPDATE que asigna client_ref a un viaje que no tenía (NULL -> valor) falla',
+      sqlerrm like 'No se puede cambiar el client_ref de un viaje%' and v_ref is null, sqlerrm);
+  when others then
+    perform public._test_chk('13.5 UPDATE que asigna client_ref a un viaje que no tenía (NULL -> valor) falla', false, 'falló por otro motivo: ' || sqlerrm);
+end
+$$;
+
+do $$
+declare v_rows1 int; v_rows2 int; v_ref uuid; v_destino text; v_obs text;
+begin
+  update public.viajes set destino = 'Destino X editado'
+    where id = (public._test_get('viaje_ref_x_a_id'))::uuid;
+  get diagnostics v_rows1 = row_count;
+  -- Reenviar el mismo client_ref (como haría un formulario que manda todo) tampoco molesta.
+  update public.viajes set observaciones = 'editado', client_ref = client_ref
+    where id = (public._test_get('viaje_ref_x_a_id'))::uuid;
+  get diagnostics v_rows2 = row_count;
+  select client_ref, destino, observaciones into v_ref, v_destino, v_obs
+    from public.viajes where id = (public._test_get('viaje_ref_x_a_id'))::uuid;
+  perform public._test_chk('13.6 UPDATE de otras columnas del viaje (con o sin reenviar el mismo client_ref) sigue funcionando',
+    v_rows1 = 1 and v_rows2 = 1 and v_ref = (public._test_get('vref_x'))::uuid
+      and v_destino = 'Destino X editado' and v_obs = 'editado',
+    format('filas=%s/%s ref=%s destino=%s obs=%s', v_rows1, v_rows2, v_ref, v_destino, v_obs));
+exception when others then
+  perform public._test_chk('13.6 UPDATE de otras columnas del viaje (con o sin reenviar el mismo client_ref) sigue funcionando', false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_antes int; v_despues int;
+begin
+  select count(*) into v_antes from public.viajes where client_ref is null;
+  insert into public.viajes (origen, destino) values ('Sin ref 1', 'D');
+  insert into public.viajes (origen, destino) values ('Sin ref 2', 'D');
+  insert into public.viajes (origen, destino, client_ref) values ('Sin ref 3', 'D', null);
+  select count(*) into v_despues from public.viajes where client_ref is null;
+  perform public._test_chk('13.7 Varios viajes con client_ref NULL conviven (el índice parcial los ignora)',
+    v_despues = v_antes + 3, format('antes=%s despues=%s', v_antes, v_despues));
+exception when others then
+  perform public._test_chk('13.7 Varios viajes con client_ref NULL conviven (el índice parcial los ignora)', false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_rows int;
+begin
+  update public.viajes set observaciones = 'editado por A'
+    where client_ref = (public._test_get('vref_w'))::uuid;
+  get diagnostics v_rows = row_count;
+  perform public._test_chk('13.8 UPDATE ... WHERE client_ref = W del dueño (A) afecta 1 fila', v_rows = 1, 'afectó ' || v_rows);
+end
+$$;
+
+reset role;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_tid uuid; v_ref uuid; v_n int; v_tid_vista uuid; v_origen text;
+begin
+  insert into public.viajes (origen, destino, client_ref)
+    values ('Origen B', 'Destino B', (public._test_get('vref_x'))::uuid)
+    returning transportista_id, client_ref into v_tid, v_ref;
+  select count(*), min(transportista_id::text)::uuid, min(origen)
+    into v_n, v_tid_vista, v_origen
+    from public.viajes where client_ref = (public._test_get('vref_x'))::uuid;
+  perform public._test_chk(
+    '13.9 B inserta con el MISMO client_ref X que ya usó A: funciona, queda en su tenant y ve solo su fila',
+    v_tid = (public._test_get('tenant_b_id'))::uuid and v_ref = (public._test_get('vref_x'))::uuid
+      and v_n = 1 and v_tid_vista = (public._test_get('tenant_b_id'))::uuid and v_origen = 'Origen B',
+    format('tenant=%s filas=%s vista_de=%s origen=%s', v_tid, v_n, v_tid_vista, v_origen));
+exception when others then
+  perform public._test_chk(
+    '13.9 B inserta con el MISMO client_ref X que ya usó A: funciona, queda en su tenant y ve solo su fila',
+    false, sqlerrm);
+end
+$$;
+
+-- Sin oráculo de existencia: B manda el transportista_id de A y un client_ref
+-- que A ya usó (Y). El trigger pisa transportista_id antes de evaluar el índice.
+do $$
+declare v_tid uuid;
+begin
+  insert into public.viajes (transportista_id, origen, destino, client_ref)
+    values ((public._test_get('tenant_a_id'))::uuid, 'Origen B2', 'Destino B2',
+            (public._test_get('vref_y'))::uuid)
+    returning transportista_id into v_tid;
+  perform public._test_chk(
+    '13.10 B forzando el transportista_id de A + un client_ref que A ya usó: sin error (sin oráculo) y la fila queda en B',
+    v_tid = (public._test_get('tenant_b_id'))::uuid, 'quedó en ' || v_tid);
+exception
+  when unique_violation then
+    perform public._test_chk(
+      '13.10 B forzando el transportista_id de A + un client_ref que A ya usó: sin error (sin oráculo) y la fila queda en B',
+      false, 'B recibió 23505: hay oráculo de existencia :: ' || sqlerrm);
+  when others then
+    perform public._test_chk(
+      '13.10 B forzando el transportista_id de A + un client_ref que A ya usó: sin error (sin oráculo) y la fila queda en B',
+      false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_rows int;
+begin
+  update public.viajes set observaciones = 'editado por B'
+    where client_ref = (public._test_get('vref_w'))::uuid;
+  get diagnostics v_rows = row_count;
+  perform public._test_chk('13.11 UPDATE ... WHERE client_ref = W de B (W es solo de A) afecta 0 filas', v_rows = 0, 'afectó ' || v_rows);
+end
+$$;
+
+reset role;
+
+-- Como postgres: X e Y una vez por tenant, W solo en A (con la edición de A),
+-- y ningún (tenant, client_ref) duplicado.
+do $$
+declare v_x int; v_y int; v_w int; v_dups int; v_obs text;
+begin
+  select count(*) into v_x from public.viajes where client_ref = (public._test_get('vref_x'))::uuid;
+  select count(*) into v_y from public.viajes where client_ref = (public._test_get('vref_y'))::uuid;
+  select count(*) into v_w from public.viajes where client_ref = (public._test_get('vref_w'))::uuid;
+  select count(*) into v_dups from (
+    select transportista_id, client_ref from public.viajes
+      where client_ref is not null group by 1, 2 having count(*) > 1
+  ) d;
+  select observaciones into v_obs from public.viajes where client_ref = (public._test_get('vref_w'))::uuid;
+  perform public._test_chk(
+    '13.12 Como postgres: X e Y una vez por tenant, W solo en A, sin duplicados por (tenant, client_ref) y W conserva la edición de A',
+    v_x = 2 and v_y = 2 and v_w = 1 and v_dups = 0 and v_obs = 'editado por A',
+    format('X=%s Y=%s W=%s duplicados=%s obs_w=%s', v_x, v_y, v_w, v_dups, v_obs));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 14) crear_viaje_con_entregas (migración 007)
+-- ---------------------------------------------------------------------
+-- La función es SECURITY INVOKER: corre con los privilegios de quien llama,
+-- así que RLS y los triggers (transportista_id e id forzados) siguen
+-- aplicando adentro. Se prueba el camino feliz, la idempotencia por
+-- client_ref (devuelve el viaje existente y no reaplica nada), la
+-- atomicidad (si algo falla no queda ni el viaje ni parte de las entregas),
+-- que no sirva de oráculo entre tenants y los permisos de EXECUTE.
+-- Nota: las pruebas de atomicidad corren dentro de un bloque con
+-- EXCEPTION, que deshace la sentencia fallida igual que lo hace la
+-- transacción de una llamada RPC (PostgREST).
+
+select public._test_set('vref_f',   'eeeeeeee-0000-4000-8000-000000000011');
+select public._test_set('vref_at1', 'eeeeeeee-0000-4000-8000-000000000012');
+select public._test_set('vref_at2', 'eeeeeeee-0000-4000-8000-000000000013');
+select public._test_set('vref_at3', 'eeeeeeee-0000-4000-8000-000000000014');
+select public._test_set('vref_km',  'eeeeeeee-0000-4000-8000-000000000015');
+select public._test_set('vref_cam', 'eeeeeeee-0000-4000-8000-000000000016');
+select public._test_set('vref_100', 'eeeeeeee-0000-4000-8000-000000000017');
+select public._test_set('vref_ign', 'eeeeeeee-0000-4000-8000-000000000018');
+select public._test_set('vref_vac', 'eeeeeeee-0000-4000-8000-000000000019');
+select public._test_set('vref_o1',  'eeeeeeee-0000-4000-8000-00000000001a');
+select public._test_set('vref_o2',  'eeeeeeee-0000-4000-8000-00000000001b');
+select public._test_set('vref_o3',  'eeeeeeee-0000-4000-8000-00000000001c');
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+-- Clientes extra de A para armar entregas (cliente_a_id viene del setup).
+with ins as (insert into public.clientes (nombre) values ('Cliente A2 (viajes)') returning id)
+select public._test_set('cliente_a2_id', id::text) from ins;
+with ins as (insert into public.clientes (nombre) values ('Cliente A3 (viajes)') returning id)
+select public._test_set('cliente_a3_id', id::text) from ins;
+
+do $$
+declare r record; v public.viajes%rowtype;
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_f'))::uuid,
+    p_fecha => date '2026-03-10',
+    p_origen => 'Rosario',
+    p_destino => 'Mendoza',
+    p_camion_id => (public._test_get('camion_a_id'))::uuid,
+    p_km_inicial => 1000.0,
+    p_km_final => 1500.5,
+    p_observaciones => 'Carga completa',
+    p_ingreso => 250000,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('cliente_id', public._test_get('cliente_a_id'),  'incidencias', '  Faltante de 2 cajas  '),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a2_id'), 'incidencias', '   '),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a3_id'))));
+  perform public._test_set('viaje_f_id', r.viaje_id::text);
+  select * into v from public.viajes where id = r.viaje_id;
+  perform public._test_chk(
+    '14.1 A crea un viaje con entregas: devuelve creado = true y el viaje queda en su tenant con todos los datos',
+    r.creado is true
+      and v.transportista_id = (public._test_get('tenant_a_id'))::uuid
+      and v.client_ref = (public._test_get('vref_f'))::uuid
+      and v.fecha = date '2026-03-10' and v.origen = 'Rosario' and v.destino = 'Mendoza'
+      and v.camion_id = (public._test_get('camion_a_id'))::uuid
+      and v.km_inicial = 1000.0 and v.km_final = 1500.5 and v.km_recorridos is null
+      and v.observaciones = 'Carga completa' and v.ingreso = 250000,
+    format('creado=%s tenant=%s fecha=%s km=%s/%s ingreso=%s', r.creado, v.transportista_id, v.fecha, v.km_inicial, v.km_final, v.ingreso));
+exception when others then
+  perform public._test_chk(
+    '14.1 A crea un viaje con entregas: devuelve creado = true y el viaje queda en su tenant con todos los datos',
+    false, sqlerrm);
+end
+$$;
+
+do $$
+declare v_n int; v_tids int; v_inc text[]; v_cli text[];
+begin
+  select count(*), count(*) filter (where e.transportista_id = (public._test_get('tenant_a_id'))::uuid),
+         array_agg(e.incidencias order by e.created_at, e.id),
+         array_agg(e.cliente_id::text order by e.created_at, e.id)
+    into v_n, v_tids, v_inc, v_cli
+    from public.entregas e
+   where e.viaje_id = (public._test_get('viaje_f_id'))::uuid;
+  perform public._test_chk(
+    '14.2 Las 3 entregas quedan en el tenant de A, en el orden enviado y con las incidencias recortadas (vacías = NULL)',
+    v_n = 3 and v_tids = 3
+      and v_inc is not distinct from array['Faltante de 2 cajas', null, null]::text[]
+      and v_cli = array[public._test_get('cliente_a_id'), public._test_get('cliente_a2_id'), public._test_get('cliente_a3_id')],
+    format('n=%s tenant_a=%s incidencias=%s clientes=%s', v_n, v_tids, v_inc, v_cli));
+end
+$$;
+
+-- Idempotencia: la misma llamada otra vez (reintento después de una respuesta perdida).
+do $$
+declare r record; v_viajes int; v_entregas int;
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_f'))::uuid,
+    p_fecha => date '2026-03-10', p_origen => 'Rosario', p_destino => 'Mendoza',
+    p_camion_id => (public._test_get('camion_a_id'))::uuid,
+    p_km_inicial => 1000.0, p_km_final => 1500.5, p_observaciones => 'Carga completa', p_ingreso => 250000,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('cliente_id', public._test_get('cliente_a_id'),  'incidencias', '  Faltante de 2 cajas  '),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a2_id'), 'incidencias', '   '),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a3_id'))));
+  select count(*) into v_viajes from public.viajes where client_ref = (public._test_get('vref_f'))::uuid;
+  select count(*) into v_entregas from public.entregas where viaje_id = (public._test_get('viaje_f_id'))::uuid;
+  perform public._test_chk(
+    '14.3 Reintento con el mismo client_ref: devuelve el viaje existente con creado = false y no duplica el viaje ni las entregas',
+    r.viaje_id = (public._test_get('viaje_f_id'))::uuid and r.creado is false and v_viajes = 1 and v_entregas = 3,
+    format('viaje=%s creado=%s viajes=%s entregas=%s', r.viaje_id, r.creado, v_viajes, v_entregas));
+exception when others then
+  perform public._test_chk(
+    '14.3 Reintento con el mismo client_ref: devuelve el viaje existente con creado = false y no duplica el viaje ni las entregas',
+    false, sqlerrm);
+end
+$$;
+
+-- Reintento con datos DISTINTOS: no se reaplican (ni siquiera se validan).
+do $$
+declare r record; v public.viajes%rowtype; v_entregas int;
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_f'))::uuid,
+    p_fecha => date '2030-01-01', p_origen => 'Otro origen', p_destino => 'Otro destino',
+    p_ingreso => 1,
+    p_entregas => '[]'::jsonb);
+  select * into v from public.viajes where id = (public._test_get('viaje_f_id'))::uuid;
+  select count(*) into v_entregas from public.entregas where viaje_id = (public._test_get('viaje_f_id'))::uuid;
+  perform public._test_chk(
+    '14.4 Reintento con datos distintos: creado = false y el viaje conserva sus datos y sus 3 entregas (la creación no reaplica nada)',
+    r.viaje_id = (public._test_get('viaje_f_id'))::uuid and r.creado is false
+      and v.destino = 'Mendoza' and v.fecha = date '2026-03-10' and v.ingreso = 250000 and v_entregas = 3,
+    format('creado=%s destino=%s fecha=%s ingreso=%s entregas=%s', r.creado, v.destino, v.fecha, v.ingreso, v_entregas));
+exception when others then
+  perform public._test_chk(
+    '14.4 Reintento con datos distintos: creado = false y el viaje conserva sus datos y sus 3 entregas (la creación no reaplica nada)',
+    false, sqlerrm);
+end
+$$;
+
+-- Atomicidad 1: un cliente de OTRO tenant entre las entregas.
+do $$
+declare v_state text; v_msg text; v_n int; v_e0 int; v_e1 int;
+begin
+  select count(*) into v_e0 from public.entregas;
+  perform public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_at1'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('cliente_id', public._test_get('cliente_a_id')),
+      jsonb_build_object('cliente_id', public._test_get('cliente_b_id'))));
+  perform public._test_chk('14.5 Cliente de otro tenant entre las entregas: falla con 23503 y no queda ni el viaje ni ninguna entrega', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select count(*) into v_n from public.viajes where client_ref = (public._test_get('vref_at1'))::uuid;
+  select count(*) into v_e1 from public.entregas;
+  perform public._test_set('err_cliente_invalido', v_state || '|' || v_msg);
+  perform public._test_chk('14.5 Cliente de otro tenant entre las entregas: falla con 23503 y no queda ni el viaje ni ninguna entrega',
+    v_state = '23503' and v_n = 0 and v_e0 = v_e1,
+    format('sqlstate=%s viajes=%s entregas antes=%s despues=%s :: %s', v_state, v_n, v_e0, v_e1, v_msg));
+end
+$$;
+
+-- Sin oráculo: un cliente que NO EXISTE da exactamente el mismo error que uno de otro tenant.
+do $$
+declare v_state text; v_msg text; v_n int;
+begin
+  perform public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_at3'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', gen_random_uuid()::text)));
+  perform public._test_chk('14.6 Cliente inexistente: mismo SQLSTATE y mismo mensaje que un cliente de otro tenant (sin oráculo)', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select count(*) into v_n from public.viajes where client_ref = (public._test_get('vref_at3'))::uuid;
+  perform public._test_chk('14.6 Cliente inexistente: mismo SQLSTATE y mismo mensaje que un cliente de otro tenant (sin oráculo)',
+    (v_state || '|' || v_msg) = public._test_get('err_cliente_invalido') and v_n = 0,
+    format('este=%s | el de otro tenant=%s | viajes=%s', v_state || '|' || v_msg, public._test_get('err_cliente_invalido'), v_n));
+end
+$$;
+
+-- Atomicidad 2: la falla llega tarde (incidencias de 2001 caracteres en la 3ra entrega).
+do $$
+declare v_state text; v_msg text; v_n int; v_e0 int; v_e1 int;
+begin
+  select count(*) into v_e0 from public.entregas;
+  perform public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_at2'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('cliente_id', public._test_get('cliente_a_id'),  'incidencias', 'ok'),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a2_id'), 'incidencias', 'ok'),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a3_id'), 'incidencias', repeat('x', 2001))));
+  perform public._test_chk('14.7 Incidencias de 2001 caracteres en la 3ra entrega: falla con 23514 y no queda ni el viaje ni las 2 primeras entregas', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select count(*) into v_n from public.viajes where client_ref = (public._test_get('vref_at2'))::uuid;
+  select count(*) into v_e1 from public.entregas;
+  perform public._test_chk('14.7 Incidencias de 2001 caracteres en la 3ra entrega: falla con 23514 y no queda ni el viaje ni las 2 primeras entregas',
+    v_state = '23514' and v_msg like '%entregas_incidencias_chk%' and v_n = 0 and v_e0 = v_e1,
+    format('sqlstate=%s viajes=%s entregas antes=%s despues=%s :: %s', v_state, v_n, v_e0, v_e1, v_msg));
+end
+$$;
+
+-- Atomicidad 3 y 4: el viaje mismo es inválido (modo de km mezclado / camión de otro tenant).
+do $$
+declare v_state text; v_msg text; v_n int; v_e0 int; v_e1 int;
+begin
+  select count(*) into v_e0 from public.entregas;
+  perform public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_km'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_km_inicial => 10, p_km_recorridos => 100,
+    p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', public._test_get('cliente_a_id'))));
+  perform public._test_chk('14.8 Viaje con km mezclados (recorridos + inicial): falla con 23514 viajes_chk_modo_km y no queda nada', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select count(*) into v_n from public.viajes where client_ref = (public._test_get('vref_km'))::uuid;
+  select count(*) into v_e1 from public.entregas;
+  perform public._test_chk('14.8 Viaje con km mezclados (recorridos + inicial): falla con 23514 viajes_chk_modo_km y no queda nada',
+    v_state = '23514' and v_msg like '%viajes_chk_modo_km%' and v_n = 0 and v_e0 = v_e1,
+    format('sqlstate=%s viajes=%s entregas antes=%s despues=%s :: %s', v_state, v_n, v_e0, v_e1, v_msg));
+end
+$$;
+
+do $$
+declare v_state text; v_msg text; v_n int; v_e0 int; v_e1 int;
+begin
+  select count(*) into v_e0 from public.entregas;
+  perform public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_cam'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_camion_id => (public._test_get('camion_b_id'))::uuid,
+    p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', public._test_get('cliente_a_id'))));
+  perform public._test_chk('14.9 Camión de otro tenant: falla con 23503 (viajes_camion_fk) y no queda nada', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select count(*) into v_n from public.viajes where client_ref = (public._test_get('vref_cam'))::uuid;
+  select count(*) into v_e1 from public.entregas;
+  perform public._test_chk('14.9 Camión de otro tenant: falla con 23503 (viajes_camion_fk) y no queda nada',
+    v_state = '23503' and v_msg like '%viajes_camion_fk%' and v_n = 0 and v_e0 = v_e1,
+    format('sqlstate=%s viajes=%s entregas antes=%s despues=%s :: %s', v_state, v_n, v_e0, v_e1, v_msg));
+end
+$$;
+
+-- Origen y destino obligatorios (los exigen la NOT NULL y los checks de la tabla).
+do $$
+declare v_a text; v_b text; v_c text; v_n int;
+begin
+  v_a := public._test_sqlstate(format($q$select * from public.crear_viaje_con_entregas(
+    p_client_ref => %L::uuid, p_fecha => current_date, p_origen => '   ', p_destino => 'Y')$q$, public._test_get('vref_o1')));
+  v_b := public._test_sqlstate(format($q$select * from public.crear_viaje_con_entregas(
+    p_client_ref => %L::uuid, p_fecha => current_date, p_origen => 'X', p_destino => null)$q$, public._test_get('vref_o2')));
+  v_c := public._test_sqlstate(format($q$select * from public.crear_viaje_con_entregas(
+    p_client_ref => %L::uuid, p_fecha => current_date, p_origen => %L, p_destino => 'Y')$q$, public._test_get('vref_o3'), repeat('o', 201)));
+  select count(*) into v_n from public.viajes
+    where client_ref in ((public._test_get('vref_o1'))::uuid, (public._test_get('vref_o2'))::uuid, (public._test_get('vref_o3'))::uuid);
+  perform public._test_chk(
+    '14.10 Origen en blanco (23514 viajes_origen_chk), destino nulo (23502) y origen de 201 caracteres (23514): se rechazan y no queda nada',
+    v_a like '23514|%viajes_origen_chk%' and v_b like '23502|%' and v_c like '23514|%viajes_origen_chk%' and v_n = 0,
+    format('a=%s | b=%s | c=%s | viajes=%s', v_a, v_b, v_c, v_n));
+end
+$$;
+
+-- Parámetros inválidos: todos 22023.
+do $$
+declare
+  v_cli text := public._test_get('cliente_a_id');
+  v_sqls text[];
+  v_res text[] := '{}';
+  v_s text; v_ok boolean := true;
+begin
+  v_sqls := array[
+    -- 1) client_ref nulo
+    $q$select * from public.crear_viaje_con_entregas(p_client_ref => null::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'Y')$q$,
+    -- 2) fecha nula
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => null::date, p_origen => 'X', p_destino => 'Y')$q$),
+    -- 3) entregas nulo
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y', p_entregas => null::jsonb)$q$),
+    -- 4) entregas es un objeto y no una lista
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y', p_entregas => '{"cliente_id":"x"}'::jsonb)$q$),
+    -- 5) 101 entregas
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+      p_entregas => (select jsonb_agg(jsonb_build_object('cliente_id', %L)) from generate_series(1, 101)))$q$, v_cli),
+    -- 6) elemento sin cliente_id
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y', p_entregas => '[{"incidencias":"x"}]'::jsonb)$q$),
+    -- 7) cliente_id que no es un uuid
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y', p_entregas => '[{"cliente_id":"no-es-un-uuid"}]'::jsonb)$q$),
+    -- 8) incidencias que no es texto
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+      p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', %L, 'incidencias', 5)))$q$, v_cli),
+    -- 9) elemento que no es un objeto
+    format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y', p_entregas => '[1]'::jsonb)$q$)
+  ];
+  foreach v_s in array v_sqls loop
+    v_res := v_res || public._test_sqlstate(v_s);
+  end loop;
+  select bool_and(r like '22023|%') into v_ok from unnest(v_res) as r;
+  perform public._test_chk(
+    '14.11 Parámetros inválidos (client_ref/fecha nulos, entregas nulo/objeto/101/mal formadas/incidencias no texto): todos fallan con 22023',
+    v_ok, array_to_string(v_res, E'\n'));
+end
+$$;
+
+-- El límite es de 100: exactamente 100 entregas pasan (con created_at escalonado).
+do $$
+declare r record; v_n int; v_distintos int;
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_100'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_entregas => (select jsonb_agg(jsonb_build_object('cliente_id', public._test_get('cliente_a_id'))) from generate_series(1, 100)));
+  select count(*), count(distinct created_at) into v_n, v_distintos
+    from public.entregas where viaje_id = r.viaje_id;
+  perform public._test_chk('14.12 Exactamente 100 entregas se aceptan (creado = true, 100 entregas con created_at escalonado)',
+    r.creado is true and v_n = 100 and v_distintos = 100,
+    format('creado=%s entregas=%s created_at distintos=%s', r.creado, v_n, v_distintos));
+exception when others then
+  perform public._test_chk('14.12 Exactamente 100 entregas se aceptan (creado = true, 100 entregas con created_at escalonado)', false, sqlerrm);
+end
+$$;
+
+-- El cliente nunca decide el tenant ni el id: las claves ajenas dentro de las entregas se ignoran.
+do $$
+declare r record; v_n int; v_tid uuid; v_id uuid; v_viaje uuid; v_vieja_viaje uuid;
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_ign'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_entregas => jsonb_build_array(jsonb_build_object(
+      'id', public._test_get('entrega_a_id'),
+      'transportista_id', public._test_get('tenant_b_id'),
+      'viaje_id', public._test_get('viaje_b_id'),
+      'cliente_id', public._test_get('cliente_a_id'),
+      'incidencias', 'con claves ajenas')));
+  select count(*), min(e.id::text)::uuid, min(e.transportista_id::text)::uuid, min(e.viaje_id::text)::uuid
+    into v_n, v_id, v_tid, v_viaje
+    from public.entregas e where e.viaje_id = r.viaje_id;
+  select viaje_id into v_vieja_viaje from public.entregas where id = (public._test_get('entrega_a_id'))::uuid;
+  perform public._test_chk('14.13 Claves ajenas dentro de las entregas (id, transportista_id, viaje_id) se ignoran: la entrega nace en el viaje nuevo, en el tenant de A y con id nuevo',
+    v_n = 1 and v_id <> (public._test_get('entrega_a_id'))::uuid
+      and v_tid = (public._test_get('tenant_a_id'))::uuid and v_viaje = r.viaje_id
+      and v_vieja_viaje = (public._test_get('viaje_a_id'))::uuid,
+    format('n=%s tenant=%s viaje_de_la_entrega_vieja=%s', v_n, v_tid, v_vieja_viaje));
+exception when others then
+  perform public._test_chk('14.13 Claves ajenas dentro de las entregas (id, transportista_id, viaje_id) se ignoran: la entrega nace en el viaje nuevo, en el tenant de A y con id nuevo', false, sqlerrm);
+end
+$$;
+
+-- Sin p_entregas (default []) el viaje se crea sin entregas.
+do $$
+declare r record; v_n int;
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_vac'))::uuid,
+    p_fecha => current_date, p_origen => 'X', p_destino => 'Y');
+  select count(*) into v_n from public.entregas where viaje_id = r.viaje_id;
+  perform public._test_chk('14.14 Sin p_entregas (valor por defecto) se crea el viaje sin entregas',
+    r.creado is true and v_n = 0, format('creado=%s entregas=%s', r.creado, v_n));
+exception when others then
+  perform public._test_chk('14.14 Sin p_entregas (valor por defecto) se crea el viaje sin entregas', false, sqlerrm);
+end
+$$;
+
+reset role;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+-- B usa el MISMO client_ref que A (vref_f): sin oráculo, es una creación normal.
+do $$
+declare r record; v_n int; v_tid uuid;
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_f'))::uuid,
+    p_fecha => current_date, p_origen => 'Origen de B', p_destino => 'Destino de B',
+    p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', public._test_get('cliente_b_id'))));
+  select count(*), min(transportista_id::text)::uuid into v_n, v_tid
+    from public.viajes where client_ref = (public._test_get('vref_f'))::uuid;
+  perform public._test_chk(
+    '14.15 B crea con el MISMO client_ref que A: creado = true (indistinguible de una creación normal), en su tenant, y ve una sola fila con ese client_ref',
+    r.creado is true and r.viaje_id <> (public._test_get('viaje_f_id'))::uuid
+      and v_n = 1 and v_tid = (public._test_get('tenant_b_id'))::uuid,
+    format('creado=%s viajes_vistos=%s tenant=%s', r.creado, v_n, v_tid));
+exception when others then
+  perform public._test_chk(
+    '14.15 B crea con el MISMO client_ref que A: creado = true (indistinguible de una creación normal), en su tenant, y ve una sola fila con ese client_ref',
+    false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Permisos: anon no puede ejecutar ninguna de las dos funciones.
+set local role anon;
+
+do $$
+declare v_ok1 boolean := false; v_ok2 boolean := false; v_m1 text; v_m2 text;
+begin
+  begin
+    perform public.crear_viaje_con_entregas(
+      p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y');
+  exception when insufficient_privilege then
+    v_ok1 := true; v_m1 := sqlerrm;
+  when others then
+    v_m1 := 'otro error: ' || sqlerrm;
+  end;
+  begin
+    perform public.actualizar_viaje_con_entregas(
+      p_viaje_id => (public._test_get('viaje_a_id'))::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+      p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null,
+      p_observaciones => null, p_ingreso => null, p_entregas => '[]'::jsonb);
+  exception when insufficient_privilege then
+    v_ok2 := true; v_m2 := sqlerrm;
+  when others then
+    v_m2 := 'otro error: ' || sqlerrm;
+  end;
+  perform public._test_chk('14.16 anon no puede ejecutar crear_viaje_con_entregas ni actualizar_viaje_con_entregas (permission denied)',
+    v_ok1 and v_ok2, format('crear: %s | actualizar: %s', v_m1, v_m2));
+end
+$$;
+
+reset role;
+
+-- Un usuario autenticado sin transportista no puede usar ninguna de las dos.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_a text; v_b text;
+begin
+  v_a := public._test_sqlstate($q$select * from public.crear_viaje_con_entregas(
+    p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'X', p_destino => 'Y')$q$);
+  v_b := public._test_sqlstate(format($q$select public.actualizar_viaje_con_entregas(
+    p_viaje_id => %L::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'Y', p_camion_id => null,
+    p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => '[]'::jsonb)$q$, public._test_get('viaje_a_id')));
+  perform public._test_chk('14.17 Un usuario sin transportista no puede crear ni actualizar viajes con las funciones (42501)',
+    v_a like '42501|%No perteneces%' and v_b like '42501|%No perteneces%', format('crear: %s | actualizar: %s', v_a, v_b));
+end
+$$;
+
+reset role;
+
+-- Como postgres: definición de las funciones y de sus privilegios.
+do $$
+declare v_n int; v_invoker int; v_path int; v_anon int; v_public int; v_auth int;
+begin
+  select count(*),
+         count(*) filter (where not p.prosecdef),
+         count(*) filter (where p.proconfig::text like '%search_path=public%'),
+         count(*) filter (where has_function_privilege('anon', p.oid, 'execute')),
+         count(*) filter (where has_function_privilege('public', p.oid, 'execute')),
+         count(*) filter (where has_function_privilege('authenticated', p.oid, 'execute'))
+    into v_n, v_invoker, v_path, v_anon, v_public, v_auth
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and p.proname in ('crear_viaje_con_entregas', 'actualizar_viaje_con_entregas');
+  perform public._test_chk(
+    '14.18 Las 2 funciones son SECURITY INVOKER con search_path fijo, y EXECUTE solo para authenticated (no anon ni public)',
+    v_n = 2 and v_invoker = 2 and v_path = 2 and v_anon = 0 and v_public = 0 and v_auth = 2,
+    format('funciones=%s invoker=%s search_path=%s anon=%s public=%s authenticated=%s', v_n, v_invoker, v_path, v_anon, v_public, v_auth));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 15) actualizar_viaje_con_entregas (migración 007)
+-- ---------------------------------------------------------------------
+-- Reemplazo completo del viaje + sincronización de la lista de entregas:
+-- con id se actualiza, sin id se inserta, las existentes que no vienen se
+-- borran. Se prueba además que no toque entregas de otro viaje ni de otro
+-- tenant, que no sirva de oráculo, que sea atómica, y el comportamiento de
+-- las FK (borrar un viaje arrastra sus entregas; un gasto vinculado lo
+-- frena).
+
+select public._test_set('vref_u', 'eeeeeeee-0000-4000-8000-000000000021');
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+-- Viaje de trabajo U con 3 entregas (uno / dos / tres), creado con la función.
+do $$
+declare r record; v_ids uuid[];
+begin
+  select * into r from public.crear_viaje_con_entregas(
+    p_client_ref => (public._test_get('vref_u'))::uuid,
+    p_fecha => date '2026-04-01', p_origen => 'Santa Fe', p_destino => 'Salta', p_km_inicial => 500,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('cliente_id', public._test_get('cliente_a_id'),  'incidencias', 'uno'),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a2_id'), 'incidencias', 'dos'),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a3_id'), 'incidencias', 'tres')));
+  perform public._test_set('viaje_u_id', r.viaje_id::text);
+  select array_agg(e.id order by e.created_at, e.id) into v_ids from public.entregas e where e.viaje_id = r.viaje_id;
+  perform public._test_set('entrega_u1_id', v_ids[1]::text);
+  perform public._test_set('entrega_u2_id', v_ids[2]::text);
+  perform public._test_set('entrega_u3_id', v_ids[3]::text);
+  perform public._test_set('n_entregas_viaje_a',
+    (select count(*)::text from public.entregas where viaje_id = (public._test_get('viaje_a_id'))::uuid));
+  perform public._test_chk('15.0 setup: viaje U con 3 entregas (uno/dos/tres) creado con la función',
+    r.creado is true and cardinality(v_ids) = 3, format('creado=%s entregas=%s', r.creado, cardinality(v_ids)));
+exception when others then
+  perform public._test_chk('15.0 setup: viaje U con 3 entregas (uno/dos/tres) creado con la función', false, sqlerrm);
+end
+$$;
+
+-- Sincronización completa: e1 se edita, e2 desaparece (no viene), e3 cambia de
+-- cliente y borra su incidencia (JSON null), y entra una entrega nueva. El viaje
+-- se reemplaza entero (pasa del modo km inicial/final al modo km recorridos).
+do $$
+declare
+  v public.viajes%rowtype; v_n int; v_tids int; v_e1 public.entregas%rowtype; v_e3 public.entregas%rowtype;
+  v_e2_existe boolean; v_nuevas int; v_nueva_ok boolean;
+begin
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_u_id'))::uuid,
+    p_fecha => date '2026-04-02',
+    p_origen => 'Santa Fe II',
+    p_destino => 'Jujuy',
+    p_camion_id => null,
+    p_km_inicial => null,
+    p_km_final => null,
+    p_km_recorridos => 321.5,
+    p_observaciones => null,
+    p_ingreso => 99,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('id', public._test_get('entrega_u1_id'), 'cliente_id', public._test_get('cliente_a_id'), 'incidencias', 'uno editado'),
+      jsonb_build_object('id', public._test_get('entrega_u3_id'), 'cliente_id', public._test_get('cliente_a_id'), 'incidencias', null::text),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a2_id'), 'incidencias', 'nueva')));
+  select * into v from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+  select * into v_e1 from public.entregas where id = (public._test_get('entrega_u1_id'))::uuid;
+  select * into v_e3 from public.entregas where id = (public._test_get('entrega_u3_id'))::uuid;
+  select exists(select 1 from public.entregas where id = (public._test_get('entrega_u2_id'))::uuid) into v_e2_existe;
+  select count(*), count(*) filter (where transportista_id = (public._test_get('tenant_a_id'))::uuid)
+    into v_n, v_tids from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  select count(*), coalesce(bool_and(e.cliente_id = (public._test_get('cliente_a2_id'))::uuid and e.incidencias = 'nueva'), false)
+    into v_nuevas, v_nueva_ok
+    from public.entregas e
+   where e.viaje_id = (public._test_get('viaje_u_id'))::uuid
+     and e.id not in ((public._test_get('entrega_u1_id'))::uuid, (public._test_get('entrega_u2_id'))::uuid, (public._test_get('entrega_u3_id'))::uuid);
+  perform public._test_chk(
+    '15.1 Sincronización: la entrega con id se actualiza, la que no viene se borra, la sin id se inserta (y los datos del viaje se reemplazan, null explícito incluido)',
+    v.fecha = date '2026-04-02' and v.origen = 'Santa Fe II' and v.destino = 'Jujuy'
+      and v.camion_id is null and v.km_inicial is null and v.km_final is null and v.km_recorridos = 321.5
+      and v.observaciones is null and v.ingreso = 99
+      and v.client_ref = (public._test_get('vref_u'))::uuid
+      and v_e1.cliente_id = (public._test_get('cliente_a_id'))::uuid and v_e1.incidencias = 'uno editado'
+      and v_e3.cliente_id = (public._test_get('cliente_a_id'))::uuid and v_e3.incidencias is null
+      and not v_e2_existe and v_n = 3 and v_tids = 3 and v_nuevas = 1 and v_nueva_ok,
+    format('viaje(%s/%s/%s km_rec=%s ingreso=%s) e1=%s/%s e3=%s/%s e2_existe=%s total=%s nuevas=%s',
+      v.fecha, v.origen, v.destino, v.km_recorridos, v.ingreso, v_e1.cliente_id, v_e1.incidencias, v_e3.cliente_id, v_e3.incidencias,
+      v_e2_existe, v_n, v_nuevas));
+exception when others then
+  perform public._test_chk(
+    '15.1 Sincronización: la entrega con id se actualiza, la que no viene se borra, la sin id se inserta (y los datos del viaje se reemplazan, null explícito incluido)',
+    false, sqlerrm);
+end
+$$;
+
+-- No toca entregas de otros viajes del mismo tenant.
+do $$
+declare v_n_a int; v_viaje_vieja uuid; v_n_f int;
+begin
+  select count(*) into v_n_a from public.entregas where viaje_id = (public._test_get('viaje_a_id'))::uuid;
+  select viaje_id into v_viaje_vieja from public.entregas where id = (public._test_get('entrega_a_id'))::uuid;
+  select count(*) into v_n_f from public.entregas where viaje_id = (public._test_get('viaje_f_id'))::uuid;
+  perform public._test_chk('15.2 Actualizar el viaje U no toca las entregas de otros viajes del mismo tenant (viaje del setup y viaje de 14.1)',
+    v_n_a = (public._test_get('n_entregas_viaje_a'))::int
+      and v_viaje_vieja = (public._test_get('viaje_a_id'))::uuid and v_n_f = 3,
+    format('entregas del viaje del setup=%s (antes %s) entregas del viaje de 14.1=%s', v_n_a, public._test_get('n_entregas_viaje_a'), v_n_f));
+end
+$$;
+
+-- Un id de entrega de OTRO viaje del mismo tenant no se mueve ni se borra: P0002.
+do $$
+declare v_state text; v_msg text; v_ids_antes uuid[]; v_ids_despues uuid[]; v_viaje_vieja uuid; v_destino text;
+begin
+  select array_agg(id order by id) into v_ids_antes from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_u_id'))::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'CAMBIO FALLIDO',
+    p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('id', public._test_get('entrega_a_id'), 'cliente_id', public._test_get('cliente_a_id'))));
+  perform public._test_chk('15.3 Un id de entrega de otro viaje del mismo tenant: falla con P0002 y no se mueve, ni se borra nada', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select array_agg(id order by id) into v_ids_despues from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  select viaje_id into v_viaje_vieja from public.entregas where id = (public._test_get('entrega_a_id'))::uuid;
+  select destino into v_destino from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+  perform public._test_chk('15.3 Un id de entrega de otro viaje del mismo tenant: falla con P0002 y no se mueve, ni se borra nada',
+    v_state = 'P0002' and v_ids_antes = v_ids_despues and v_viaje_vieja = (public._test_get('viaje_a_id'))::uuid and v_destino = 'Jujuy',
+    format('sqlstate=%s destino=%s :: %s', v_state, v_destino, v_msg));
+end
+$$;
+
+-- Atomicidad: el viaje es válido pero una entrega nueva trae incidencias de 2001 caracteres.
+do $$
+declare v_state text; v_msg text; v_ids_antes uuid[]; v_ids_despues uuid[]; v_destino text; v_inc text;
+begin
+  select array_agg(id order by id) into v_ids_antes from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_u_id'))::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'CAMBIO FALLIDO',
+    p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('id', public._test_get('entrega_u1_id'), 'cliente_id', public._test_get('cliente_a_id'), 'incidencias', 'tocada'),
+      jsonb_build_object('cliente_id', public._test_get('cliente_a2_id'), 'incidencias', repeat('x', 2001))));
+  perform public._test_chk('15.4 Atomicidad: una entrega nueva con incidencias de 2001 caracteres hace fallar todo (23514) y el viaje y las entregas quedan como estaban', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select array_agg(id order by id) into v_ids_despues from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  select destino into v_destino from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+  select incidencias into v_inc from public.entregas where id = (public._test_get('entrega_u1_id'))::uuid;
+  perform public._test_chk('15.4 Atomicidad: una entrega nueva con incidencias de 2001 caracteres hace fallar todo (23514) y el viaje y las entregas quedan como estaban',
+    v_state = '23514' and v_msg like '%entregas_incidencias_chk%' and v_ids_antes = v_ids_despues
+      and v_destino = 'Jujuy' and v_inc = 'uno editado',
+    format('sqlstate=%s destino=%s incidencias_e1=%s :: %s', v_state, v_destino, v_inc, v_msg));
+end
+$$;
+
+-- Un cliente de otro tenant: 23503 (mismo error que un cliente inexistente) y nada cambia.
+do $$
+declare v_state text; v_msg text; v_destino text; v_n int;
+begin
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_u_id'))::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'CAMBIO FALLIDO',
+    p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('id', public._test_get('entrega_u1_id'), 'cliente_id', public._test_get('cliente_b_id'))));
+  perform public._test_chk('15.5 Cliente de otro tenant en una entrega existente: falla con 23503 (mismo error que en la creación) y nada cambia', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select destino into v_destino from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+  select count(*) into v_n from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  perform public._test_chk('15.5 Cliente de otro tenant en una entrega existente: falla con 23503 (mismo error que en la creación) y nada cambia',
+    (v_state || '|' || v_msg) = public._test_get('err_cliente_invalido') and v_destino = 'Jujuy' and v_n = 3,
+    format('%s | destino=%s entregas=%s', v_state || '|' || v_msg, v_destino, v_n));
+end
+$$;
+
+-- Parámetros inválidos: todos 22023.
+do $$
+declare
+  v_viaje text := public._test_get('viaje_u_id');
+  v_e1 text := public._test_get('entrega_u1_id');
+  v_cli text := public._test_get('cliente_a_id');
+  v_base text;
+  v_sqls text[];
+  v_res text[] := '{}';
+  v_s text; v_ok boolean;
+begin
+  v_base := $q$select public.actualizar_viaje_con_entregas(p_viaje_id => %L::uuid, p_fecha => %s, p_origen => 'X', p_destino => 'Y',
+    p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => %s)$q$;
+  v_sqls := array[
+    -- 1) ids repetidos
+    format(v_base, v_viaje, 'current_date',
+      format($q$jsonb_build_array(jsonb_build_object('id', %L, 'cliente_id', %L), jsonb_build_object('id', %L, 'cliente_id', %L))$q$, v_e1, v_cli, v_e1, v_cli)),
+    -- 2) id que no es un uuid
+    format(v_base, v_viaje, 'current_date',
+      format($q$jsonb_build_array(jsonb_build_object('id', 'no-es-un-uuid', 'cliente_id', %L))$q$, v_cli)),
+    -- 3) entregas nulo
+    format(v_base, v_viaje, 'current_date', 'null::jsonb'),
+    -- 4) entregas no es una lista
+    format(v_base, v_viaje, 'current_date', $q$'{"cliente_id":"x"}'::jsonb$q$),
+    -- 5) viaje_id nulo
+    format(replace(v_base, '%L::uuid', '%s'), 'null::uuid', 'current_date', '''[]''::jsonb'),
+    -- 6) fecha nula
+    format(v_base, v_viaje, 'null::date', '''[]''::jsonb'),
+    -- 7) 101 entregas
+    format(v_base, v_viaje, 'current_date',
+      format($q$(select jsonb_agg(jsonb_build_object('cliente_id', %L)) from generate_series(1, 101))$q$, v_cli))
+  ];
+  foreach v_s in array v_sqls loop
+    v_res := v_res || public._test_sqlstate(v_s);
+  end loop;
+  select bool_and(r like '22023|%') into v_ok from unnest(v_res) as r;
+  perform public._test_chk(
+    '15.6 Parámetros inválidos (ids repetidos o mal formados, entregas nulo/objeto/101, viaje_id o fecha nulos): todos fallan con 22023',
+    v_ok, array_to_string(v_res, E'\n'));
+end
+$$;
+
+-- El viaje es inválido (km mezclados): falla y las entregas no se tocan.
+do $$
+declare v_state text; v_msg text; v_ids_antes uuid[]; v_ids_despues uuid[]; v_inc text;
+begin
+  select array_agg(id order by id) into v_ids_antes from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_u_id'))::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'Y',
+    p_camion_id => null, p_km_inicial => 1, p_km_final => null, p_km_recorridos => 5, p_observaciones => null, p_ingreso => null,
+    p_entregas => '[]'::jsonb);
+  perform public._test_chk('15.7 Viaje con km mezclados: falla con 23514 viajes_chk_modo_km y las entregas no se tocan (la lista vacía no llegó a borrarlas)', false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select array_agg(id order by id) into v_ids_despues from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  perform public._test_chk('15.7 Viaje con km mezclados: falla con 23514 viajes_chk_modo_km y las entregas no se tocan (la lista vacía no llegó a borrarlas)',
+    v_state = '23514' and v_msg like '%viajes_chk_modo_km%' and v_ids_antes = v_ids_despues and cardinality(v_ids_despues) = 3,
+    format('sqlstate=%s entregas=%s :: %s', v_state, cardinality(v_ids_despues), v_msg));
+end
+$$;
+
+-- Reemplazo completo: omitir un parámetro no borra datos en silencio, falla (42883).
+do $$
+declare v_res text; v_destino text;
+begin
+  v_res := public._test_sqlstate(format($q$select public.actualizar_viaje_con_entregas(
+    p_viaje_id => %L::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'Y', p_camion_id => null,
+    p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null,
+    p_entregas => '[]'::jsonb)$q$, public._test_get('viaje_u_id')));  -- falta p_ingreso
+  select destino into v_destino from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+  perform public._test_chk('15.8 Omitir un parámetro de la actualización falla (42883, función no encontrada) en vez de vaciar el campo en silencio',
+    v_res like '42883|%' and v_destino = 'Jujuy', format('%s | destino=%s', v_res, v_destino));
+end
+$$;
+
+reset role;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+-- B no puede actualizar el viaje de A, y el error es idéntico al de un viaje inexistente.
+do $$
+declare v_state text; v_msg text; v_state2 text; v_msg2 text;
+begin
+  begin
+    perform public.actualizar_viaje_con_entregas(
+      p_viaje_id => (public._test_get('viaje_u_id'))::uuid, p_fecha => current_date, p_origen => 'HACKEADO', p_destino => 'HACKEADO',
+      p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+      p_entregas => '[]'::jsonb);
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  end;
+  begin
+    perform public.actualizar_viaje_con_entregas(
+      p_viaje_id => gen_random_uuid(), p_fecha => current_date, p_origen => 'HACKEADO', p_destino => 'HACKEADO',
+      p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+      p_entregas => '[]'::jsonb);
+  exception when others then
+    get stacked diagnostics v_state2 = returned_sqlstate, v_msg2 = message_text;
+  end;
+  perform public._test_chk('15.9 B no puede actualizar el viaje de A: P0002 "No se encontró el viaje", idéntico al error de un viaje inexistente (sin oráculo)',
+    v_state = 'P0002' and v_msg = 'No se encontró el viaje' and v_state = v_state2 and v_msg = v_msg2,
+    format('viaje de A: %s|%s | inexistente: %s|%s', v_state, v_msg, v_state2, v_msg2));
+end
+$$;
+
+-- B manda el id de una entrega de A dentro de SU PROPIO viaje: P0002, igual que un id inexistente.
+do $$
+declare v_state text; v_msg text; v_state2 text; v_msg2 text; v_destino text;
+begin
+  begin
+    perform public.actualizar_viaje_con_entregas(
+      p_viaje_id => (public._test_get('viaje_b_id'))::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'CAMBIO FALLIDO',
+      p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+      p_entregas => jsonb_build_array(jsonb_build_object('id', public._test_get('entrega_u1_id'), 'cliente_id', public._test_get('cliente_b_id'))));
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  end;
+  begin
+    perform public.actualizar_viaje_con_entregas(
+      p_viaje_id => (public._test_get('viaje_b_id'))::uuid, p_fecha => current_date, p_origen => 'X', p_destino => 'CAMBIO FALLIDO',
+      p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+      p_entregas => jsonb_build_array(jsonb_build_object('id', gen_random_uuid()::text, 'cliente_id', public._test_get('cliente_b_id'))));
+  exception when others then
+    get stacked diagnostics v_state2 = returned_sqlstate, v_msg2 = message_text;
+  end;
+  select destino into v_destino from public.viajes where id = (public._test_get('viaje_b_id'))::uuid;
+  perform public._test_chk('15.10 B manda el id de una entrega de A en su propio viaje: P0002, idéntico al de un id inexistente, y su viaje no cambia',
+    v_state = 'P0002' and v_state = v_state2 and v_msg = v_msg2 and v_destino <> 'CAMBIO FALLIDO',
+    format('entrega de A: %s|%s | inexistente: %s|%s | destino=%s', v_state, v_msg, v_state2, v_msg2, v_destino));
+end
+$$;
+
+-- Camino feliz de B sobre su propio viaje (la función no lo "castiga" por existir A).
+do $$
+declare v_n int; v_tid uuid; v_inc text;
+begin
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_b_id'))::uuid, p_fecha => date '2026-05-01', p_origen => 'Santa Fe', p_destino => 'Buenos Aires',
+    p_camion_id => (public._test_get('camion_b_id'))::uuid, p_km_inicial => null, p_km_final => null, p_km_recorridos => 480,
+    p_observaciones => null, p_ingreso => null,
+    p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', public._test_get('cliente_b_id'), 'incidencias', 'de B')));
+  select count(*), min(transportista_id::text)::uuid, min(incidencias)
+    into v_n, v_tid, v_inc from public.entregas where viaje_id = (public._test_get('viaje_b_id'))::uuid;
+  perform public._test_chk('15.11 B actualiza su propio viaje y agrega una entrega: queda en el tenant de B',
+    v_n = 1 and v_tid = (public._test_get('tenant_b_id'))::uuid and v_inc = 'de B',
+    format('entregas=%s tenant=%s incidencias=%s', v_n, v_tid, v_inc));
+exception when others then
+  perform public._test_chk('15.11 B actualiza su propio viaje y agrega una entrega: queda en el tenant de B', false, sqlerrm);
+end
+$$;
+
+reset role;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+-- Lista vacía: se borran todas las entregas, el viaje y su client_ref siguen.
+do $$
+declare v_n int; v public.viajes%rowtype;
+begin
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_u_id'))::uuid, p_fecha => date '2026-04-02', p_origen => 'Santa Fe II', p_destino => 'Jujuy',
+    p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => 321.5, p_observaciones => null, p_ingreso => 99,
+    p_entregas => '[]'::jsonb);
+  select count(*) into v_n from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  select * into v from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+  perform public._test_chk('15.12 Con una lista vacía se borran todas las entregas del viaje; el viaje y su client_ref siguen',
+    v_n = 0 and v.id is not null and v.client_ref = (public._test_get('vref_u'))::uuid and v.destino = 'Jujuy',
+    format('entregas=%s destino=%s', v_n, v.destino));
+exception when others then
+  perform public._test_chk('15.12 Con una lista vacía se borran todas las entregas del viaje; el viaje y su client_ref siguen', false, sqlerrm);
+end
+$$;
+
+-- FK: borrar un viaje (DELETE directo) arrastra sus entregas (CASCADE) y no toca las de otros viajes.
+do $$
+declare v_antes int; v_despues int; v_otra boolean;
+begin
+  select count(*) into v_antes from public.entregas where viaje_id = (public._test_get('viaje_f_id'))::uuid;
+  delete from public.viajes where id = (public._test_get('viaje_f_id'))::uuid;
+  select count(*) into v_despues from public.entregas where viaje_id = (public._test_get('viaje_f_id'))::uuid;
+  select exists(select 1 from public.entregas where id = (public._test_get('entrega_a_id'))::uuid) into v_otra;
+  perform public._test_chk('15.13 Borrar el viaje de 14.1 borra en cascada sus 3 entregas y no toca la entrega de otro viaje',
+    v_antes = 3 and v_despues = 0 and v_otra, format('entregas antes=%s despues=%s otra_entrega_existe=%s', v_antes, v_despues, v_otra));
+exception when others then
+  perform public._test_chk('15.13 Borrar el viaje de 14.1 borra en cascada sus 3 entregas y no toca la entrega de otro viaje', false, sqlerrm);
+end
+$$;
+
+-- FK: un gasto vinculado impide borrar el viaje (RESTRICT) y el viaje y sus entregas siguen.
+do $$
+declare v_state text; v_msg text; v_viaje boolean; v_n int;
+begin
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('viaje_u_id'))::uuid, p_fecha => date '2026-04-02', p_origen => 'Santa Fe II', p_destino => 'Jujuy',
+    p_camion_id => null, p_km_inicial => null, p_km_final => null, p_km_recorridos => 321.5, p_observaciones => null, p_ingreso => 99,
+    p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', public._test_get('cliente_a_id'), 'incidencias', 'queda')));
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 500, (public._test_get('viaje_u_id'))::uuid);
+  begin
+    delete from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+    perform public._test_chk('15.14 Un gasto vinculado impide borrar el viaje (23503, RESTRICT de gastos_viaje_fk): el viaje y sus entregas siguen', false, 'no lanzó excepción');
+    return;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  end;
+  select exists(select 1 from public.viajes where id = (public._test_get('viaje_u_id'))::uuid) into v_viaje;
+  select count(*) into v_n from public.entregas where viaje_id = (public._test_get('viaje_u_id'))::uuid;
+  perform public._test_chk('15.14 Un gasto vinculado impide borrar el viaje (23503, RESTRICT de gastos_viaje_fk): el viaje y sus entregas siguen',
+    v_state = '23503' and v_msg like '%gastos_viaje_fk%' and v_viaje and v_n = 1,
+    format('sqlstate=%s viaje_existe=%s entregas=%s :: %s', v_state, v_viaje, v_n, v_msg));
+exception when others then
+  perform public._test_chk('15.14 Un gasto vinculado impide borrar el viaje (23503, RESTRICT de gastos_viaje_fk): el viaje y sus entregas siguen', false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: integridad general tras todo lo anterior.
+do $$
+declare v_cruzadas int; v_huerfanas int; v_destino_u text; v_destino_b text;
+begin
+  -- Ninguna entrega engancha un viaje de otro tenant ni un cliente de otro tenant.
+  select count(*) into v_cruzadas
+    from public.entregas e
+    join public.viajes v on v.id = e.viaje_id
+    join public.clientes c on c.id = e.cliente_id
+   where e.transportista_id <> v.transportista_id or e.transportista_id <> c.transportista_id;
+  select count(*) into v_huerfanas
+    from public.entregas e where not exists (select 1 from public.viajes v where v.id = e.viaje_id);
+  select destino into v_destino_u from public.viajes where id = (public._test_get('viaje_u_id'))::uuid;
+  select destino into v_destino_b from public.viajes where id = (public._test_get('viaje_b_id'))::uuid;
+  perform public._test_chk(
+    '15.15 Como postgres: ninguna entrega cruza tenants (viaje o cliente), no hay huérfanas, y los viajes de A y de B solo tienen sus propios cambios',
+    v_cruzadas = 0 and v_huerfanas = 0 and v_destino_u = 'Jujuy' and v_destino_b = 'Buenos Aires',
+    format('cruzadas=%s huerfanas=%s destino_u=%s destino_b=%s', v_cruzadas, v_huerfanas, v_destino_u, v_destino_b));
 end
 $$;
 

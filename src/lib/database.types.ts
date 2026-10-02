@@ -1,5 +1,5 @@
 // Generado con el MCP de Supabase (generate_typescript_types) sobre el
-// proyecto de Supabase del repo, después de las migraciones 001–004.
+// proyecto de Supabase del repo, después de las migraciones 001–007.
 // No editar a mano: regenerar cuando cambie el esquema.
 
 export type Json =
@@ -245,45 +245,54 @@ export type Database = {
       gastos: {
         Row: {
           categoria_id: string
+          client_ref: string | null
           created_at: string
           descripcion: string | null
           fecha: string
           foto_url: string | null
           id: string
+          km_odometro: number | null
           litros: number | null
           metodo_pago: Database["public"]["Enums"]["metodo_pago"] | null
           monto: number
           precio_por_litro: number | null
+          tanque_lleno: boolean | null
           transportista_id: string
           updated_at: string
           viaje_id: string | null
         }
         Insert: {
           categoria_id: string
+          client_ref?: string | null
           created_at?: string
           descripcion?: string | null
           fecha?: string
           foto_url?: string | null
           id?: string
+          km_odometro?: number | null
           litros?: number | null
           metodo_pago?: Database["public"]["Enums"]["metodo_pago"] | null
           monto: number
           precio_por_litro?: number | null
+          tanque_lleno?: boolean | null
           transportista_id: string
           updated_at?: string
           viaje_id?: string | null
         }
         Update: {
           categoria_id?: string
+          client_ref?: string | null
           created_at?: string
           descripcion?: string | null
           fecha?: string
           foto_url?: string | null
           id?: string
+          km_odometro?: number | null
           litros?: number | null
           metodo_pago?: Database["public"]["Enums"]["metodo_pago"] | null
           monto?: number
           precio_por_litro?: number | null
+          tanque_lleno?: boolean | null
           transportista_id?: string
           updated_at?: string
           viaje_id?: string | null
@@ -377,6 +386,7 @@ export type Database = {
       viajes: {
         Row: {
           camion_id: string | null
+          client_ref: string | null
           created_at: string
           destino: string
           fecha: string
@@ -392,6 +402,7 @@ export type Database = {
         }
         Insert: {
           camion_id?: string | null
+          client_ref?: string | null
           created_at?: string
           destino: string
           fecha?: string
@@ -407,6 +418,7 @@ export type Database = {
         }
         Update: {
           camion_id?: string | null
+          client_ref?: string | null
           created_at?: string
           destino?: string
           fecha?: string
@@ -442,12 +454,47 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      actualizar_viaje_con_entregas: {
+        Args: {
+          p_camion_id: string
+          p_destino: string
+          p_entregas: Json
+          p_fecha: string
+          p_ingreso: number
+          p_km_final: number
+          p_km_inicial: number
+          p_km_recorridos: number
+          p_observaciones: string
+          p_origen: string
+          p_viaje_id: string
+        }
+        Returns: undefined
+      }
       cambiar_rol_miembro: {
         Args: {
           p_rol: Database["public"]["Enums"]["rol_miembro"]
           p_user_id: string
         }
         Returns: undefined
+      }
+      crear_viaje_con_entregas: {
+        Args: {
+          p_camion_id?: string
+          p_client_ref: string
+          p_destino: string
+          p_entregas?: Json
+          p_fecha: string
+          p_ingreso?: number
+          p_km_final?: number
+          p_km_inicial?: number
+          p_km_recorridos?: number
+          p_observaciones?: string
+          p_origen: string
+        }
+        Returns: {
+          creado: boolean
+          viaje_id: string
+        }[]
       }
       create_transportista: { Args: { p_nombre: string }; Returns: string }
       get_mi_transportista_id: { Args: never; Returns: string }
