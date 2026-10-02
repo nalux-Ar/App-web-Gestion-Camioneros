@@ -10,6 +10,43 @@
 >
 > Riesgo mientras esté pausado: la web pública comparte el mismo Supabase y el registro no exige confirmar el email, así que cualquiera que tenga el link puede crear cuentas y datos. Aceptado porque hoy solo la usa el equipo del proyecto.
 
+## Hoja de ruta hacia el lanzamiento
+
+> Panorama general. El detalle técnico de cada etapa está más abajo ("Bloques" y "Pendientes").
+> El nombre del primer usuario de prueba y los datos comerciales (precios, planes) van solo en `docs-privados/`: el repo es público.
+
+### Corto plazo (para que el primer usuario de prueba empiece a probar)
+- [ ] **Etapa 1 — Gastos**: implementada y auditada (sin críticos ni altos). Falta la prueba manual con sesión real (alta común y de combustible, editar, borrar, reintento sin señal) y el commit del código.
+- [ ] **Etapa 2 — Viajes**: la base ya está (migración 007 aplicada, con funciones atómicas). Falta el front: lista por mes, alta y edición con entregas e incidencias, "+ Nuevo cliente" solo con nombre (aviso de duplicado en el front), borrado (mapear `23503` a "tiene gastos vinculados") y auditoría de `appsec-secure-coding` al cerrar.
+- [ ] **Etapa 3 — Vínculo gasto ↔ viaje**: elegir el viaje al cargar un gasto y ver los gastos de cada viaje (`gastos.viaje_id`, opcional, ya existe).
+- [ ] **Devoluciones**: la tabla ya existe. Motivos: rotura/daño, vencimiento, mercadería incorrecta y otro (más descripción opcional); ligadas a un viaje y a un cliente.
+- [ ] **Clientes y camión**: pantallas propias de alta y edición (hoy "+ Nuevo cliente" se resuelve al vuelo desde el viaje). Ojo: el esquema permite **un solo camión por transportista** (`camiones_un_por_transportista`); decidir si alcanza para el usuario de prueba o si hay que quitar esa restricción (migración) y sumar un selector.
+- [ ] **Resumen**: gasto mensual, consumo y rendimiento de combustible (entre cargas de tanque lleno, con litros, `km_odometro` y `tanque_lleno`) y, si hay ingreso cargado, ganancia por viaje. Antes figuraba como "Bloque D: reportes".
+- [ ] **Cierre de pruebas**: pasada completa en un celular real (360 px, teclado numérico, selector de fecha, sin señal), borrar los datos de prueba y auditoría de seguridad del conjunto.
+- [ ] **Reactivar Turnstile** antes de que entre el usuario de prueba (los 4 pasos del aviso de arriba).
+- [ ] **Salir a producción** con todo probado en local: push a `main` (solo con "dale"), variables de entorno en Vercel, y Site URL y Redirect URLs de Supabase con el dominio de producción exacto (nunca comodines).
+- [ ] **Acceso del usuario de prueba**: cuenta creada por el responsable del proyecto (email + contraseña, sin invitación de choferes todavía) desde Supabase (Authentication → Users) o desde el registro, y que haga el onboarding (nombre del transportista). Alternativa: mandarle el enlace de "olvidé mi contraseña" para que elija él su clave.
+
+### Antes de usuarios reales ajenos (no bloquea la prueba del primer usuario)
+- [ ] Confirmación de email en el registro (rama local `feat/confirmacion-email`, en pausa: falta auditoría, prueba y rebase; activar "Confirm email" y la plantilla junto con el deploy).
+- [ ] SMTP propio con dominio (hoy el proveedor por defecto tiene límites muy bajos), sin tracking de clics ni aperturas en los mails de auth, con plantillas en español.
+- [ ] Invitación de choferes a un tenant (pendiente desde el Bloque A): necesaria cuando la gente se dé de alta sola; función propia + auditoría.
+- [ ] Fotos de gastos: policies de Storage (carpeta por `transportista_id`) y validación de `gastos.foto_url`.
+- [ ] Resiliencia de formularios en Viajes y Devoluciones (mismo patrón que Gastos: `client_ref` y reintento manual sin perder lo tipeado).
+- [ ] Endurecimiento: CSP completa en `vercel.json`, protección de contraseñas filtradas en Supabase si el plan lo permite, y mover `get_mi_transportista_id()` a un schema no expuesto (opcional).
+- [ ] Planes de infraestructura: el plan gratuito de Supabase pausa el proyecto por inactividad (ya pasó una vez) y no ofrece las mismas copias de seguridad que uno de pago; Vercel en plan gratuito es para uso no comercial. Revisar planes y copias antes de cobrar o de tener datos que importen.
+- [ ] Tests automáticos: sumar un runner (vitest) y migrar la lógica pura que hoy se prueba con harness fuera del repo.
+- [ ] Aviso de privacidad y términos de uso (mencionar a Cloudflare cuando Turnstile esté activo).
+
+### Bloque D — suscripción y cobro (después de la prueba con el primer usuario)
+- [ ] Elegir pasarela de pago: Mercado Pago (suscripciones recurrentes en Argentina), con el cobro en una página alojada por la pasarela: la app nunca toca datos de tarjeta.
+- [ ] Definir el modelo de planes: precio, qué incluye, si hay prueba gratis y cuánto dura (los valores van en `docs-privados/`).
+- [ ] Tabla de estado de suscripción por tenant (prueba / al día / en gracia / vencido / cancelado), con `transportista_id` y RLS: lectura para los miembros del tenant, escritura solo desde el servidor, nunca desde el cliente. Definir cómo se aplica el estado (policies de la base o solo el front).
+- [ ] Webhooks de la pasarela en una función de servidor (Edge Function de Supabase o función de Vercel): verificar la firma, ser idempotentes y actualizar el estado. Usan credencial de servicio, así que pasan por auditoría de `appsec-secure-coding`.
+- [ ] Pantallas: planes, método de pago, estado de cuenta y recibo.
+- [ ] Definir qué pasa si no paga (bloqueo total, solo lectura o días de gracia) y cómo se exportan los datos de quien cancela.
+- [ ] Encuadre fiscal para emitir factura o recibo de la suscripción: hay que definirlo con un contador (la decisión "sin facturación" es del producto para sus usuarios, no de este cobro).
+
 ## Bloques
 - [x] **Bloque A**: esquema + RLS + test de aislamiento con 2 tenants — cerrado 2026-09-23. Auditado por `appsec-secure-coding` (sin críticos/altos; los medios/bajos quedaron corregidos). Validado localmente en PGlite (`OK: 80/80`) y **aplicado en la base real el 2026-09-28** vía MCP (`001_schema`, `002_functions`, `003_rls`): `aislamiento.sql` contra Supabase → `OK: 80/80`, sin datos residuales, RLS activo en las 9 tablas, 4 categorías globales.
 - [x] **Bloque B**: auth (login email/contraseña, registro, recuperar contraseña, onboarding del transportista) + pantalla de Login con fondo oscuro, detalles dorados y el logo de Elan centrado + layout compartido con el logo (versión chica) en el header, visible en toda la app ya logueado + pantalla de Configuración con toggle claro/oscuro y selector de color de acento — implementado 2026-09-28, auditado por `appsec-secure-coding` (1 crítico, 2 altos, 1 medio y 1 bajo, todos corregidos). Sin migraciones nuevas. **Pendiente del responsable del proyecto**: prueba manual con `docs/checklist-bloque-b.md`.
@@ -20,8 +57,8 @@
   - [ ] Etapa 1: Gastos (listado con filtro por mes y categoría, carga en pocos toques, combustible con litros, km y tanque lleno, editar y borrar). Reglas ya definidas (ver "Bloque C" en Pendientes): reintento idempotente con `client_ref` y limpieza de campos de combustible al cambiar de categoría.
   - [ ] Etapa 2: Viajes (fecha, origen, destino, km, entregas con incidencias, "+ Nuevo cliente" solo con nombre). Viaje + entregas se guardan con la función atómica de la 007 (ya aplicada); falta el front.
   - [ ] Etapa 3: vínculo gasto ↔ viaje.
-  - Después, otra etapa: devoluciones, clientes y camión, resumen.
-- [ ] **Bloque D**: reportes (gasto total, ganancia si hay ingreso cargado, consumo y rendimiento de combustible, estimado mensual)
+  - Después, otra etapa: devoluciones, clientes y camión, y resumen (gasto total y mensual, consumo y rendimiento de combustible, ganancia si hay ingreso cargado, estimado mensual; antes figuraba como Bloque D).
+- [ ] **Bloque D**: suscripción y cobro (pasarela de pago, planes, estado de suscripción por tenant, webhooks y pantallas) — después de la prueba con el primer usuario; ver la hoja de ruta de arriba.
 
 ## Registro de subagentes
 | Fecha | Tarea | Subagente |
