@@ -4,14 +4,17 @@
 -- Qué hace: crea 2 tenants (A y B) más un chofer en A y un usuario sin
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
--- auto-promoción de rol y las FK anti-referencia-cruzada funcionan.
+-- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
+-- secciones 11 a 16 cubren además las migraciones 005 a 007 y el vínculo
+-- gasto <-> viaje de la Etapa 3 (que no tiene migración propia).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
 -- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql, 003_rls.sql,
 -- 005_gastos_combustible.sql, 006_gastos_client_ref.sql y
--- 007_viajes_client_ref_y_funciones.sql (las secciones 11 a 15 usan sus
--- columnas y funciones; la 004 no hace falta para este test). NO agregar
+-- 007_viajes_client_ref_y_funciones.sql (las secciones 11 a 16 usan sus
+-- columnas y funciones; la 16 no necesita ninguna migración propia; la 004
+-- no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
@@ -35,7 +38,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 15 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 16 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -2775,6 +2778,678 @@ begin
     '15.15 Como postgres: ninguna entrega cruza tenants (viaje o cliente), no hay huérfanas, y los viajes de A y de B solo tienen sus propios cambios',
     v_cruzadas = 0 and v_huerfanas = 0 and v_destino_u = 'Jujuy' and v_destino_b = 'Buenos Aires',
     format('cruzadas=%s huerfanas=%s destino_u=%s destino_b=%s', v_cruzadas, v_huerfanas, v_destino_u, v_destino_b));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 16) Vínculo gasto <-> viaje (Etapa 3, sin migración)
+-- ---------------------------------------------------------------------
+-- La Etapa 3 no agrega nada a la base: usa lo que ya existe desde 001 a 003
+-- (gastos.viaje_id opcional, la FK compuesta gastos_viaje_fk
+-- (transportista_id, viaje_id) -> viajes (transportista_id, id) con ON DELETE
+-- RESTRICT, el índice gastos_transportista_viaje_idx y la policy por tenant de
+-- gastos y viajes). El front va a: (a) vincular, cambiar y desvincular el
+-- viaje de un gasto con un UPDATE de gastos.viaje_id; (b) listar los gastos de
+-- un viaje (select ... where viaje_id = X) y embeber el viaje de cada gasto
+-- (gastos -> viajes(origen, destino)); (c) borrar un viaje con gastos en dos
+-- pasos idempotentes: "update gastos set viaje_id = null where viaje_id = X" y
+-- después "delete from viajes where id = X" (las entregas se borran en
+-- cascada; los gastos se conservan sin viaje). Esta sección prueba eso.
+--
+-- Datos propios (se crean acá; de las secciones anteriores solo se usan los
+-- tenants y usuarios del setup y las categorías globales):
+--   A: un cliente; viajes V1 a V5; gastos G1 y GC (sin viaje), GT (testigo,
+--      en V1), G31/G32/G33 (en V3, con datos distintos: un peaje con método de
+--      pago, un combustible con litros/odómetro/tanque lleno y un gasto con
+--      client_ref) y G41 (en V4). V3 tiene 2 entregas, 1 devolución y 3
+--      gastos; V4, 2 entregas y 1 gasto; V5, 1 entrega y ningún gasto.
+--   B: un viaje VB con un gasto GB vinculado.
+-- El INSERT de un gasto de B apuntando a un viaje de A ya lo cubre el caso 3.5
+-- (no se repite). Acá se prueba el UPDATE, que es lo que va a usar el front.
+--
+-- Dos advertencias sobre estas pruebas:
+-- * SQLSTATE de ON DELETE RESTRICT: en PostgreSQL 17 (la versión de Supabase
+--   hoy) un DELETE que viola un RESTRICT da 23503 (foreign_key_violation), el
+--   mismo código que una referencia inválida; en PostgreSQL 18 (p.ej. PGlite)
+--   da 23001 (restrict_violation). El caso 15.14 y el 16.14 esperan 23503: si
+--   Supabase sube a PostgreSQL 18 van a fallar a propósito (con el SQLSTATE
+--   nuevo en el detalle) y habrá que mapear también 23001 en el front.
+-- * La carrera del caso 16.14 se simula en orden (un gasto nuevo aparece entre
+--   los dos pasos). Acá hay una sola conexión: no se puede reproducir el
+--   solapamiento real de dos transacciones, que resuelve Postgres con locks de
+--   fila (el INSERT del gasto toma FOR KEY SHARE sobre el viaje y el DELETE
+--   necesita FOR UPDATE, así que se serializan y no puede quedar un gasto
+--   apuntando a un viaje borrado).
+
+-- Datos propios de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  v_peajes uuid := (public._test_get('categoria_global_peajes_id'))::uuid;
+  v_comb uuid := (public._test_get('categoria_global_combustible_id'))::uuid;
+  v_cli uuid; v_id uuid;
+  v1 uuid; v2 uuid; v3 uuid; v4 uuid; v5 uuid;
+begin
+  insert into public.clientes (nombre) values ('Cliente A (sección 16)') returning id into v_cli;
+  perform public._test_set('s16_cliente_a', v_cli::text);
+
+  insert into public.viajes (origen, destino) values ('Origen V1', 'Destino V1') returning id into v1;
+  insert into public.viajes (origen, destino) values ('Origen V2', 'Destino V2') returning id into v2;
+  insert into public.viajes (origen, destino) values ('Origen V3', 'Destino V3') returning id into v3;
+  insert into public.viajes (origen, destino) values ('Origen V4', 'Destino V4') returning id into v4;
+  insert into public.viajes (origen, destino) values ('Origen V5', 'Destino V5') returning id into v5;
+  perform public._test_set('s16_v1', v1::text);
+  perform public._test_set('s16_v2', v2::text);
+  perform public._test_set('s16_v3', v3::text);
+  perform public._test_set('s16_v4', v4::text);
+  perform public._test_set('s16_v5', v5::text);
+
+  insert into public.entregas (viaje_id, cliente_id)
+    values (v3, v_cli), (v3, v_cli), (v4, v_cli), (v4, v_cli), (v5, v_cli);
+  insert into public.devoluciones (viaje_id, cliente_id, motivo) values (v3, v_cli, 'otro');
+
+  -- Sin viaje: G1 (se vincula y se mueve en 16.2 y 16.3) y GC (la usa el chofer en 16.16).
+  insert into public.gastos (categoria_id, monto, descripcion)
+    values (v_peajes, 1000, 'G1 sin viaje') returning id into v_id;
+  perform public._test_set('s16_g1', v_id::text);
+  insert into public.gastos (categoria_id, monto, descripcion)
+    values (v_peajes, 80, 'GC sin viaje') returning id into v_id;
+  perform public._test_set('s16_gc', v_id::text);
+
+  -- Testigo: vinculado a V1 durante toda la sección; no tiene que moverse nunca.
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values (v_peajes, 300, v1) returning id into v_id;
+  perform public._test_set('s16_gt', v_id::text);
+
+  -- Los 3 gastos de V3, con columnas distintas entre sí para poder comprobar que desvincular no toca nada más.
+  insert into public.gastos (categoria_id, monto, viaje_id, descripcion, metodo_pago, fecha)
+    values (v_peajes, 1000.50, v3, 'Peaje autopista', 'efectivo', date '2026-06-01') returning id into v_id;
+  perform public._test_set('s16_g31', v_id::text);
+  insert into public.gastos (categoria_id, monto, viaje_id, litros, precio_por_litro, km_odometro, tanque_lleno)
+    values (v_comb, 60600, v3, 50.5, 1200, 123456.7, true) returning id into v_id;
+  perform public._test_set('s16_g32', v_id::text);
+  insert into public.gastos (categoria_id, monto, viaje_id, client_ref)
+    values (v_peajes, 250.25, v3, 'ffffffff-0000-4000-8000-000000000001') returning id into v_id;
+  perform public._test_set('s16_g33', v_id::text);
+
+  -- El gasto de V4 (el viaje de la carrera de 16.14 y 16.15).
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values (v_peajes, 700, v4) returning id into v_id;
+  perform public._test_set('s16_g41', v_id::text);
+exception when others then
+  perform public._test_set('s16_error_setup_a', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Datos propios de B.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_vb uuid; v_gb uuid;
+begin
+  insert into public.viajes (origen, destino) values ('Origen VB', 'Destino VB') returning id into v_vb;
+  insert into public.gastos (categoria_id, monto)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 400) returning id into v_gb;
+  perform public._test_set('s16_vb', v_vb::text);
+  perform public._test_set('s16_gb', v_gb::text);
+  -- Control positivo del lado de B: vincula su propio gasto a su propio viaje (queda verificado en 16.0).
+  update public.gastos set viaje_id = v_vb where id = v_gb;
+exception when others then
+  perform public._test_set('s16_error_setup_b', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: los datos de la sección quedaron como se describe arriba.
+do $$
+declare
+  c_caso constant text := '16.0 setup: A y B crearon sin excepciones sus viajes, entregas, devolución y gastos de la sección, y los vínculos quedaron como se esperaba';
+  v_ta uuid := (public._test_get('tenant_a_id'))::uuid;
+  v_tb uuid := (public._test_get('tenant_b_id'))::uuid;
+  v1 uuid := (public._test_get('s16_v1'))::uuid;
+  v2 uuid := (public._test_get('s16_v2'))::uuid;
+  v3 uuid := (public._test_get('s16_v3'))::uuid;
+  v4 uuid := (public._test_get('s16_v4'))::uuid;
+  v5 uuid := (public._test_get('s16_v5'))::uuid;
+  vb uuid := (public._test_get('s16_vb'))::uuid;
+  g1 uuid := (public._test_get('s16_g1'))::uuid;
+  gc uuid := (public._test_get('s16_gc'))::uuid;
+  gt uuid := (public._test_get('s16_gt'))::uuid;
+  g31 uuid := (public._test_get('s16_g31'))::uuid;
+  g32 uuid := (public._test_get('s16_g32'))::uuid;
+  g33 uuid := (public._test_get('s16_g33'))::uuid;
+  g41 uuid := (public._test_get('s16_g41'))::uuid;
+  gb uuid := (public._test_get('s16_gb'))::uuid;
+  v_viajes_a int; v_viaje_b int; v_e3 int; v_e4 int; v_e5 int; v_d3 int;
+  v_g1 int; v_gc int; v_gt int; v_g3 int; v_g41 int; v_gb int;
+begin
+  select count(*) into v_viajes_a from public.viajes where transportista_id = v_ta and id in (v1, v2, v3, v4, v5);
+  select count(*) into v_viaje_b from public.viajes where transportista_id = v_tb and id = vb;
+  select count(*) into v_e3 from public.entregas where transportista_id = v_ta and viaje_id = v3;
+  select count(*) into v_e4 from public.entregas where transportista_id = v_ta and viaje_id = v4;
+  select count(*) into v_e5 from public.entregas where transportista_id = v_ta and viaje_id = v5;
+  select count(*) into v_d3 from public.devoluciones where transportista_id = v_ta and viaje_id = v3;
+  select count(*) filter (where id = g1 and viaje_id is null and transportista_id = v_ta),
+         count(*) filter (where id = gc and viaje_id is null and transportista_id = v_ta),
+         count(*) filter (where id = gt and viaje_id = v1 and transportista_id = v_ta),
+         count(*) filter (where id in (g31, g32, g33) and viaje_id = v3 and transportista_id = v_ta),
+         count(*) filter (where id = g41 and viaje_id = v4 and transportista_id = v_ta),
+         count(*) filter (where id = gb and viaje_id = vb and transportista_id = v_tb)
+    into v_g1, v_gc, v_gt, v_g3, v_g41, v_gb
+    from public.gastos
+   where id in (g1, gc, gt, g31, g32, g33, g41, gb);
+
+  perform public._test_chk(c_caso,
+    public._test_get('s16_error_setup_a') is null and public._test_get('s16_error_setup_b') is null
+      and v_viajes_a = 5 and v_viaje_b = 1 and v_e3 = 2 and v_e4 = 2 and v_e5 = 1 and v_d3 = 1
+      and v_g1 = 1 and v_gc = 1 and v_gt = 1 and v_g3 = 3 and v_g41 = 1 and v_gb = 1,
+    format('error_a=%s error_b=%s viajes_a=%s viaje_b=%s entregas(v3/v4/v5)=%s/%s/%s devoluciones_v3=%s gastos(g1/gc/gt/g3x/g41/gb)=%s/%s/%s/%s/%s/%s',
+      public._test_get('s16_error_setup_a'), public._test_get('s16_error_setup_b'),
+      v_viajes_a, v_viaje_b, v_e3, v_e4, v_e5, v_d3, v_g1, v_gc, v_gt, v_g3, v_g41, v_gb));
+end
+$$;
+
+-- Como postgres: las piezas que usa la Etapa 3 existen tal cual se espera (sin migración).
+do $$
+declare
+  c_caso constant text := '16.1 Sin migración: gastos_viaje_fk es una FK compuesta (transportista_id, viaje_id) -> viajes (transportista_id, id) ON DELETE RESTRICT, existe gastos_transportista_viaje_idx, y gastos y viajes tienen RLS con UNA sola policy (ALL, por tenant)';
+  v_fk boolean; v_idx boolean; v_rls int; v_pol_total int; v_pol_ok int;
+begin
+  select exists (
+    select 1
+      from pg_constraint c
+     where c.conname = 'gastos_viaje_fk'
+       and c.contype = 'f'
+       and c.conrelid = 'public.gastos'::regclass
+       and c.confrelid = 'public.viajes'::regclass
+       and c.confdeltype = 'r'
+       and c.confmatchtype = 's'
+       and (select array_agg(a.attname::text order by k.ord)
+              from unnest(c.conkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+           = array['transportista_id', 'viaje_id']
+       and (select array_agg(a.attname::text order by k.ord)
+              from unnest(c.confkey) with ordinality as k(attnum, ord)
+              join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+           = array['transportista_id', 'id']
+  ) into v_fk;
+
+  select exists (
+    select 1 from pg_indexes
+     where schemaname = 'public' and tablename = 'gastos'
+       and indexname = 'gastos_transportista_viaje_idx'
+       and indexdef like '%(transportista_id, viaje_id)%'
+  ) into v_idx;
+
+  select count(*) into v_rls
+    from pg_class
+   where oid in ('public.gastos'::regclass, 'public.viajes'::regclass) and relrowsecurity;
+
+  select count(*), count(*) filter (
+           where cmd = 'ALL' and roles = '{authenticated}'::name[]
+             and qual like '%get_mi_transportista_id%' and with_check like '%get_mi_transportista_id%')
+    into v_pol_total, v_pol_ok
+    from pg_policies
+   where schemaname = 'public' and tablename in ('gastos', 'viajes');
+
+  perform public._test_chk(c_caso,
+    v_fk and v_idx and v_rls = 2 and v_pol_total = 2 and v_pol_ok = 2,
+    format('fk=%s indice=%s tablas_con_rls=%s policies=%s (de las cuales ALL/tenant=%s)', v_fk, v_idx, v_rls, v_pol_total, v_pol_ok));
+end
+$$;
+
+-- A: vincular, cambiar y desvincular con UPDATE; listar y embeber.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '16.2 A vincula un gasto propio a un viaje propio con UPDATE de viaje_id: queda el viaje_id y no cambia ni el tenant, ni el monto, ni la categoría';
+  v_rows int; v_viaje uuid; v_tid uuid; v_monto numeric; v_cat uuid;
+begin
+  update public.gastos set viaje_id = (public._test_get('s16_v1'))::uuid
+   where id = (public._test_get('s16_g1'))::uuid;
+  get diagnostics v_rows = row_count;
+  select viaje_id, transportista_id, monto, categoria_id into v_viaje, v_tid, v_monto, v_cat
+    from public.gastos where id = (public._test_get('s16_g1'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_viaje = (public._test_get('s16_v1'))::uuid
+      and v_tid = (public._test_get('tenant_a_id'))::uuid and v_monto = 1000
+      and v_cat = (public._test_get('categoria_global_peajes_id'))::uuid,
+    format('filas=%s viaje=%s tenant=%s monto=%s categoria=%s', v_rows, v_viaje, v_tid, v_monto, v_cat));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '16.3 A cambia el gasto a otro viaje propio y después lo desvincula (viaje_id = null): ambos UPDATE funcionan y el gasto queda sin viaje, con el mismo monto';
+  v_rows1 int; v_viaje1 uuid; v_rows2 int; v_viaje2 uuid; v_monto numeric;
+begin
+  update public.gastos set viaje_id = (public._test_get('s16_v2'))::uuid
+   where id = (public._test_get('s16_g1'))::uuid;
+  get diagnostics v_rows1 = row_count;
+  select viaje_id into v_viaje1 from public.gastos where id = (public._test_get('s16_g1'))::uuid;
+
+  update public.gastos set viaje_id = null
+   where id = (public._test_get('s16_g1'))::uuid;
+  get diagnostics v_rows2 = row_count;
+  select viaje_id, monto into v_viaje2, v_monto
+    from public.gastos where id = (public._test_get('s16_g1'))::uuid;
+
+  perform public._test_chk(c_caso,
+    v_rows1 = 1 and v_viaje1 = (public._test_get('s16_v2'))::uuid
+      and v_rows2 = 1 and v_viaje2 is null and v_monto = 1000,
+    format('cambio: filas=%s viaje=%s | desvincular: filas=%s viaje=%s monto=%s', v_rows1, v_viaje1, v_rows2, v_viaje2, v_monto));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- El "embed" de PostgREST (gastos -> viajes(origen, destino) por la FK compuesta)
+-- se arma como un LEFT JOIN por (transportista_id, viaje_id): se reproduce acá.
+do $$
+declare
+  c_caso constant text := '16.4 A lista los gastos de su viaje (where viaje_id = X) y ve exactamente los 3 de V3; el embed gastos -> viajes(origen, destino) trae el viaje correcto y vacío para un gasto sin viaje';
+  v_ids uuid[]; v_n int; v_suma numeric; v_o1 text; v_d1 text; v_o2 text; v_d2 text;
+begin
+  select array_agg(id order by id), count(*), sum(monto) into v_ids, v_n, v_suma
+    from public.gastos where viaje_id = (public._test_get('s16_v3'))::uuid;
+
+  select v.origen, v.destino into v_o1, v_d1
+    from public.gastos g
+    left join public.viajes v on v.transportista_id = g.transportista_id and v.id = g.viaje_id
+   where g.id = (public._test_get('s16_g31'))::uuid;
+  select v.origen, v.destino into v_o2, v_d2
+    from public.gastos g
+    left join public.viajes v on v.transportista_id = g.transportista_id and v.id = g.viaje_id
+   where g.id = (public._test_get('s16_g1'))::uuid;   -- G1 quedó sin viaje en 16.3
+
+  perform public._test_chk(c_caso,
+    v_n = 3
+      and v_ids = (select array_agg(x order by x)
+                     from unnest(array[(public._test_get('s16_g31'))::uuid, (public._test_get('s16_g32'))::uuid,
+                                       (public._test_get('s16_g33'))::uuid]) as x)
+      and v_suma = 61850.75
+      and v_o1 = 'Origen V3' and v_d1 = 'Destino V3' and v_o2 is null and v_d2 is null,
+    format('gastos de V3=%s suma=%s | embed de G31=%s -> %s | embed de G1 (sin viaje)=%s -> %s', v_n, v_suma, v_o1, v_d1, v_o2, v_d2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B intenta engancharse a los viajes de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '16.5 B no puede apuntar con UPDATE un gasto PROPIO a un viaje de A: falla con 23503 (gastos_viaje_fk) y el gasto sigue vinculado a su viaje y en el tenant de B';
+  v_state text; v_msg text; v_viaje uuid; v_tid uuid;
+begin
+  begin
+    update public.gastos set viaje_id = (public._test_get('s16_v3'))::uuid
+     where id = (public._test_get('s16_gb'))::uuid;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  end;
+  select viaje_id, transportista_id into v_viaje, v_tid
+    from public.gastos where id = (public._test_get('s16_gb'))::uuid;
+  perform public._test_chk(c_caso,
+    v_state = '23503' and v_msg like '%gastos_viaje_fk%'
+      and v_viaje = (public._test_get('s16_vb'))::uuid and v_tid = (public._test_get('tenant_b_id'))::uuid,
+    format('sqlstate=%s viaje_del_gasto=%s tenant=%s :: %s', v_state, v_viaje, v_tid, v_msg));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Sin oráculo de existencia: el error es el mismo para el viaje de A que para un viaje que no existe.
+do $$
+declare
+  c_caso constant text := '16.6 El error de B al apuntar a un viaje de A es idéntico al de apuntar a un viaje inexistente (mismo SQLSTATE y mismo mensaje: no sirve de oráculo de existencia)';
+  v_s1 text; v_m1 text; v_s2 text; v_m2 text;
+begin
+  begin
+    update public.gastos set viaje_id = (public._test_get('s16_v3'))::uuid
+     where id = (public._test_get('s16_gb'))::uuid;
+  exception when others then
+    get stacked diagnostics v_s1 = returned_sqlstate, v_m1 = message_text;
+  end;
+  begin
+    update public.gastos set viaje_id = gen_random_uuid()
+     where id = (public._test_get('s16_gb'))::uuid;
+  exception when others then
+    get stacked diagnostics v_s2 = returned_sqlstate, v_m2 = message_text;
+  end;
+  perform public._test_chk(c_caso,
+    v_s1 is not null and v_s1 = v_s2 and v_m1 = v_m2,
+    format('viaje de A: %s|%s | viaje inexistente: %s|%s', v_s1, v_m1, v_s2, v_m2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Un PATCH armado a mano que también manda transportista_id (mudar el gasto al tenant de A para engancharlo a su viaje).
+do $$
+declare
+  c_caso constant text := '16.7 B no puede mudar un gasto propio al tenant de A (UPDATE de transportista_id y viaje_id de A): falla con 42501 y el gasto queda en B, con su viaje';
+  v_state text; v_msg text; v_viaje uuid; v_tid uuid;
+begin
+  update public.gastos
+     set transportista_id = (public._test_get('tenant_a_id'))::uuid,
+         viaje_id = (public._test_get('s16_v3'))::uuid
+   where id = (public._test_get('s16_gb'))::uuid;
+  perform public._test_chk(c_caso, false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  select viaje_id, transportista_id into v_viaje, v_tid
+    from public.gastos where id = (public._test_get('s16_gb'))::uuid;
+  perform public._test_chk(c_caso,
+    v_state = '42501' and v_msg like 'No se puede cambiar el transportista_id%'
+      and v_viaje = (public._test_get('s16_vb'))::uuid and v_tid = (public._test_get('tenant_b_id'))::uuid,
+    format('sqlstate=%s viaje_del_gasto=%s tenant=%s :: %s', v_state, v_viaje, v_tid, v_msg));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '16.8 B no ve los gastos de A al filtrar por el viaje_id de A (ni sumando transportista_id = A, ni con cualquiera de los viajes de A): 0 filas, aun sabiendo el id';
+  v_n1 int; v_n2 int; v_n3 int; v_suma numeric;
+begin
+  select count(*), sum(monto) into v_n1, v_suma
+    from public.gastos where viaje_id = (public._test_get('s16_v3'))::uuid;
+  select count(*) into v_n2
+    from public.gastos
+   where viaje_id = (public._test_get('s16_v3'))::uuid
+     and transportista_id = (public._test_get('tenant_a_id'))::uuid;
+  select count(*) into v_n3
+    from public.gastos
+   where viaje_id in ((public._test_get('s16_v1'))::uuid, (public._test_get('s16_v2'))::uuid,
+                      (public._test_get('s16_v3'))::uuid, (public._test_get('s16_v4'))::uuid,
+                      (public._test_get('s16_v5'))::uuid);
+  perform public._test_chk(c_caso,
+    v_n1 = 0 and v_suma is null and v_n2 = 0 and v_n3 = 0,
+    format('por viaje_id de A=%s (suma=%s) | con transportista_id de A=%s | por cualquier viaje de A=%s', v_n1, v_suma, v_n2, v_n3));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '16.9 El borrado en dos pasos hecho por B sobre un viaje de A (desvincular masivo y DELETE) afecta 0 filas en cada paso y no da error';
+  v_r1 int; v_r2 int;
+begin
+  update public.gastos set viaje_id = null where viaje_id = (public._test_get('s16_v3'))::uuid;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = (public._test_get('s16_v3'))::uuid;
+  get diagnostics v_r2 = row_count;
+  perform public._test_chk(c_caso, v_r1 = 0 and v_r2 = 0,
+    format('desvincular afectó %s fila(s); DELETE afectó %s', v_r1, v_r2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: nada de A ni de B cambió por los intentos de B.
+do $$
+declare
+  c_caso constant text := '16.10 Como postgres, tras los intentos de B: V3 de A conserva sus 3 gastos vinculados, sus 2 entregas y su devolución, y el gasto y el viaje de B siguen como estaban';
+  v_ids uuid[]; v_viaje_a boolean; v_e3 int; v_d3 int; v_gb_viaje uuid; v_gb_tid uuid; v_viaje_b boolean;
+begin
+  select array_agg(id order by id) into v_ids from public.gastos where viaje_id = (public._test_get('s16_v3'))::uuid;
+  select exists(select 1 from public.viajes where id = (public._test_get('s16_v3'))::uuid) into v_viaje_a;
+  select count(*) into v_e3 from public.entregas where viaje_id = (public._test_get('s16_v3'))::uuid;
+  select count(*) into v_d3 from public.devoluciones where viaje_id = (public._test_get('s16_v3'))::uuid;
+  select viaje_id, transportista_id into v_gb_viaje, v_gb_tid from public.gastos where id = (public._test_get('s16_gb'))::uuid;
+  select exists(select 1 from public.viajes
+                 where id = (public._test_get('s16_vb'))::uuid and transportista_id = (public._test_get('tenant_b_id'))::uuid)
+    into v_viaje_b;
+  perform public._test_chk(c_caso,
+    v_ids = (select array_agg(x order by x)
+               from unnest(array[(public._test_get('s16_g31'))::uuid, (public._test_get('s16_g32'))::uuid,
+                                 (public._test_get('s16_g33'))::uuid]) as x)
+      and v_viaje_a and v_e3 = 2 and v_d3 = 1
+      and v_gb_viaje = (public._test_get('s16_vb'))::uuid and v_gb_tid = (public._test_get('tenant_b_id'))::uuid and v_viaje_b,
+    format('gastos de V3=%s viaje_existe=%s entregas=%s devoluciones=%s | GB: viaje=%s tenant=%s viaje_de_B_existe=%s',
+      coalesce(cardinality(v_ids), 0), v_viaje_a, v_e3, v_d3, v_gb_viaje, v_gb_tid, v_viaje_b));
+end
+$$;
+
+-- A: borrado en dos pasos, idempotencia y carrera.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '16.11 A borra en dos pasos un viaje propio con 3 gastos, 2 entregas y 1 devolución: el viaje, sus entregas y su devolución desaparecen y los 3 gastos siguen, con viaje_id null y sin otros cambios';
+  v1 uuid := (public._test_get('s16_v1'))::uuid;
+  v3 uuid := (public._test_get('s16_v3'))::uuid;
+  v4 uuid := (public._test_get('s16_v4'))::uuid;
+  v_ids uuid[] := array[(public._test_get('s16_g31'))::uuid, (public._test_get('s16_g32'))::uuid, (public._test_get('s16_g33'))::uuid];
+  v_antes jsonb; v_despues jsonb;
+  v_total_antes int; v_total_despues int;
+  v_r1 int; v_r2 int;
+  v_viaje boolean; v_ent int; v_dev int; v_existen int; v_sin_viaje int;
+  v_gt uuid; v_v1 boolean; v_e4 int;
+begin
+  select count(*) into v_total_antes from public.gastos;
+  select jsonb_agg(to_jsonb(g) - 'viaje_id' - 'updated_at' order by g.id) into v_antes
+    from public.gastos g where g.id = any (v_ids);
+
+  -- Paso 1: desvincular. Paso 2: borrar el viaje.
+  update public.gastos set viaje_id = null where viaje_id = v3;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = v3;
+  get diagnostics v_r2 = row_count;
+
+  select exists(select 1 from public.viajes where id = v3) into v_viaje;
+  select count(*) into v_ent from public.entregas where viaje_id = v3;
+  select count(*) into v_dev from public.devoluciones where viaje_id = v3;
+  select count(*), count(*) filter (where viaje_id is null) into v_existen, v_sin_viaje
+    from public.gastos where id = any (v_ids);
+  select jsonb_agg(to_jsonb(g) - 'viaje_id' - 'updated_at' order by g.id) into v_despues
+    from public.gastos g where g.id = any (v_ids);
+  select count(*) into v_total_despues from public.gastos;
+  -- Testigos: el gasto de otro viaje sigue donde estaba y las entregas de otro viaje no se tocaron.
+  select viaje_id into v_gt from public.gastos where id = (public._test_get('s16_gt'))::uuid;
+  select exists(select 1 from public.viajes where id = v1) into v_v1;
+  select count(*) into v_e4 from public.entregas where viaje_id = v4;
+
+  perform public._test_chk(c_caso,
+    v_r1 = 3 and v_r2 = 1 and not v_viaje and v_ent = 0 and v_dev = 0
+      and v_existen = 3 and v_sin_viaje = 3
+      and v_antes is not null and v_antes = v_despues
+      and v_total_antes = v_total_despues
+      and v_gt = v1 and v_v1 and v_e4 = 2,
+    format('paso 1 afectó %s, paso 2 afectó %s | viaje_existe=%s entregas=%s devoluciones=%s | gastos existen=%s sin_viaje=%s sin_otros_cambios=%s | total de gastos %s -> %s | testigo en V1=%s viaje V1 existe=%s entregas de V4=%s',
+      v_r1, v_r2, v_viaje, v_ent, v_dev, v_existen, v_sin_viaje, v_antes = v_despues,
+      v_total_antes, v_total_despues, v_gt = v1, v_v1, v_e4));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '16.12 Borrar en dos pasos un viaje SIN gastos: el paso 1 afecta 0 filas sin error y el DELETE borra el viaje y su entrega';
+  v5 uuid := (public._test_get('s16_v5'))::uuid;
+  v_ent_antes int; v_r1 int; v_r2 int; v_viaje boolean; v_ent int;
+begin
+  select count(*) into v_ent_antes from public.entregas where viaje_id = v5;
+  update public.gastos set viaje_id = null where viaje_id = v5;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = v5;
+  get diagnostics v_r2 = row_count;
+  select exists(select 1 from public.viajes where id = v5) into v_viaje;
+  select count(*) into v_ent from public.entregas where viaje_id = v5;
+  perform public._test_chk(c_caso,
+    v_ent_antes = 1 and v_r1 = 0 and v_r2 = 1 and not v_viaje and v_ent = 0,
+    format('entregas antes=%s | paso 1 afectó %s, paso 2 afectó %s | viaje_existe=%s entregas despues=%s', v_ent_antes, v_r1, v_r2, v_viaje, v_ent));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '16.13 Idempotencia: repetir los dos pasos sobre los viajes ya borrados (V3 de 16.11 y V5 de 16.12) afecta 0 filas en cada paso y no da error';
+  v3 uuid := (public._test_get('s16_v3'))::uuid;
+  v5 uuid := (public._test_get('s16_v5'))::uuid;
+  v_r1 int; v_r2 int; v_r3 int; v_r4 int;
+begin
+  update public.gastos set viaje_id = null where viaje_id = v3;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = v3;
+  get diagnostics v_r2 = row_count;
+  update public.gastos set viaje_id = null where viaje_id = v5;
+  get diagnostics v_r3 = row_count;
+  delete from public.viajes where id = v5;
+  get diagnostics v_r4 = row_count;
+  perform public._test_chk(c_caso,
+    v_r1 = 0 and v_r2 = 0 and v_r3 = 0 and v_r4 = 0,
+    format('V3: desvincular=%s DELETE=%s | V5: desvincular=%s DELETE=%s', v_r1, v_r2, v_r3, v_r4));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Carrera: entre el paso 1 y el paso 2 aparece un gasto nuevo vinculado al viaje.
+do $$
+declare
+  c_caso constant text := '16.14 Carrera: si entre la desvinculación y el DELETE aparece un gasto nuevo vinculado al viaje, el DELETE falla con 23503 (gastos_viaje_fk) y no borra nada: el viaje y sus 2 entregas siguen';
+  -- 23503 en PostgreSQL 17 (Supabase); PostgreSQL 18 da 23001. Ver la nota al principio de la sección.
+  v_esperado constant text := '23503';
+  v4 uuid := (public._test_get('s16_v4'))::uuid;
+  v_r1 int; v_g42 uuid; v_state text; v_msg text;
+  v_viaje boolean; v_ent int; v_g41_viaje uuid; v_g42_viaje uuid;
+begin
+  -- Paso 1 del primer intento: desvincula el único gasto (G41).
+  update public.gastos set viaje_id = null where viaje_id = v4;
+  get diagnostics v_r1 = row_count;
+
+  -- Aparece un gasto nuevo vinculado a V4 (p.ej. una carga que se sincroniza justo ahora desde otro dispositivo).
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 90, v4)
+    returning id into v_g42;
+  perform public._test_set('s16_g42', v_g42::text);
+
+  -- Paso 2: el DELETE tiene que fallar.
+  begin
+    delete from public.viajes where id = v4;
+    perform public._test_chk(c_caso, false, 'no lanzó excepción: el viaje se borró con un gasto vinculado');
+    return;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  end;
+
+  select exists(select 1 from public.viajes where id = v4) into v_viaje;
+  select count(*) into v_ent from public.entregas where viaje_id = v4;
+  select viaje_id into v_g41_viaje from public.gastos where id = (public._test_get('s16_g41'))::uuid;
+  select viaje_id into v_g42_viaje from public.gastos where id = v_g42;
+
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_state = v_esperado and v_msg like '%gastos_viaje_fk%'
+      and v_viaje and v_ent = 2 and v_g41_viaje is null and v_g42_viaje = v4,
+    format('paso 1 afectó %s | sqlstate=%s viaje_existe=%s entregas=%s G41.viaje=%s G42.viaje=%s :: %s',
+      v_r1, v_state, v_viaje, v_ent, v_g41_viaje, v_g42_viaje, v_msg));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '16.15 Carrera: repetir los dos pasos lo completa: el viaje y sus entregas desaparecen y los 2 gastos (el original y el nuevo) siguen, con viaje_id null';
+  v4 uuid := (public._test_get('s16_v4'))::uuid;
+  v_r1 int; v_r2 int; v_viaje boolean; v_ent int; v_existen int; v_sin_viaje int;
+begin
+  update public.gastos set viaje_id = null where viaje_id = v4;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = v4;
+  get diagnostics v_r2 = row_count;
+  select exists(select 1 from public.viajes where id = v4) into v_viaje;
+  select count(*) into v_ent from public.entregas where viaje_id = v4;
+  select count(*), count(*) filter (where viaje_id is null) into v_existen, v_sin_viaje
+    from public.gastos
+   where id in ((public._test_get('s16_g41'))::uuid, (public._test_get('s16_g42'))::uuid);
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_r2 = 1 and not v_viaje and v_ent = 0 and v_existen = 2 and v_sin_viaje = 2,
+    format('paso 1 afectó %s, paso 2 afectó %s | viaje_existe=%s entregas=%s | gastos existen=%s sin_viaje=%s', v_r1, v_r2, v_viaje, v_ent, v_existen, v_sin_viaje));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- El chofer de A: la policy es por tenant, no por rol.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '16.16 El chofer de A (rol chofer) también vincula y desvincula gastos de A con UPDATE de viaje_id: la policy es por tenant, no por rol';
+  v1 uuid := (public._test_get('s16_v1'))::uuid;
+  gc uuid := (public._test_get('s16_gc'))::uuid;
+  v_rol public.rol_miembro; v_r1 int; v_viaje1 uuid; v_vistos int; v_r2 int; v_viaje2 uuid;
+begin
+  select rol into v_rol from public.miembros where user_id = (public._test_get('uid_a_chofer'))::uuid;
+
+  update public.gastos set viaje_id = v1 where id = gc;
+  get diagnostics v_r1 = row_count;
+  select viaje_id into v_viaje1 from public.gastos where id = gc;
+  select count(*) into v_vistos from public.gastos where viaje_id = v1;   -- el testigo GT + GC
+
+  update public.gastos set viaje_id = null where id = gc;
+  get diagnostics v_r2 = row_count;
+  select viaje_id into v_viaje2 from public.gastos where id = gc;
+
+  perform public._test_chk(c_caso,
+    v_rol = 'chofer' and v_r1 = 1 and v_viaje1 = v1 and v_vistos = 2 and v_r2 = 1 and v_viaje2 is null,
+    format('rol=%s | vincular: filas=%s viaje=%s gastos vistos en V1=%s | desvincular: filas=%s viaje=%s', v_rol, v_r1, v_viaje1, v_vistos, v_r2, v_viaje2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: integridad general de los vínculos en toda la base.
+do $$
+declare
+  c_caso constant text := '16.17 Como postgres: ningún gasto de toda la base apunta a un viaje de otro tenant ni a un viaje inexistente (y hay gastos vinculados, para que el chequeo no sea vacío)';
+  v_cruzados int; v_huerfanos int; v_vinculados int;
+begin
+  -- Se une solo por id (sin el tenant) a propósito: así un cruce entre tenants no se esconde detrás de la FK compuesta.
+  select count(*) into v_cruzados
+    from public.gastos g join public.viajes v on v.id = g.viaje_id
+   where v.transportista_id <> g.transportista_id;
+  select count(*) into v_huerfanos
+    from public.gastos g
+   where g.viaje_id is not null and not exists (select 1 from public.viajes v where v.id = g.viaje_id);
+  select count(*) into v_vinculados from public.gastos where viaje_id is not null;
+  perform public._test_chk(c_caso,
+    v_cruzados = 0 and v_huerfanos = 0 and v_vinculados > 0,
+    format('cruzados=%s huerfanos=%s gastos vinculados=%s', v_cruzados, v_huerfanos, v_vinculados));
 end
 $$;
 
