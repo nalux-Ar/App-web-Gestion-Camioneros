@@ -5,16 +5,17 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 16 cubren además las migraciones 005 a 007 y el vínculo
--- gasto <-> viaje de la Etapa 3 (que no tiene migración propia).
+-- secciones 11 a 17 cubren además las migraciones 005 a 008, el vínculo
+-- gasto <-> viaje de la Etapa 3 (que no tiene migración propia) y las
+-- devoluciones de la Etapa 4 (la 008 agrega su client_ref).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
 -- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql, 003_rls.sql,
--- 005_gastos_combustible.sql, 006_gastos_client_ref.sql y
--- 007_viajes_client_ref_y_funciones.sql (las secciones 11 a 16 usan sus
--- columnas y funciones; la 16 no necesita ninguna migración propia; la 004
--- no hace falta para este test). NO agregar
+-- 005_gastos_combustible.sql, 006_gastos_client_ref.sql,
+-- 007_viajes_client_ref_y_funciones.sql y 008_devoluciones_client_ref.sql
+-- (las secciones 11 a 17 usan sus columnas y funciones; la 16 no necesita
+-- ninguna migración propia; la 004 no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
@@ -38,7 +39,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 16 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 17 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -3450,6 +3451,961 @@ begin
   perform public._test_chk(c_caso,
     v_cruzados = 0 and v_huerfanos = 0 and v_vinculados > 0,
     format('cruzados=%s huerfanos=%s gastos vinculados=%s', v_cruzados, v_huerfanos, v_vinculados));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 17) Devoluciones: CRUD, aislamiento y client_ref (migración 008)
+-- ---------------------------------------------------------------------
+-- Requiere 008_devoluciones_client_ref.sql aplicada. La Etapa 4 no usa
+-- funciones de base: el front guarda cada devolución con un INSERT directo
+-- con client_ref (si falla con 23505 en devoluciones_transportista_client_
+-- ref_uidx, la devolución ya estaba guardada), la edita con UPDATE (por id,
+-- o por client_ref si el usuario cambió datos entre intentos), la borra con
+-- DELETE y la lista con SELECT. Esta sección prueba eso y que RLS, las FK
+-- compuestas y los triggers de 002 y 008 lo sostienen entre tenants.
+-- Lo que ya cubren otras secciones no se repite: el INSERT de B apuntando a
+-- un viaje o a un cliente de A (3.3 y 3.4), que anon no lee devoluciones
+-- (8.8) y el aislamiento básico por id (1.9, 1.16 y 1.21). El borrado en dos
+-- pasos de un viaje con gastos y una devolución ya está en 16.11; acá se suma
+-- solo lo que ese caso no mira.
+--
+-- Datos propios (se crean acá; de las secciones anteriores solo se usan los
+-- tenants y usuarios del setup, y el helper _test_sqlstate de la sección 13):
+--   A: clientes CA1, CA2, CA3 y CAR (CA3 y CAR sin ninguna entrega; CA2 con
+--      una entrega solo en V2), viajes V1, V2 y VC (una entrega cada uno:
+--      V1-CA1, V2-CA2 y VC-CA1) y una devolución DCH que usa el chofer.
+--   B: un cliente CB y un viaje VB.
+-- Referencias: X (la usan A y B, cada uno la suya), Y (la usa A; B la manda
+-- forzando el transportista_id de A), W (solo A), N (un valor nuevo con el
+-- que se intenta reescribir un client_ref) y CH (la usa el chofer).
+--
+-- SQLSTATE de ON DELETE RESTRICT: en PostgreSQL 17 (la versión de Supabase
+-- hoy) un DELETE que viola un RESTRICT da 23503 (foreign_key_violation); en
+-- PostgreSQL 18 (p.ej. PGlite 0.5.x) da 23001 (restrict_violation). El caso
+-- nuevo de esta sección que depende de eso (17.18) acepta los dos códigos,
+-- para que el archivo corra igual en las dos versiones sin parchear nada.
+-- Los casos 15.14 y 16.14 siguen exigiendo 23503 (ver la nota de la 16).
+
+select public._test_set('s17_ref_x',  'ffffffff-0000-4000-8000-000000001701');
+select public._test_set('s17_ref_y',  'ffffffff-0000-4000-8000-000000001702');
+select public._test_set('s17_ref_w',  'ffffffff-0000-4000-8000-000000001703');
+select public._test_set('s17_ref_n',  'ffffffff-0000-4000-8000-000000001704');
+select public._test_set('s17_ref_ch', 'ffffffff-0000-4000-8000-000000001705');
+
+-- Helper de esta sección: ejecuta una sentencia y devuelve 'OK' o TODO lo que
+-- PostgREST le expone al cliente de un error (code, message, details, hint),
+-- más el constraint, en un texto de varias líneas. A diferencia de
+-- _test_sqlstate (que usan las secciones 13 a 15 y no se toca) incluye el
+-- DETAIL y el HINT. SECURITY INVOKER: corre con el rol activo de la sesión,
+-- así que el DETAIL es el que vería el cliente real (con RLS, no el del owner).
+create or replace function public._test_error_completo(p_sql text)
+returns text language plpgsql as $$
+declare v_state text; v_msg text; v_cons text; v_detail text; v_hint text;
+begin
+  execute p_sql;
+  return 'OK';
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text, v_cons = constraint_name,
+                          v_detail = pg_exception_detail, v_hint = pg_exception_hint;
+  return 'sqlstate=' || v_state || E'\nconstraint=' || coalesce(v_cons, '')
+      || E'\nmessage=' || coalesce(v_msg, '')
+      || E'\ndetail=' || coalesce(v_detail, '')
+      || E'\nhint=' || coalesce(v_hint, '');
+end;
+$$;
+
+-- Datos propios de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare c1 uuid; c2 uuid; c3 uuid; cr uuid; v1 uuid; v2 uuid; vc uuid; v_dch uuid;
+begin
+  insert into public.clientes (nombre) values ('Cliente A1 (sección 17)') returning id into c1;
+  insert into public.clientes (nombre) values ('Cliente A2 (sección 17)') returning id into c2;
+  insert into public.clientes (nombre) values ('Cliente A3 sin entregas (sección 17)') returning id into c3;
+  insert into public.clientes (nombre) values ('Cliente AR para el RESTRICT (sección 17)') returning id into cr;
+  perform public._test_set('s17_ca1', c1::text);
+  perform public._test_set('s17_ca2', c2::text);
+  perform public._test_set('s17_ca3', c3::text);
+  perform public._test_set('s17_car', cr::text);
+
+  insert into public.viajes (origen, destino) values ('Origen S17-1', 'Destino S17-1') returning id into v1;
+  insert into public.viajes (origen, destino) values ('Origen S17-2', 'Destino S17-2') returning id into v2;
+  insert into public.viajes (origen, destino) values ('Origen S17-C', 'Destino S17-C') returning id into vc;
+  perform public._test_set('s17_v1', v1::text);
+  perform public._test_set('s17_v2', v2::text);
+  perform public._test_set('s17_vc', vc::text);
+
+  insert into public.entregas (viaje_id, cliente_id) values (v1, c1), (v2, c2), (vc, c1);
+
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values (v1, c1, 'otro', 'DCH: la crea el admin y la usa el chofer') returning id into v_dch;
+  perform public._test_set('s17_dch', v_dch::text);
+exception when others then
+  perform public._test_set('s17_error_setup_a', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Datos propios de B.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_cb uuid; v_vb uuid;
+begin
+  insert into public.clientes (nombre) values ('Cliente B (sección 17)') returning id into v_cb;
+  insert into public.viajes (origen, destino) values ('Origen S17-B', 'Destino S17-B') returning id into v_vb;
+  perform public._test_set('s17_cb', v_cb::text);
+  perform public._test_set('s17_vb', v_vb::text);
+exception when others then
+  perform public._test_set('s17_error_setup_b', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: los datos de la sección quedaron como se describe arriba.
+do $$
+declare
+  c_caso constant text := '17.0 setup: A y B crearon sin excepciones los clientes, viajes, entregas y la devolución DCH de la sección (A: 4 clientes -CA3 y CAR sin ninguna entrega-, 3 viajes, 3 entregas y 1 devolución; B: 1 cliente y 1 viaje), todo en su tenant';
+  v_ta uuid := (public._test_get('tenant_a_id'))::uuid;
+  v_tb uuid := (public._test_get('tenant_b_id'))::uuid;
+  ca1 uuid := (public._test_get('s17_ca1'))::uuid;
+  ca2 uuid := (public._test_get('s17_ca2'))::uuid;
+  ca3 uuid := (public._test_get('s17_ca3'))::uuid;
+  car uuid := (public._test_get('s17_car'))::uuid;
+  v1 uuid := (public._test_get('s17_v1'))::uuid;
+  v2 uuid := (public._test_get('s17_v2'))::uuid;
+  vc uuid := (public._test_get('s17_vc'))::uuid;
+  cb uuid := (public._test_get('s17_cb'))::uuid;
+  vb uuid := (public._test_get('s17_vb'))::uuid;
+  v_clientes_a int; v_sin_entregas int; v_viajes_a int; v_entregas_a int; v_dev_a int; v_cliente_b int; v_viaje_b int;
+begin
+  select count(*) into v_clientes_a from public.clientes where transportista_id = v_ta and id in (ca1, ca2, ca3, car);
+  select count(*) into v_sin_entregas from public.entregas where cliente_id in (ca3, car);
+  select count(*) into v_viajes_a from public.viajes where transportista_id = v_ta and id in (v1, v2, vc);
+  select count(*) into v_entregas_a from public.entregas where transportista_id = v_ta and viaje_id in (v1, v2, vc);
+  select count(*) into v_dev_a from public.devoluciones
+   where transportista_id = v_ta and id = (public._test_get('s17_dch'))::uuid and viaje_id = v1 and cliente_id = ca1;
+  select count(*) into v_cliente_b from public.clientes where transportista_id = v_tb and id = cb;
+  select count(*) into v_viaje_b from public.viajes where transportista_id = v_tb and id = vb;
+  perform public._test_chk(c_caso,
+    public._test_get('s17_error_setup_a') is null and public._test_get('s17_error_setup_b') is null
+      and v_clientes_a = 4 and v_sin_entregas = 0 and v_viajes_a = 3 and v_entregas_a = 3 and v_dev_a = 1
+      and v_cliente_b = 1 and v_viaje_b = 1,
+    format('error_a=%s error_b=%s clientes_a=%s entregas_de_CA3_y_CAR=%s viajes_a=%s entregas_a=%s DCH=%s cliente_b=%s viaje_b=%s',
+      public._test_get('s17_error_setup_a'), public._test_get('s17_error_setup_b'),
+      v_clientes_a, v_sin_entregas, v_viajes_a, v_entregas_a, v_dev_a, v_cliente_b, v_viaje_b));
+end
+$$;
+
+-- Como postgres: las piezas de la migración 008.
+do $$
+declare
+  c_caso constant text := '17.1 Migración 008: devoluciones.client_ref existe, es uuid, admite NULL, no tiene default y tiene comentario';
+  v_tipo text; v_notnull boolean; v_default boolean; v_comentario text;
+begin
+  select a.atttypid::regtype::text, a.attnotnull, a.atthasdef, col_description(a.attrelid, a.attnum)
+    into v_tipo, v_notnull, v_default, v_comentario
+    from pg_attribute a
+   where a.attrelid = 'public.devoluciones'::regclass and a.attname = 'client_ref' and not a.attisdropped;
+  perform public._test_chk(c_caso,
+    v_tipo = 'uuid' and v_notnull is false and v_default is false and v_comentario is not null,
+    format('tipo=%s not_null=%s default=%s comentario=%s', v_tipo, v_notnull, v_default, v_comentario is not null));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.2 Migración 008: devoluciones_transportista_client_ref_uidx es un índice ÚNICO y PARCIAL (where client_ref is not null) sobre (transportista_id, client_ref), en ese orden y sin otras columnas ni expresiones';
+  v_unico boolean; v_valido boolean; v_pred text; v_nkeys int; v_expr boolean; v_cols text[];
+begin
+  select i.indisunique, i.indisvalid, pg_get_expr(i.indpred, i.indrelid), i.indnkeyatts, i.indexprs is not null,
+         (select array_agg(a.attname::text order by k.ord)
+            from unnest(i.indkey::int2[]) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+    into v_unico, v_valido, v_pred, v_nkeys, v_expr, v_cols
+    from pg_index i
+    join pg_class c on c.oid = i.indexrelid
+   where i.indrelid = 'public.devoluciones'::regclass and c.relname = 'devoluciones_transportista_client_ref_uidx';
+  perform public._test_chk(c_caso,
+    v_unico and v_valido and v_pred = '(client_ref IS NOT NULL)' and v_nkeys = 2 and v_expr is false
+      and v_cols = array['transportista_id', 'client_ref']::text[],
+    format('unico=%s valido=%s predicado=%s columnas=%s (de clave: %s) expresiones=%s', v_unico, v_valido, v_pred, v_cols, v_nkeys, v_expr));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.3 Migración 008: fn_bloquear_cambio_client_ref_devolucion es SECURITY INVOKER con search_path fijo y sin EXECUTE para anon, authenticated ni public; trg_25_bloquear_cambio_client_ref es BEFORE UPDATE FOR EACH ROW sobre devoluciones y está habilitado; los BEFORE UPDATE de la tabla disparan en el orden trg_20 -> trg_25 -> trg_30';
+  v_fn oid; v_invoker boolean; v_path boolean; v_anon boolean; v_auth boolean; v_public boolean;
+  v_trg int; v_orden text[];
+begin
+  select p.oid, not p.prosecdef, coalesce(p.proconfig::text like '%search_path=public%', false),
+         has_function_privilege('anon', p.oid, 'execute'),
+         has_function_privilege('authenticated', p.oid, 'execute'),
+         has_function_privilege('public', p.oid, 'execute')
+    into v_fn, v_invoker, v_path, v_anon, v_auth, v_public
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace and p.proname = 'fn_bloquear_cambio_client_ref_devolucion';
+
+  -- tgtype: 1 = FOR EACH ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE, 16 = UPDATE, 32 = TRUNCATE.
+  select count(*) into v_trg
+    from pg_trigger t
+   where t.tgrelid = 'public.devoluciones'::regclass
+     and t.tgname = 'trg_25_bloquear_cambio_client_ref'
+     and t.tgfoid = v_fn
+     and not t.tgisinternal and t.tgenabled = 'O'
+     and (t.tgtype & 1) = 1 and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16
+     and (t.tgtype & (4 | 8 | 32)) = 0;
+
+  select array_agg(t.tgname::text order by t.tgname) into v_orden
+    from pg_trigger t
+   where t.tgrelid = 'public.devoluciones'::regclass and not t.tgisinternal
+     and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16;
+
+  perform public._test_chk(c_caso,
+    v_fn is not null and v_invoker and v_path and v_anon is false and v_auth is false and v_public is false
+      and v_trg = 1
+      and v_orden = array['trg_20_bloquear_cambio_transportista_id', 'trg_25_bloquear_cambio_client_ref', 'trg_30_set_updated_at']::text[],
+    format('funcion=%s invoker=%s search_path=%s EXECUTE anon=%s authenticated=%s public=%s | trigger 25 ok=%s | BEFORE UPDATE en orden: %s',
+      v_fn is not null, v_invoker, v_path, v_anon, v_auth, v_public, v_trg = 1, v_orden));
+end
+$$;
+
+-- A: alta con client_ref, edición, validaciones y client_ref inmutable.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '17.4 A inserta devoluciones con motivo, descripción y client_ref (X, Y, W) sobre un viaje y un cliente propios: quedan en su tenant, con el client_ref intacto (la primera, con todos sus datos)';
+  v_id uuid; v_tid uuid; v_ref uuid; v_motivo public.motivo_devolucion; v_desc text; v_viaje uuid; v_cli uuid;
+  v_id_y uuid; v_tid_y uuid; v_ref_y uuid; v_id_w uuid; v_tid_w uuid; v_ref_w uuid;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid,
+            'rotura_danio', 'D1 original', (public._test_get('s17_ref_x'))::uuid)
+    returning id, transportista_id, client_ref, motivo, descripcion, viaje_id, cliente_id
+      into v_id, v_tid, v_ref, v_motivo, v_desc, v_viaje, v_cli;
+  perform public._test_set('s17_d1', v_id::text);
+
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid,
+            'otro', 'DY', (public._test_get('s17_ref_y'))::uuid)
+    returning id, transportista_id, client_ref into v_id_y, v_tid_y, v_ref_y;
+  perform public._test_set('s17_dy', v_id_y::text);
+
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid,
+            'vencimiento', 'DW', (public._test_get('s17_ref_w'))::uuid)
+    returning id, transportista_id, client_ref into v_id_w, v_tid_w, v_ref_w;
+  perform public._test_set('s17_dw', v_id_w::text);
+
+  perform public._test_chk(c_caso,
+    v_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_y = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_w = (public._test_get('tenant_a_id'))::uuid
+      and v_ref = (public._test_get('s17_ref_x'))::uuid
+      and v_ref_y = (public._test_get('s17_ref_y'))::uuid
+      and v_ref_w = (public._test_get('s17_ref_w'))::uuid
+      and v_motivo = 'rotura_danio' and v_desc = 'D1 original'
+      and v_viaje = (public._test_get('s17_v1'))::uuid and v_cli = (public._test_get('s17_ca1'))::uuid,
+    format('tenants=%s/%s/%s refs=%s/%s/%s motivo=%s desc=%s', v_tid, v_tid_y, v_tid_w, v_ref, v_ref_y, v_ref_w, v_motivo, v_desc));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.5 A edita su devolución (motivo, descripción y cliente) con UPDATE: se aplican los 3 cambios y no cambian ni el tenant, ni el client_ref, ni el viaje, ni el id';
+  v_rows int; v_id uuid; v_tid uuid; v_ref uuid; v_motivo public.motivo_devolucion; v_desc text; v_viaje uuid; v_cli uuid;
+begin
+  update public.devoluciones
+     set motivo = 'vencimiento', descripcion = 'D1 editada', cliente_id = (public._test_get('s17_ca2'))::uuid
+   where id = (public._test_get('s17_d1'))::uuid;
+  get diagnostics v_rows = row_count;
+  select id, transportista_id, client_ref, motivo, descripcion, viaje_id, cliente_id
+    into v_id, v_tid, v_ref, v_motivo, v_desc, v_viaje, v_cli
+    from public.devoluciones where id = (public._test_get('s17_d1'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_id = (public._test_get('s17_d1'))::uuid
+      and v_motivo = 'vencimiento' and v_desc = 'D1 editada' and v_cli = (public._test_get('s17_ca2'))::uuid
+      and v_tid = (public._test_get('tenant_a_id'))::uuid and v_ref = (public._test_get('s17_ref_x'))::uuid
+      and v_viaje = (public._test_get('s17_v1'))::uuid,
+    format('filas=%s motivo=%s desc=%s cliente=%s tenant=%s ref=%s viaje=%s', v_rows, v_motivo, v_desc, v_cli, v_tid, v_ref, v_viaje));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Decisión de producto: la base no relaciona la devolución con las entregas.
+do $$
+declare
+  c_caso constant text := '17.6 La base NO exige que el cliente de la devolución tenga una entrega en ese viaje (decisión de producto: el front ofrece primero los clientes del viaje pero permite "Otros clientes"): un cliente propio sin ninguna entrega, o con entregas solo en otro viaje, se acepta';
+  v_sin_entregas boolean; v_otro_viaje boolean; v_tid1 uuid; v_tid2 uuid;
+begin
+  select not exists (select 1 from public.entregas where cliente_id = (public._test_get('s17_ca3'))::uuid)
+    into v_sin_entregas;
+  select not exists (select 1 from public.entregas
+                      where viaje_id = (public._test_get('s17_v1'))::uuid and cliente_id = (public._test_get('s17_ca2'))::uuid)
+         and exists (select 1 from public.entregas
+                      where viaje_id = (public._test_get('s17_v2'))::uuid and cliente_id = (public._test_get('s17_ca2'))::uuid)
+    into v_otro_viaje;
+
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca3'))::uuid, 'mercaderia_incorrecta', 'cliente sin entregas')
+    returning transportista_id into v_tid1;
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca2'))::uuid, 'otro', 'cliente con entrega en otro viaje')
+    returning transportista_id into v_tid2;
+
+  perform public._test_chk(c_caso,
+    v_sin_entregas and v_otro_viaje
+      and v_tid1 = (public._test_get('tenant_a_id'))::uuid and v_tid2 = (public._test_get('tenant_a_id'))::uuid,
+    format('CA3 sin entregas=%s | CA2 sin entrega en V1 y con una en V2=%s | tenants=%s/%s', v_sin_entregas, v_otro_viaje, v_tid1, v_tid2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.7 Reintento (INSERT directo) con el mismo client_ref falla con 23505 en el índice devoluciones_transportista_client_ref_uidx, sin DETAIL con los valores de la clave, y sigue habiendo 1 fila';
+  v_state text; v_msg text; v_constraint text; v_detail text; v_n int;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid,
+            'rotura_danio', 'D1 original', (public._test_get('s17_ref_x'))::uuid);
+  perform public._test_chk(c_caso, false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text,
+                          v_constraint = constraint_name, v_detail = pg_exception_detail;
+  select count(*) into v_n from public.devoluciones where client_ref = (public._test_get('s17_ref_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_state = '23505' and v_constraint = 'devoluciones_transportista_client_ref_uidx'
+      and v_msg like '%devoluciones_transportista_client_ref_uidx%' and nullif(v_detail, '') is null and v_n = 1,
+    format('sqlstate=%s constraint=%s detail=%s filas=%s :: %s', v_state, v_constraint, coalesce(v_detail, '(sin detalle)'), v_n, v_msg));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.8 Varias devoluciones con client_ref NULL conviven en el mismo tenant (omitido u omitido, o NULL explícito): el índice parcial las ignora';
+  v_antes int; v_despues int; v_id uuid;
+begin
+  select count(*) into v_antes from public.devoluciones where client_ref is null;
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid, 'otro', 'sin ref 1')
+    returning id into v_id;
+  perform public._test_set('s17_dnull', v_id::text);
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid, 'otro', 'sin ref 2');
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid, 'otro', 'sin ref 3', null);
+  select count(*) into v_despues from public.devoluciones where client_ref is null;
+  perform public._test_chk(c_caso, v_despues = v_antes + 3, format('antes=%s despues=%s', v_antes, v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.9 UPDATE que cambia client_ref (valor -> otro valor) falla con 42501 y la fila queda exactamente igual';
+  v_antes jsonb; v_despues jsonb; v_res text;
+begin
+  select to_jsonb(d) into v_antes from public.devoluciones d where d.id = (public._test_get('s17_d1'))::uuid;
+  v_res := public._test_sqlstate(format(
+    'update public.devoluciones set client_ref = %L::uuid where id = %L::uuid',
+    public._test_get('s17_ref_n'), public._test_get('s17_d1')));
+  select to_jsonb(d) into v_despues from public.devoluciones d where d.id = (public._test_get('s17_d1'))::uuid;
+  perform public._test_chk(c_caso,
+    v_res like '42501|%No se puede cambiar el client_ref de una devolución%' and v_antes is not null and v_antes = v_despues,
+    format('resultado=%s | fila igual=%s', v_res, v_antes = v_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.10 UPDATE que borra el client_ref (valor -> NULL) falla con 42501 y la fila queda exactamente igual';
+  v_antes jsonb; v_despues jsonb; v_res text;
+begin
+  select to_jsonb(d) into v_antes from public.devoluciones d where d.id = (public._test_get('s17_d1'))::uuid;
+  v_res := public._test_sqlstate(format(
+    'update public.devoluciones set client_ref = null where id = %L::uuid', public._test_get('s17_d1')));
+  select to_jsonb(d) into v_despues from public.devoluciones d where d.id = (public._test_get('s17_d1'))::uuid;
+  perform public._test_chk(c_caso,
+    v_res like '42501|%No se puede cambiar el client_ref de una devolución%' and v_antes is not null and v_antes = v_despues,
+    format('resultado=%s | fila igual=%s', v_res, v_antes = v_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.11 UPDATE que asigna client_ref a una devolución que no tenía (NULL -> valor) falla con 42501 y la fila queda exactamente igual';
+  v_antes jsonb; v_despues jsonb; v_res text;
+begin
+  select to_jsonb(d) into v_antes from public.devoluciones d where d.id = (public._test_get('s17_dnull'))::uuid;
+  v_res := public._test_sqlstate(format(
+    'update public.devoluciones set client_ref = %L::uuid where id = %L::uuid',
+    public._test_get('s17_ref_n'), public._test_get('s17_dnull')));
+  select to_jsonb(d) into v_despues from public.devoluciones d where d.id = (public._test_get('s17_dnull'))::uuid;
+  perform public._test_chk(c_caso,
+    v_res like '42501|%No se puede cambiar el client_ref de una devolución%'
+      and v_antes is not null and v_antes = v_despues and (v_despues ->> 'client_ref') is null,
+    format('resultado=%s | fila igual=%s', v_res, v_antes = v_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.12 UPDATE de otras columnas sigue funcionando: sin mencionar el client_ref, reenviando el MISMO valor, o reenviando NULL en una fila que no lo tenía (NULL -> NULL)';
+  v_r1 int; v_r2 int; v_r3 int; v_ref uuid; v_motivo public.motivo_devolucion; v_desc text; v_ref_null uuid; v_desc_null text;
+begin
+  update public.devoluciones set descripcion = 'D1 editada 2'
+   where id = (public._test_get('s17_d1'))::uuid;
+  get diagnostics v_r1 = row_count;
+  -- Reenviar el mismo client_ref (como haría un formulario que manda todo) tampoco molesta.
+  update public.devoluciones set motivo = 'otro', client_ref = (public._test_get('s17_ref_x'))::uuid
+   where id = (public._test_get('s17_d1'))::uuid;
+  get diagnostics v_r2 = row_count;
+  update public.devoluciones set descripcion = 'sin ref 1 editada', client_ref = null
+   where id = (public._test_get('s17_dnull'))::uuid;
+  get diagnostics v_r3 = row_count;
+  select client_ref, motivo, descripcion into v_ref, v_motivo, v_desc
+    from public.devoluciones where id = (public._test_get('s17_d1'))::uuid;
+  select client_ref, descripcion into v_ref_null, v_desc_null
+    from public.devoluciones where id = (public._test_get('s17_dnull'))::uuid;
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_r2 = 1 and v_r3 = 1
+      and v_ref = (public._test_get('s17_ref_x'))::uuid and v_motivo = 'otro' and v_desc = 'D1 editada 2'
+      and v_ref_null is null and v_desc_null = 'sin ref 1 editada',
+    format('filas=%s/%s/%s | D1: ref=%s motivo=%s desc=%s | sin ref: ref=%s desc=%s', v_r1, v_r2, v_r3, v_ref, v_motivo, v_desc, v_ref_null, v_desc_null));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.13 UPDATE ... WHERE client_ref = W del dueño (A) -el reintento con datos cambiados- afecta 1 fila y cambia solo lo pedido';
+  v_rows int; v_desc text; v_motivo public.motivo_devolucion; v_ref uuid; v_tid uuid; v_viaje uuid; v_cli uuid;
+begin
+  update public.devoluciones set descripcion = 'DW editada por A', motivo = 'rotura_danio'
+   where client_ref = (public._test_get('s17_ref_w'))::uuid;
+  get diagnostics v_rows = row_count;
+  select descripcion, motivo, client_ref, transportista_id, viaje_id, cliente_id
+    into v_desc, v_motivo, v_ref, v_tid, v_viaje, v_cli
+    from public.devoluciones where id = (public._test_get('s17_dw'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_desc = 'DW editada por A' and v_motivo = 'rotura_danio'
+      and v_ref = (public._test_get('s17_ref_w'))::uuid and v_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_viaje = (public._test_get('s17_v1'))::uuid and v_cli = (public._test_get('s17_ca1'))::uuid,
+    format('filas=%s desc=%s motivo=%s ref=%s tenant=%s', v_rows, v_desc, v_motivo, v_ref, v_tid));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Validaciones de la tabla que el front espeja.
+do $$
+declare
+  c_caso constant text := '17.14 Descripción: 2000 caracteres (contados como caracteres, no bytes) y NULL se aceptan; 2001 falla con 23514 (devoluciones_descripcion_chk) en INSERT y en UPDATE, y el UPDATE fallido no cambia la fila';
+  v_id_max uuid; v_id_null uuid; v_largo text; v_upd text; v_largo_fila int;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid, 'otro', repeat('ñ', 2000))
+    returning id into v_id_max;
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid, 'otro', null)
+    returning id into v_id_null;
+  v_largo := public._test_sqlstate(format(
+    'insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion) values (%L::uuid, %L::uuid, ''otro'', %L)',
+    public._test_get('s17_v1'), public._test_get('s17_ca1'), repeat('ñ', 2001)));
+  v_upd := public._test_sqlstate(format(
+    'update public.devoluciones set descripcion = %L where id = %L::uuid', repeat('ñ', 2001), v_id_max));
+  select length(descripcion) into v_largo_fila from public.devoluciones where id = v_id_max;
+  -- Se limpian las dos filas de prueba.
+  delete from public.devoluciones where id in (v_id_max, v_id_null);
+  perform public._test_chk(c_caso,
+    v_largo like '23514|devoluciones_descripcion_chk|%' and v_upd like '23514|devoluciones_descripcion_chk|%' and v_largo_fila = 2000,
+    format('insert 2001: %s | update 2001: %s | largo de la fila tras el update fallido=%s', v_largo, v_upd, v_largo_fila));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.15 Motivo: un valor fuera del enum falla con 22P02 y motivo NULL con 23502, tanto en INSERT como en UPDATE; el UPDATE fallido no cambia la fila';
+  v_a text; v_b text; v_c text; v_d text; v_antes jsonb; v_despues jsonb;
+begin
+  select to_jsonb(d) into v_antes from public.devoluciones d where d.id = (public._test_get('s17_d1'))::uuid;
+  v_a := public._test_sqlstate(format(
+    'insert into public.devoluciones (viaje_id, cliente_id, motivo) values (%L::uuid, %L::uuid, ''no_existe'')',
+    public._test_get('s17_v1'), public._test_get('s17_ca1')));
+  v_b := public._test_sqlstate(format(
+    'insert into public.devoluciones (viaje_id, cliente_id, motivo) values (%L::uuid, %L::uuid, null)',
+    public._test_get('s17_v1'), public._test_get('s17_ca1')));
+  v_c := public._test_sqlstate(format(
+    'update public.devoluciones set motivo = ''no_existe'' where id = %L::uuid', public._test_get('s17_d1')));
+  v_d := public._test_sqlstate(format(
+    'update public.devoluciones set motivo = null where id = %L::uuid', public._test_get('s17_d1')));
+  select to_jsonb(d) into v_despues from public.devoluciones d where d.id = (public._test_get('s17_d1'))::uuid;
+  perform public._test_chk(c_caso,
+    v_a like '22P02|%' and v_b like '23502|%' and v_c like '22P02|%' and v_d like '23502|%'
+      and v_antes is not null and v_antes = v_despues,
+    format('insert enum inválido: %s | insert NULL: %s | update enum inválido: %s | update NULL: %s | fila igual=%s',
+      v_a, v_b, v_c, v_d, v_antes = v_despues));
+end
+$$;
+
+-- Borrar: solo la fila pedida.
+do $$
+declare
+  c_caso constant text := '17.16 A borra una devolución propia con DELETE: afecta 1 fila, desaparece, y no se borra ninguna otra devolución del tenant';
+  v_antes int; v_despues int; v_id uuid; v_rows int; v_existe boolean; v_d1 boolean; v_dw boolean;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid, 'otro', 'para borrar', gen_random_uuid())
+    returning id into v_id;
+  select count(*) into v_antes from public.devoluciones;   -- incluye la recién creada
+  delete from public.devoluciones where id = v_id;
+  get diagnostics v_rows = row_count;
+  select exists(select 1 from public.devoluciones where id = v_id) into v_existe;
+  select count(*) into v_despues from public.devoluciones;
+  select exists(select 1 from public.devoluciones where id = (public._test_get('s17_d1'))::uuid) into v_d1;
+  select exists(select 1 from public.devoluciones where id = (public._test_get('s17_dw'))::uuid) into v_dw;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and not v_existe and v_despues = v_antes - 1 and v_d1 and v_dw,
+    format('filas=%s existe=%s total %s -> %s D1=%s DW=%s', v_rows, v_existe, v_antes, v_despues, v_d1, v_dw));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.17 Borrar un viaje propio con 2 devoluciones y 1 entrega las borra en cascada con la entrega, y no toca las devoluciones de otros viajes del mismo tenant ni los clientes (16.11 ya cubre el borrado en dos pasos con gastos)';
+  vc uuid := (public._test_get('s17_vc'))::uuid;
+  v_otras_antes uuid[]; v_otras_despues uuid[]; v_dev_antes int; v_ent_antes int; v_r int;
+  v_viaje boolean; v_dev_despues int; v_ent_despues int; v_clientes int;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values (vc, (public._test_get('s17_ca1'))::uuid, 'otro', 'DC1'),
+           (vc, (public._test_get('s17_ca2'))::uuid, 'vencimiento', 'DC2');
+  select array_agg(id order by id) into v_otras_antes from public.devoluciones where viaje_id <> vc;
+  select count(*) into v_dev_antes from public.devoluciones where viaje_id = vc;
+  select count(*) into v_ent_antes from public.entregas where viaje_id = vc;
+
+  delete from public.viajes where id = vc;
+  get diagnostics v_r = row_count;
+
+  select exists(select 1 from public.viajes where id = vc) into v_viaje;
+  select count(*) into v_dev_despues from public.devoluciones where viaje_id = vc;
+  select count(*) into v_ent_despues from public.entregas where viaje_id = vc;
+  select array_agg(id order by id) into v_otras_despues from public.devoluciones where viaje_id <> vc;
+  select count(*) into v_clientes from public.clientes
+   where id in ((public._test_get('s17_ca1'))::uuid, (public._test_get('s17_ca2'))::uuid,
+                (public._test_get('s17_ca3'))::uuid, (public._test_get('s17_car'))::uuid);
+  perform public._test_chk(c_caso,
+    v_dev_antes = 2 and v_ent_antes = 1 and v_r = 1 and not v_viaje and v_dev_despues = 0 and v_ent_despues = 0
+      and v_otras_antes is not null and v_otras_antes = v_otras_despues and v_clientes = 4,
+    format('antes: devoluciones=%s entregas=%s | DELETE afectó %s | viaje_existe=%s devoluciones=%s entregas=%s | otras devoluciones del tenant iguales=%s (%s) | clientes de la sección=%s',
+      v_dev_antes, v_ent_antes, v_r, v_viaje, v_dev_despues, v_ent_despues,
+      v_otras_antes = v_otras_despues, coalesce(cardinality(v_otras_antes), 0), v_clientes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- ON DELETE RESTRICT de devoluciones_cliente_fk (código distinto en PG17 y PG18: ver la nota de la sección).
+do $$
+declare
+  c_caso constant text := '17.18 Un cliente con devoluciones no se puede borrar (ON DELETE RESTRICT de devoluciones_cliente_fk: 23503 en PostgreSQL 17, 23001 en PostgreSQL 18): el cliente y la devolución siguen, y sin la devolución el cliente sí se borra';
+  cr uuid := (public._test_get('s17_car'))::uuid;
+  v_dev uuid; v_state text; v_msg text; v_cli_existe boolean; v_dev_existe boolean; v_r1 int; v_r2 int;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s17_v1'))::uuid, cr, 'otro', 'devolución del cliente AR')
+    returning id into v_dev;
+  begin
+    delete from public.clientes where id = cr;
+    perform public._test_chk(c_caso, false, 'no lanzó excepción: el cliente se borró teniendo una devolución');
+    return;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  end;
+  select exists(select 1 from public.clientes where id = cr) into v_cli_existe;
+  select exists(select 1 from public.devoluciones where id = v_dev) into v_dev_existe;
+  -- Control positivo: sin la devolución, el único freno desaparece y el cliente se borra.
+  delete from public.devoluciones where id = v_dev;
+  get diagnostics v_r1 = row_count;
+  delete from public.clientes where id = cr;
+  get diagnostics v_r2 = row_count;
+  perform public._test_chk(c_caso,
+    v_state in ('23503', '23001') and v_msg like '%devoluciones_cliente_fk%'
+      and v_cli_existe and v_dev_existe and v_r1 = 1 and v_r2 = 1,
+    format('sqlstate=%s cliente_existe=%s devolucion_existe=%s | tras borrar la devolución: filas=%s, cliente borrado=%s :: %s',
+      v_state, v_cli_existe, v_dev_existe, v_r1, v_r2, v_msg));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B: mismo client_ref que A, sin oráculo, y no puede tocar nada de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '17.19 B inserta con el MISMO client_ref X que ya usó A: funciona, queda en su tenant y B ve una sola fila con ese client_ref (la suya)';
+  v_id uuid; v_tid uuid; v_ref uuid; v_n int; v_tid_vista uuid; v_desc text;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_vb'))::uuid, (public._test_get('s17_cb'))::uuid,
+            'otro', 'devolución de B', (public._test_get('s17_ref_x'))::uuid)
+    returning id, transportista_id, client_ref into v_id, v_tid, v_ref;
+  perform public._test_set('s17_db_x', v_id::text);
+  select count(*), min(transportista_id::text)::uuid, min(descripcion) into v_n, v_tid_vista, v_desc
+    from public.devoluciones where client_ref = (public._test_get('s17_ref_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_tid = (public._test_get('tenant_b_id'))::uuid and v_ref = (public._test_get('s17_ref_x'))::uuid
+      and v_n = 1 and v_tid_vista = (public._test_get('tenant_b_id'))::uuid and v_desc = 'devolución de B',
+    format('tenant=%s filas vistas=%s vista_de=%s desc=%s', v_tid, v_n, v_tid_vista, v_desc));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.20 Un segundo INSERT de B con ese mismo client_ref X falla con 23505 en devoluciones_transportista_client_ref_uidx (contra su propia fila), sin DETAIL, y B sigue con 1 sola fila';
+  v_state text; v_msg text; v_constraint text; v_detail text; v_n int;
+begin
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_vb'))::uuid, (public._test_get('s17_cb'))::uuid,
+            'otro', 'reintento de B', (public._test_get('s17_ref_x'))::uuid);
+  perform public._test_chk(c_caso, false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text,
+                          v_constraint = constraint_name, v_detail = pg_exception_detail;
+  select count(*) into v_n from public.devoluciones where client_ref = (public._test_get('s17_ref_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_state = '23505' and v_constraint = 'devoluciones_transportista_client_ref_uidx'
+      and nullif(v_detail, '') is null and v_n = 1,
+    format('sqlstate=%s constraint=%s detail=%s filas=%s :: %s', v_state, v_constraint, coalesce(v_detail, '(sin detalle)'), v_n, v_msg));
+end
+$$;
+
+-- Sin oráculo de existencia: B manda el transportista_id de A y un client_ref que A ya usó (Y).
+-- Si el índice se evaluara contra el tenant de A, daría 23505 y B sabría que Y existe en A.
+do $$
+declare
+  c_caso constant text := '17.21 B forzando el transportista_id de A + un client_ref que A ya usó (Y): sin error (sin oráculo) y la devolución queda en B';
+  v_tid uuid;
+begin
+  insert into public.devoluciones (transportista_id, viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('tenant_a_id'))::uuid, (public._test_get('s17_vb'))::uuid, (public._test_get('s17_cb'))::uuid,
+            'otro', 'B forzando el tenant de A', (public._test_get('s17_ref_y'))::uuid)
+    returning transportista_id into v_tid;
+  perform public._test_chk(c_caso, v_tid = (public._test_get('tenant_b_id'))::uuid, 'quedó en ' || v_tid);
+exception
+  when unique_violation then
+    perform public._test_chk(c_caso, false, 'B recibió 23505: hay oráculo de existencia :: ' || sqlerrm);
+  when others then
+    perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.22 B no ve ninguna devolución de A: ni por id, ni por el viaje de A, ni por un client_ref de A, y todo lo que ve es de su tenant (y ve las suyas)';
+  v_ajenas int; v_por_id int; v_por_viaje int; v_por_ref int; v_propias int;
+begin
+  select count(*) into v_ajenas from public.devoluciones where transportista_id <> (public._test_get('tenant_b_id'))::uuid;
+  select count(*) into v_por_id from public.devoluciones
+   where id in ((public._test_get('s17_d1'))::uuid, (public._test_get('s17_dy'))::uuid,
+                (public._test_get('s17_dw'))::uuid, (public._test_get('s17_dch'))::uuid);
+  select count(*) into v_por_viaje from public.devoluciones where viaje_id = (public._test_get('s17_v1'))::uuid;
+  select count(*) into v_por_ref from public.devoluciones where client_ref = (public._test_get('s17_ref_w'))::uuid;
+  select count(*) into v_propias from public.devoluciones where transportista_id = (public._test_get('tenant_b_id'))::uuid;
+  perform public._test_chk(c_caso,
+    v_ajenas = 0 and v_por_id = 0 and v_por_viaje = 0 and v_por_ref = 0 and v_propias >= 1,
+    format('de otros tenants=%s | por id de A=%s | por el viaje de A=%s | por client_ref W=%s | propias=%s',
+      v_ajenas, v_por_id, v_por_viaje, v_por_ref, v_propias));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.23 UPDATE y DELETE de B sobre devoluciones de A afectan 0 filas y sin error: por id, por el viaje de A, por client_ref, borrando su client_ref y "mudándolas" al tenant de B';
+  d1 uuid := (public._test_get('s17_d1'))::uuid;
+  v1 uuid := (public._test_get('s17_v1'))::uuid;
+  w uuid := (public._test_get('s17_ref_w'))::uuid;
+  v_r1 int; v_r2 int; v_r3 int; v_r4 int; v_r5 int; v_r6 int; v_r7 int;
+begin
+  update public.devoluciones set descripcion = 'Hackeada por B' where id = d1;
+  get diagnostics v_r1 = row_count;
+  update public.devoluciones set descripcion = 'Hackeada por B' where viaje_id = v1;
+  get diagnostics v_r2 = row_count;
+  update public.devoluciones set descripcion = 'Hackeada por B' where client_ref = w;
+  get diagnostics v_r3 = row_count;
+  -- RLS descarta la fila antes de que corra el trigger de client_ref: 0 filas y sin error (no es un oráculo).
+  update public.devoluciones set client_ref = null where id = d1;
+  get diagnostics v_r4 = row_count;
+  update public.devoluciones set transportista_id = (public._test_get('tenant_b_id'))::uuid where id = d1;
+  get diagnostics v_r5 = row_count;
+  delete from public.devoluciones where id = d1;
+  get diagnostics v_r6 = row_count;
+  delete from public.devoluciones where client_ref = w;
+  get diagnostics v_r7 = row_count;
+  perform public._test_chk(c_caso,
+    v_r1 = 0 and v_r2 = 0 and v_r3 = 0 and v_r4 = 0 and v_r5 = 0 and v_r6 = 0 and v_r7 = 0,
+    format('UPDATE por id=%s, por viaje=%s, por client_ref=%s, client_ref a NULL=%s, mudar de tenant=%s | DELETE por id=%s, por client_ref=%s',
+      v_r1, v_r2, v_r3, v_r4, v_r5, v_r6, v_r7));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.24 UPDATE ... WHERE client_ref = X (el reintento con datos cambiados) de B afecta 1 sola fila: la de B (A tiene su propia fila con X y no se toca)';
+  v_rows int; v_n int; v_desc text; v_tid uuid;
+begin
+  update public.devoluciones set descripcion = 'B reedita X'
+   where client_ref = (public._test_get('s17_ref_x'))::uuid;
+  get diagnostics v_rows = row_count;
+  select count(*), min(descripcion), min(transportista_id::text)::uuid into v_n, v_desc, v_tid
+    from public.devoluciones where client_ref = (public._test_get('s17_ref_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_n = 1 and v_desc = 'B reedita X' and v_tid = (public._test_get('tenant_b_id'))::uuid,
+    format('filas=%s vistas=%s desc=%s tenant=%s', v_rows, v_n, v_desc, v_tid));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Referencias cruzadas: el INSERT ya lo cubren 3.3 y 3.4; acá se prueba el UPDATE, que es lo que usa el front al editar.
+do $$
+declare
+  c_caso constant text := '17.25 B no puede apuntar con UPDATE una devolución PROPIA a un viaje de A (23503, devoluciones_viaje_fk) ni a un cliente de A (23503, devoluciones_cliente_fk): la fila queda exactamente igual';
+  v_antes jsonb; v_despues jsonb; v_a text; v_b text;
+begin
+  select to_jsonb(d) into v_antes from public.devoluciones d where d.id = (public._test_get('s17_db_x'))::uuid;
+  v_a := public._test_sqlstate(format(
+    'update public.devoluciones set viaje_id = %L::uuid where id = %L::uuid',
+    public._test_get('s17_v1'), public._test_get('s17_db_x')));
+  v_b := public._test_sqlstate(format(
+    'update public.devoluciones set cliente_id = %L::uuid where id = %L::uuid',
+    public._test_get('s17_ca1'), public._test_get('s17_db_x')));
+  select to_jsonb(d) into v_despues from public.devoluciones d where d.id = (public._test_get('s17_db_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_a like '23503|%devoluciones_viaje_fk%' and v_b like '23503|%devoluciones_cliente_fk%'
+      and v_antes is not null and v_antes = v_despues,
+    format('viaje de A: %s | cliente de A: %s | fila igual=%s', v_a, v_b, v_antes = v_despues));
+end
+$$;
+
+-- Sin oráculo de existencia: el error es el mismo para un viaje o cliente de A que para uno inexistente.
+-- PostgREST le muestra al cliente el código, el mensaje, el DETAIL ("details") y el HINT ("hint"): se
+-- comparan todos (y el constraint). El DETAIL de una FK, si lo trae, nombra la clave consultada
+-- (transportista_id, viaje_id)=(<tenant>, <id>), que es distinta en cada intento: por eso se comparan con
+-- los uuids normalizados. Además, ninguna parte del error puede nombrar al tenant de A ni a su viaje o cliente.
+do $$
+declare
+  c_caso constant text := '17.26 El error de B al apuntar a un viaje o a un cliente de A es idéntico al de apuntar a uno inexistente (mismo SQLSTATE, constraint, mensaje, DETAIL y HINT, con los uuids normalizados; en UPDATE y en INSERT) y ninguna parte del error nombra a A: no sirve de oráculo de existencia';
+  c_uuid constant text := '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  v_db text := public._test_get('s17_db_x');
+  v_a text[]; v_b text[]; v_ok boolean; v_nombra_a boolean;
+begin
+  v_a := array[
+    -- UPDATE: viaje / cliente de A
+    public._test_error_completo(format('update public.devoluciones set viaje_id = %L::uuid where id = %L::uuid', public._test_get('s17_v1'), v_db)),
+    public._test_error_completo(format('update public.devoluciones set cliente_id = %L::uuid where id = %L::uuid', public._test_get('s17_ca1'), v_db)),
+    -- INSERT: viaje / cliente de A
+    public._test_error_completo(format('insert into public.devoluciones (viaje_id, cliente_id, motivo) values (%L::uuid, %L::uuid, ''otro'')', public._test_get('s17_v1'), public._test_get('s17_cb'))),
+    public._test_error_completo(format('insert into public.devoluciones (viaje_id, cliente_id, motivo) values (%L::uuid, %L::uuid, ''otro'')', public._test_get('s17_vb'), public._test_get('s17_ca1')))
+  ];
+  v_b := array[
+    -- los mismos cuatro con un id que no existe en ningún tenant
+    public._test_error_completo(format('update public.devoluciones set viaje_id = gen_random_uuid() where id = %L::uuid', v_db)),
+    public._test_error_completo(format('update public.devoluciones set cliente_id = gen_random_uuid() where id = %L::uuid', v_db)),
+    public._test_error_completo(format('insert into public.devoluciones (viaje_id, cliente_id, motivo) values (gen_random_uuid(), %L::uuid, ''otro'')', public._test_get('s17_cb'))),
+    public._test_error_completo(format('insert into public.devoluciones (viaje_id, cliente_id, motivo) values (%L::uuid, gen_random_uuid(), ''otro'')', public._test_get('s17_vb')))
+  ];
+  select bool_and(a like 'sqlstate=23503%' and regexp_replace(a, c_uuid, '<uuid>', 'gi') = regexp_replace(b, c_uuid, '<uuid>', 'gi'))
+    into v_ok
+    from unnest(v_a, v_b) as t(a, b);
+  -- B nunca manda el tenant de A, así que no tiene por qué aparecer; los ids de A que B sí mandó tampoco
+  -- (si algún día Postgres repitiera la clave en el DETAIL, este caso falla a propósito y hay que revisarlo).
+  select coalesce(bool_or(strpos(x, (public._test_get('tenant_a_id'))) > 0
+                          or strpos(x, (public._test_get('s17_v1'))) > 0
+                          or strpos(x, (public._test_get('s17_ca1'))) > 0), false)
+    into v_nombra_a
+    from unnest(v_a || v_b) as t(x);
+  perform public._test_chk(c_caso, v_ok and not v_nombra_a,
+    format('nombra a A=%s | de A: %s || inexistentes: %s', v_nombra_a,
+      replace(array_to_string(v_a, ' // '), E'\n', ' ; '), replace(array_to_string(v_b, ' // '), E'\n', ' ; ')));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.27 B no puede cambiar el transportista_id de una devolución propia (42501): la fila queda en B';
+  v_res text; v_tid uuid; v_ref uuid;
+begin
+  v_res := public._test_sqlstate(format(
+    'update public.devoluciones set transportista_id = %L::uuid where id = %L::uuid',
+    public._test_get('tenant_a_id'), public._test_get('s17_db_x')));
+  select transportista_id, client_ref into v_tid, v_ref
+    from public.devoluciones where id = (public._test_get('s17_db_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_res like '42501|%No se puede cambiar el transportista_id%'
+      and v_tid = (public._test_get('tenant_b_id'))::uuid and v_ref = (public._test_get('s17_ref_x'))::uuid,
+    format('resultado=%s | tenant de la fila=%s', v_res, v_tid));
+end
+$$;
+
+reset role;
+
+-- El chofer de A: la policy es por tenant, no por rol.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '17.28 El chofer de A (rol chofer) también crea, edita y borra devoluciones de A, incluida una que creó el admin (la policy es por tenant, no por rol), y no puede tocar las de B';
+  dch uuid := (public._test_get('s17_dch'))::uuid;
+  v_rol public.rol_miembro; v_ve int; v_id uuid; v_tid uuid; v_r_edit int; v_r_edit_admin int; v_desc_admin text;
+  v_r_del int; v_r_del_admin int; v_dch_existe boolean; v_r_b int;
+begin
+  select rol into v_rol from public.miembros where user_id = (public._test_get('uid_a_chofer'))::uuid;
+  select count(*) into v_ve from public.devoluciones where id = dch;
+
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion, client_ref)
+    values ((public._test_get('s17_v1'))::uuid, (public._test_get('s17_ca1'))::uuid,
+            'otro', 'creada por el chofer', (public._test_get('s17_ref_ch'))::uuid)
+    returning id, transportista_id into v_id, v_tid;
+  update public.devoluciones set motivo = 'vencimiento', descripcion = 'editada por el chofer' where id = v_id;
+  get diagnostics v_r_edit = row_count;
+  update public.devoluciones set descripcion = 'editada por el chofer (la creó el admin)' where id = dch;
+  get diagnostics v_r_edit_admin = row_count;
+  select descripcion into v_desc_admin from public.devoluciones where id = dch;
+
+  delete from public.devoluciones where id = v_id;
+  get diagnostics v_r_del = row_count;
+  delete from public.devoluciones where id = dch;
+  get diagnostics v_r_del_admin = row_count;
+  select exists(select 1 from public.devoluciones where id = dch) into v_dch_existe;
+
+  update public.devoluciones set descripcion = 'Hackeada por el chofer de A'
+   where id = (public._test_get('s17_db_x'))::uuid;
+  get diagnostics v_r_b = row_count;
+
+  perform public._test_chk(c_caso,
+    v_rol = 'chofer' and v_ve = 1 and v_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_r_edit = 1 and v_r_edit_admin = 1 and v_desc_admin = 'editada por el chofer (la creó el admin)'
+      and v_r_del = 1 and v_r_del_admin = 1 and not v_dch_existe and v_r_b = 0,
+    format('rol=%s ve la del admin=%s | tenant de la creada=%s | editar: propia=%s, del admin=%s | borrar: propia=%s, del admin=%s (existe=%s) | UPDATE sobre la de B=%s',
+      v_rol, v_ve, v_tid, v_r_edit, v_r_edit_admin, v_r_del, v_r_del_admin, v_dch_existe, v_r_b));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Un usuario autenticado sin tenant.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '17.29 Un usuario sin tenant no ve devoluciones ni puede crearlas (42501), ni siquiera mandando el transportista_id de A';
+  v_n int; v_a text; v_b text;
+begin
+  select count(*) into v_n from public.devoluciones;
+  v_a := public._test_sqlstate(format(
+    $q$insert into public.devoluciones (viaje_id, cliente_id, motivo) values (%L::uuid, %L::uuid, 'otro')$q$,
+    public._test_get('s17_v1'), public._test_get('s17_ca1')));
+  v_b := public._test_sqlstate(format(
+    $q$insert into public.devoluciones (transportista_id, viaje_id, cliente_id, motivo) values (%L::uuid, %L::uuid, %L::uuid, 'otro')$q$,
+    public._test_get('tenant_a_id'), public._test_get('s17_v1'), public._test_get('s17_ca1')));
+  perform public._test_chk(c_caso,
+    v_n = 0 and v_a like '42501|%' and v_b like '42501|%',
+    format('vio %s | insert sin tenant: %s | insert con el tenant de A: %s', v_n, v_a, v_b));
+end
+$$;
+
+reset role;
+
+-- Como postgres: integridad general tras todo lo anterior.
+do $$
+declare
+  c_caso constant text := '17.30 Como postgres: ninguna devolución de toda la base apunta a un viaje o a un cliente de otro tenant, ni a uno inexistente (y hay devoluciones, para que el chequeo no sea vacío)';
+  v_cruzadas int; v_viaje_inexistente int; v_cliente_inexistente int; v_total int;
+begin
+  -- Se une solo por id (sin el tenant) a propósito: así un cruce entre tenants no se esconde detrás de la FK compuesta.
+  select count(*) into v_cruzadas
+    from public.devoluciones d
+    join public.viajes v on v.id = d.viaje_id
+    join public.clientes c on c.id = d.cliente_id
+   where d.transportista_id <> v.transportista_id or d.transportista_id <> c.transportista_id;
+  select count(*) into v_viaje_inexistente
+    from public.devoluciones d where not exists (select 1 from public.viajes v where v.id = d.viaje_id);
+  select count(*) into v_cliente_inexistente
+    from public.devoluciones d where not exists (select 1 from public.clientes c where c.id = d.cliente_id);
+  select count(*) into v_total from public.devoluciones;
+  perform public._test_chk(c_caso,
+    v_cruzadas = 0 and v_viaje_inexistente = 0 and v_cliente_inexistente = 0 and v_total > 0,
+    format('cruzadas=%s con viaje inexistente=%s con cliente inexistente=%s devoluciones en la base=%s',
+      v_cruzadas, v_viaje_inexistente, v_cliente_inexistente, v_total));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '17.31 Como postgres, tras los intentos de B: X e Y existen una vez por tenant, W solo en A, no hay duplicados por (tenant, client_ref), y cada devolución conserva su propia edición (la de A la de A, la de B la de B)';
+  v_x int; v_y int; v_w int; v_dups int;
+  v_d1_desc text; v_d1_tid uuid; v_d1_ref uuid; v_dw_desc text; v_dw_ref uuid; v_db_desc text; v_db_tid uuid;
+begin
+  select count(*) into v_x from public.devoluciones where client_ref = (public._test_get('s17_ref_x'))::uuid;
+  select count(*) into v_y from public.devoluciones where client_ref = (public._test_get('s17_ref_y'))::uuid;
+  select count(*) into v_w from public.devoluciones where client_ref = (public._test_get('s17_ref_w'))::uuid;
+  select count(*) into v_dups from (
+    select transportista_id, client_ref from public.devoluciones
+     where client_ref is not null group by 1, 2 having count(*) > 1
+  ) d;
+  select descripcion, transportista_id, client_ref into v_d1_desc, v_d1_tid, v_d1_ref
+    from public.devoluciones where id = (public._test_get('s17_d1'))::uuid;
+  select descripcion, client_ref into v_dw_desc, v_dw_ref
+    from public.devoluciones where id = (public._test_get('s17_dw'))::uuid;
+  select descripcion, transportista_id into v_db_desc, v_db_tid
+    from public.devoluciones where id = (public._test_get('s17_db_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_x = 2 and v_y = 2 and v_w = 1 and v_dups = 0
+      and v_d1_desc = 'D1 editada 2' and v_d1_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_d1_ref = (public._test_get('s17_ref_x'))::uuid
+      and v_dw_desc = 'DW editada por A' and v_dw_ref = (public._test_get('s17_ref_w'))::uuid
+      and v_db_desc = 'B reedita X' and v_db_tid = (public._test_get('tenant_b_id'))::uuid,
+    format('X=%s Y=%s W=%s duplicados=%s | D1: desc=%s tenant=%s | DW: desc=%s | DB: desc=%s tenant=%s',
+      v_x, v_y, v_w, v_dups, v_d1_desc, v_d1_tid, v_dw_desc, v_db_desc, v_db_tid));
 end
 $$;
 

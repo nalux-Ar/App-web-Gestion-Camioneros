@@ -137,6 +137,7 @@ export type Database = {
       }
       devoluciones: {
         Row: {
+          client_ref: string | null
           cliente_id: string
           created_at: string
           descripcion: string | null
@@ -147,6 +148,7 @@ export type Database = {
           viaje_id: string
         }
         Insert: {
+          client_ref?: string | null
           cliente_id: string
           created_at?: string
           descripcion?: string | null
@@ -157,6 +159,7 @@ export type Database = {
           viaje_id: string
         }
         Update: {
+          client_ref?: string | null
           cliente_id?: string
           created_at?: string
           descripcion?: string | null
