@@ -7,7 +7,7 @@ import { kmDelViaje, type ViajeDeLista } from './viajes-list';
 
 interface ViajeItemProps {
   viaje: ViajeDeLista;
-  /** `search` de la lista actual: viaja a la edición para volver con el mismo mes. */
+  /** `search` de la lista actual: viaja al detalle para volver con el mismo mes. */
   volver: string;
 }
 
@@ -17,7 +17,7 @@ function textoEntregas(cantidad: number): string {
 }
 
 /**
- * Una fila de la lista: toda es un enlace a editar (área táctil ≥ 64 px). Lo principal es el recorrido
+ * Una fila de la lista: toda es un enlace al DETALLE del viaje (área táctil ≥ 64 px; desde ahí se edita). Lo principal es el recorrido
  * ("origen → destino", hasta dos líneas: los nombres de lugares pueden ser largos); debajo, la fecha y la
  * cantidad de entregas; después los km (el valor, "Km final sin cargar" si el viaje sigue en curso, o nada
  * si no se cargaron); y a la derecha el ingreso, si lo hay. Los números van sin símbolo de moneda.
@@ -29,7 +29,7 @@ export function ViajeItem({ viaje, volver }: ViajeItemProps) {
   return (
     <li>
       <Link
-        to={`/viajes/${viaje.id}/editar`}
+        to={`/viajes/${viaje.id}`}
         state={{ volver }}
         className="flex min-h-16 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >

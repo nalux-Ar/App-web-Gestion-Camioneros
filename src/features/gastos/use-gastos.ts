@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { useTenantId } from '@/features/member/use-tenant-id';
 import { CATEGORIAS_STALE_TIME_MS } from './constants';
-import { fetchCategorias, fetchGasto, fetchGastosDelRango } from './gastos-api';
+import { fetchCategorias, fetchGasto, fetchGastosDelRango, fetchGastosDelViaje } from './gastos-api';
 import { rangoDelFiltro, type GastosFiltro } from './gastos-filters';
 import { gastosKeys } from './gastos-keys';
 
@@ -53,5 +53,22 @@ export function useGasto(id: string | null) {
     enabled: id !== null,
     gcTime: 0,
     refetchOnReconnect: false,
+  });
+}
+
+/**
+ * Los gastos de un viaje (el detalle del viaje). `viajeId` es null si el de la URL no es un uuid: no se consulta
+ * nada. La key cuelga de `gastosKeys.all`: cualquier alta, edición o borrado de un gasto la invalida. Sin caché
+ * (`gcTime: 0`): al volver de cargar o editar un gasto el total tiene que ser el de ahora, no el de la última vez
+ * que se vio la pantalla.
+ */
+export function useGastosDelViaje(viajeId: string | null) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: gastosKeys.delViaje(tenantId, viajeId ?? 'sin-id'),
+    queryFn: ({ signal }) =>
+      viajeId === null ? Promise.resolve({ items: [], truncado: false }) : fetchGastosDelViaje(viajeId, signal),
+    enabled: viajeId !== null,
+    gcTime: 0,
   });
 }

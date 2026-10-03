@@ -36,6 +36,8 @@ export interface GastoFormValues {
   monto: string;
   /** 'YYYY-MM-DD' */
   fecha: string;
+  /** Id del viaje al que pertenece el gasto, o '' = Sin viaje (null). */
+  viajeId: string;
   descripcion: string;
   /** '' = Sin especificar (null). */
   metodoPago: '' | MetodoPago;
@@ -57,16 +59,20 @@ export const GASTO_FIELD_ORDER: readonly GastoFormField[] = [
   'kmOdometro',
   'tanqueLleno',
   'fecha',
+  'viajeId',
   'metodoPago',
 ];
 
 export type GastoFormErrors = Partial<Record<GastoFormField, string>>;
 
-export function emptyGastoValues(today: string): GastoFormValues {
+/** Valores de un gasto nuevo. `viajeId` solo viene cargado cuando se llegó desde un viaje (`?viaje=`): un gasto común
+ *  NO preselecciona ningún viaje. */
+export function emptyGastoValues(today: string, viajeId = ''): GastoFormValues {
   return {
     categoriaId: '',
     monto: '',
     fecha: today,
+    viajeId,
     descripcion: '',
     metodoPago: '',
     litros: '',
@@ -85,6 +91,7 @@ export interface GastoEditable {
   litros: number | string | null;
   km_odometro: number | string | null;
   tanque_lleno: boolean | null;
+  viaje_id: string | null;
 }
 
 export function valuesFromGasto(gasto: GastoEditable): GastoFormValues {
@@ -92,6 +99,7 @@ export function valuesFromGasto(gasto: GastoEditable): GastoFormValues {
     categoriaId: gasto.categoria_id,
     monto: formatForInput(fromDbNumber(gasto.monto)),
     fecha: gasto.fecha,
+    viajeId: gasto.viaje_id ?? '',
     descripcion: gasto.descripcion ?? '',
     metodoPago: gasto.metodo_pago ?? '',
     // Litros SIEMPRE con coma: con el punto decimal de es-MX/es-US/es-419, 40,125 L quedaría "40.125", que
@@ -145,6 +153,8 @@ export interface GastoColumns {
   categoria_id: string;
   monto: number;
   fecha: string;
+  /** `null` explícito = sin viaje (al EDITAR, desvincula el gasto). */
+  viaje_id: string | null;
   descripcion: string | null;
   metodo_pago: MetodoPago | null;
   litros: number | null;
@@ -158,6 +168,8 @@ export interface ValidarGastoContext {
   categorias: readonly Categoria[];
   /** Hoy en hora local, 'YYYY-MM-DD'. La fecha no puede ser posterior. */
   today: string;
+  /** Los viajes que se pueden elegir ahora (los recientes + el vinculado + el preseleccionado): ver `opcionesDeViaje`. */
+  viajes: ReadonlyArray<{ id: string }>;
 }
 
 export type GastoValidation =
@@ -177,6 +189,9 @@ export function esGastosVariosElegida(categoriaId: string, categorias: readonly 
 /** Error de la descripción vacía en "Gastos varios". */
 export const DESCRIPCION_OBLIGATORIA_MESSAGE = 'Escribe de qué se trata este gasto.';
 
+/** Error del viaje: un id que no está entre las opciones conocidas (el viaje es opcional: '' = sin viaje es válido). */
+export const VIAJE_INVALIDO_MESSAGE = 'Elige un viaje de la lista.';
+
 /**
  * Valida el formulario completo (espejo de los checks de la base) y arma las
  * columnas listas para enviar.
@@ -184,6 +199,7 @@ export const DESCRIPCION_OBLIGATORIA_MESSAGE = 'Escribe de qué se trata este ga
  *  - categoría: obligatoria y conocida.
  *  - monto: > 0 y <= 9.999.999.999,99.
  *  - fecha: válida y no futura.
+ *  - viaje: opcional ('' = sin viaje); si hay, tiene que ser uno de los viajes conocidos (`context.viajes`).
  *  - descripción: <= 2000 caracteres (recortada; vacía = null). OBLIGATORIA solo en la
  *    categoría global "Gastos varios"; en las demás es opcional.
  *  - Combustible: litros obligatorios (> 0), km >= 0 opcional, tanque lleno
@@ -213,6 +229,10 @@ export function validateGastoForm(values: GastoFormValues, context: ValidarGasto
   } else if (descripcion === '' && esGastosVariosElegida(values.categoriaId, context.categorias)) {
     // "Gastos varios" es la categoría más ambigua: sin una palabra que diga de qué se trata queda un gasto fantasma.
     errors.descripcion = DESCRIPCION_OBLIGATORIA_MESSAGE;
+  }
+
+  if (values.viajeId !== '' && !context.viajes.some((viaje) => viaje.id === values.viajeId)) {
+    errors.viajeId = VIAJE_INVALIDO_MESSAGE;
   }
 
   if (values.metodoPago !== '' && !METODO_PAGO_ORDER.includes(values.metodoPago)) {
@@ -251,6 +271,7 @@ export function validateGastoForm(values: GastoFormValues, context: ValidarGasto
       categoria_id: values.categoriaId,
       monto: montoDb,
       fecha: fecha.value,
+      viaje_id: values.viajeId === '' ? null : values.viajeId,
       descripcion: descripcion === '' ? null : descripcion,
       metodo_pago: values.metodoPago === '' ? null : values.metodoPago,
       // Sin litros (o categoría que no es combustible) no hay tanque lleno ni
@@ -276,6 +297,7 @@ const COLUMN_KEYS: ReadonlyArray<keyof GastoColumns> = [
   'categoria_id',
   'monto',
   'fecha',
+  'viaje_id',
   'descripcion',
   'metodo_pago',
   'litros',

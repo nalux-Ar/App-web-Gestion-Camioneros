@@ -167,6 +167,13 @@ export function formatDateShort(value: string): string {
   return `${parts.day} ${monthName(parts.year, parts.month, parts.day).slice(0, 3)}`;
 }
 
+/** "30 sep 2026": la misma abreviatura de `formatDateShort` + el año. Si no es una fecha válida se devuelve tal cual. */
+export function formatDateWithYear(value: string): string {
+  const parts = parseDateParts(value);
+  if (!parts) return value;
+  return `${formatDateShort(value)} ${parts.year}`;
+}
+
 // ---------------------------------------------------------------------------
 // Validación de fechas tipeadas (mensajes para el usuario)
 // ---------------------------------------------------------------------------

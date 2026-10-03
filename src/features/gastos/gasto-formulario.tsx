@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 
 import { ChoiceGroup } from '@/components/shared/choice-group';
 import { ConfirmDelete } from '@/components/shared/confirm-delete';
 import { DateField } from '@/components/shared/date-field';
+import { InlineError } from '@/components/shared/inline-error';
 import { NumberField } from '@/components/shared/number-field';
 import { SelectField } from '@/components/shared/select-field';
 import { SubmitBar } from '@/components/shared/submit-bar';
 import { TextareaField } from '@/components/shared/textarea-field';
 import { useTenantId } from '@/features/member/use-tenant-id';
-import { RecordNotFoundError } from '@/lib/data-errors';
+import { RECIENTES_LIMIT } from '@/features/viajes/constants';
+import { useViajesRecientes } from '@/features/viajes/use-viajes';
+import { rutaDelViaje, type DesdeViaje, type DetalleAviso } from '@/features/viajes/viaje-navegacion';
+import { etiquetaDeViaje, opcionesDeViaje, type ViajeOpcion } from '@/features/viajes/viaje-opciones';
+import { mapDataError, RecordNotFoundError } from '@/lib/data-errors';
 import { todayLocal } from '@/lib/dates';
 import { formatNumber } from '@/lib/numbers';
 import { charLength } from '@/lib/text';
@@ -52,6 +57,7 @@ const FIELD_DOM_IDS: Record<GastoFormField, string> = {
   kmOdometro: 'gasto-km',
   tanqueLleno: 'gasto-tanque-0',
   fecha: 'gasto-fecha',
+  viajeId: 'gasto-viaje',
   metodoPago: 'gasto-metodo',
   descripcion: 'gasto-descripcion',
 };
@@ -73,6 +79,13 @@ interface GastoFormularioProps {
   gasto?: GastoDetalle;
   /** `search` de la lista a la que volver ('' o '?mes=...&categoria=...'), ya validado. */
   volver: string;
+  /**
+   * Solo si el gasto se abrió desde el detalle de un viaje (ya validado, ver `leerDesdeViaje`): al guardar y al
+   * borrar se vuelve a ESE viaje en vez de a la lista de gastos.
+   */
+  desdeViaje?: DesdeViaje | null;
+  /** El viaje que llegó preseleccionado por `?viaje=` (ya consultado y existente). Solo en el alta. */
+  viajePreseleccionado?: ViajeOpcion | null;
 }
 
 /**
@@ -85,17 +98,27 @@ interface GastoFormularioProps {
  *    (ver `crearGasto`), así que un reintento tras una respuesta perdida no duplica el gasto.
  *  - Tras guardar, la pantalla queda bloqueada ("Guardando…") hasta que se navega a la lista.
  *
+ * Viaje (opcional): el selector ofrece "Sin viaje" y los viajes más recientes (ver `opcionesDeViaje`), y siempre
+ * incluye el viaje ya vinculado al gasto que se edita y el preseleccionado. Si la lista no carga, el error con
+ * "Reintentar" va junto al campo y NO bloquea el guardado ni toca nada de lo tipeado.
+ *
  * Combustible: con la categoría Combustible aparecen litros, km del odómetro y tanque lleno;
  * el precio por litro NO se tipea, se calcula (monto ÷ litros). Si se cambia a otra categoría,
  * esos campos desaparecen y al guardar se mandan en NULL (también en el UPDATE).
  */
-export function GastoFormulario({ categorias, gasto, volver }: GastoFormularioProps) {
+export function GastoFormulario({
+  categorias,
+  gasto,
+  volver,
+  desdeViaje = null,
+  viajePreseleccionado = null,
+}: GastoFormularioProps) {
   const navigate = useNavigate();
   const tenantId = useTenantId();
   const editando = gasto !== undefined;
 
   const [values, setValues] = useState<GastoFormValues>(() =>
-    gasto ? valuesFromGasto(gasto) : emptyGastoValues(todayLocal()),
+    gasto ? valuesFromGasto(gasto) : emptyGastoValues(todayLocal(), viajePreseleccionado?.id ?? ''),
   );
   const [errors, setErrors] = useState<GastoFormErrors>({});
   const [focusRequest, setFocusRequest] = useState<{ field: GastoFormField; n: number } | null>(null);
@@ -123,6 +146,22 @@ export function GastoFormulario({ categorias, gasto, volver }: GastoFormularioPr
   const eliminar = useEliminarGasto();
   const { run, pending, error, retryable } = useSubmitFeedback({ context: GUARDAR_GASTO_CONTEXT });
 
+  // Viajes que se pueden elegir: los recientes + los que tienen que estar sí o sí (el vinculado al gasto, el preseleccionado
+  // y el que se acaba de elegir, para que una actualización de la lista no le saque la opción al valor elegido).
+  const viajesQuery = useViajesRecientes();
+  const [viajeElegido, setViajeElegido] = useState<ViajeOpcion | null>(null);
+  const recientes = viajesQuery.data;
+  const vinculado = gasto?.viajes ?? null;
+  const viajes = useMemo(
+    () => opcionesDeViaje({ recientes: recientes ?? [], fijos: [vinculado, viajePreseleccionado, viajeElegido] }),
+    [recientes, vinculado, viajePreseleccionado, viajeElegido],
+  );
+  const today = todayLocal();
+  const opcionesViaje = useMemo(
+    () => viajes.map((viaje) => ({ value: viaje.id, label: etiquetaDeViaje(viaje, today) })),
+    [viajes, today],
+  );
+
   const fuel = esCombustibleElegida(values.categoriaId, categorias);
   // "Gastos varios": la descripción es obligatoria (ver `validateGastoForm`).
   const gastosVarios = esGastosVariosElegida(values.categoriaId, categorias);
@@ -149,6 +188,11 @@ export function GastoFormulario({ categorias, gasto, volver }: GastoFormularioPr
     setErrors((previous) => (previous[field] === undefined ? previous : { ...previous, [field]: undefined }));
   }
 
+  function handleViajeChange(viajeId: string) {
+    setField('viajeId', viajeId);
+    setViajeElegido(viajes.find((viaje) => viaje.id === viajeId) ?? null);
+  }
+
   function handleCategoriaChange(categoriaId: string) {
     setField('categoriaId', categoriaId);
     // El aviso de "descripción obligatoria" solo vale para "Gastos varios": al cambiar de categoría se descarta
@@ -161,7 +205,7 @@ export function GastoFormulario({ categorias, gasto, volver }: GastoFormularioPr
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const validation = validateGastoForm(values, { categorias, today: todayLocal() });
+    const validation = validateGastoForm(values, { categorias, today: todayLocal(), viajes });
     if (!validation.ok) {
       setErrors(validation.errors);
       setFocusRequest((previous) => ({ field: validation.firstField, n: (previous?.n ?? 0) + 1 }));
@@ -197,13 +241,19 @@ export function GastoFormulario({ categorias, gasto, volver }: GastoFormularioPr
       sentRef.current.clear();
       setClientRef(generateClientRef());
     }
+    if (desdeViaje) {
+      // Se abrió desde el detalle de un viaje: se vuelve a ESE viaje. La ruta se arma acá con un uuid ya validado.
+      navigate(rutaDelViaje(desdeViaje.id), {
+        replace: true,
+        state: { aviso: 'gasto-guardado' satisfies DetalleAviso, volver: desdeViaje.volver },
+      });
+      return;
+    }
     // A la lista del mes del gasto (si es de otro mes, así se ve que quedó guardado).
     navigate(`/gastos${searchDelMesDeFecha(columns.fecha)}`, { replace: true, state: { aviso: 'guardado' satisfies GastoAviso } });
   }
 
   if (gone) return <GastoNoEncontrado volver={volver} />;
-
-  const today = todayLocal();
 
   return (
     <div className="space-y-8">
@@ -301,6 +351,34 @@ export function GastoFormulario({ categorias, gasto, volver }: GastoFormularioPr
           error={errors.fecha}
         />
 
+        <div className="space-y-2">
+          <SelectField
+            id={FIELD_DOM_IDS.viajeId}
+            label="Viaje"
+            optional
+            placeholder="Sin viaje"
+            options={opcionesViaje}
+            value={values.viajeId}
+            onChange={handleViajeChange}
+            hint={
+              viajesQuery.isPending
+                ? 'Cargando viajes…'
+                : (recientes?.length ?? 0) >= RECIENTES_LIMIT
+                  ? `Se muestran los ${RECIENTES_LIMIT} viajes más recientes.`
+                  : undefined
+            }
+            error={errors.viajeId}
+          />
+          {/* Solo si NO hay lista: un refresco fallido con la lista ya cargada no molesta. No bloquea el guardado. */}
+          {viajesQuery.isError && recientes === undefined ? (
+            <InlineError
+              message={`No pudimos cargar los viajes. ${mapDataError(viajesQuery.error)}`}
+              onRetry={() => void viajesQuery.refetch()}
+              retrying={viajesQuery.isFetching}
+            />
+          ) : null}
+        </div>
+
         <SelectField
           id="gasto-metodo"
           label="Método de pago"
@@ -329,6 +407,13 @@ export function GastoFormulario({ categorias, gasto, volver }: GastoFormularioPr
               // 0 filas borradas = ya no estaba: para un borrado es lo mismo que éxito.
               await eliminar.mutateAsync({ tenantId, id: gasto.id });
               if (!mountedRef.current) return; // se fue de la pantalla mientras borraba
+              if (desdeViaje) {
+                navigate(rutaDelViaje(desdeViaje.id), {
+                  replace: true,
+                  state: { aviso: 'gasto-eliminado' satisfies DetalleAviso, volver: desdeViaje.volver },
+                });
+                return;
+              }
               navigate(`/gastos${volver}`, { replace: true, state: { aviso: 'eliminado' satisfies GastoAviso } });
             }}
           />

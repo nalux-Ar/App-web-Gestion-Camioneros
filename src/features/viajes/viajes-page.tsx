@@ -41,7 +41,7 @@ export function ViajesPage() {
   const filtro = readFiltro(searchParams);
   const viajesQuery = useViajesDelMes(filtro);
 
-  // `search` actual (ya normalizado): a la edición y al nuevo viaje para que "volver" conserve el mes.
+  // `search` actual (ya normalizado): al detalle de un viaje y al nuevo viaje para que "volver" conserve el mes.
   const volver = filtroToSearch(filtro);
 
   // Aviso de "Viaje guardado/eliminado" que llega desde el formulario en `location.state`.

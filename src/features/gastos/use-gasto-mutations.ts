@@ -1,6 +1,9 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
+import { viajesKeys } from '@/features/viajes/viajes-keys';
+import { isForeignKeyViolationOf } from '@/lib/data-errors';
 import type { RowChanges } from '@/lib/db';
+import { GASTOS_VIAJE_FK } from './constants';
 import { crearGasto, type CrearGastoResultado } from './gasto-save';
 import type { GastoColumns } from './gasto-form';
 import { actualizarGasto, eliminarGasto, gastoWriteIO } from './gastos-api';
@@ -18,7 +21,16 @@ import { gastosKeys } from './gastos-keys';
  *    tenant no toca nada ajeno).
  *  - `onSuccess` no espera la invalidación (`void`): la lista no está montada
  *    mientras se edita, así que solo queda marcada como vieja y se refresca al volver.
+ *  - Si guardar falla porque el viaje elegido ya no existe (23503 de `gastos_viaje_fk`), también se
+ *    invalida la lista de viajes recientes del selector: si no, el viaje borrado seguiría ofreciéndose.
  */
+
+/** Un viaje que ya no existe: la lista de recientes que muestra el selector quedó vieja. */
+function invalidarViajesSiNoExiste(queryClient: QueryClient, tenantId: string, error: Error) {
+  if (isForeignKeyViolationOf(error, GASTOS_VIAJE_FK)) {
+    void queryClient.invalidateQueries({ queryKey: viajesKeys.recientes(tenantId) });
+  }
+}
 
 export interface CrearGastoVariables {
   tenantId: string;
@@ -35,6 +47,7 @@ export function useCrearGasto() {
     onSuccess: (_resultado, { tenantId }) => {
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },
+    onError: (error, { tenantId }) => invalidarViajesSiNoExiste(queryClient, tenantId, error),
   });
 }
 
@@ -51,6 +64,7 @@ export function useActualizarGasto() {
     onSuccess: (_resultado, { tenantId }) => {
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },
+    onError: (error, { tenantId }) => invalidarViajesSiNoExiste(queryClient, tenantId, error),
   });
 }
 

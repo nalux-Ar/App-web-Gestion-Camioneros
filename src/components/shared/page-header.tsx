@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 interface PageHeaderProps {
-  title: string;
+  /** Texto del `h1`. Puede llevar marcado cuando hace falta (p.ej. la flecha decorativa de "origen → destino"). */
+  title: ReactNode;
   description?: string;
   /**
    * Acción primaria de la pantalla. En el celular ocupa todo el ancho (botón
@@ -26,7 +27,7 @@ export function PageHeader({ title, description, action, actionDesktopOnly = fal
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 space-y-1">
-        <h1 className="text-2xl font-semibold">{title}</h1>
+        <h1 className="break-words text-2xl font-semibold">{title}</h1>
         {description ? <p className="text-muted-foreground">{description}</p> : null}
       </div>
       {action ? (

@@ -97,7 +97,7 @@ export function useSubmitFeedback({ context }: SubmitFeedbackOptions = {}) {
         stayLocked = keepLocked;
         return { ok: true, data };
       } catch (error) {
-        setFailure({ message: mapDataError(error, context), retryable: isRetryableDataError(error) });
+        setFailure({ message: mapDataError(error, context), retryable: isRetryableDataError(error, context) });
         return { ok: false };
       } finally {
         if (!stayLocked) {

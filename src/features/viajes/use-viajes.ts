@@ -1,7 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { useTenantId } from '@/features/member/use-tenant-id';
-import { fetchViaje, fetchViajesDelRango } from './viajes-api';
+import {
+  contarGastosDelViaje,
+  fetchViaje,
+  fetchViajeOpcion,
+  fetchViajesDelRango,
+  fetchViajesRecientes,
+  fetchViajeVista,
+} from './viajes-api';
 import { rangoDelFiltro, type ViajesFiltro } from './viajes-filters';
 import { viajesKeys } from './viajes-keys';
 
@@ -37,6 +44,70 @@ export function useViaje(id: string | null) {
     queryKey: viajesKeys.detail(tenantId, id ?? 'sin-id'),
     queryFn: ({ signal }) => (id === null ? Promise.resolve(null) : fetchViaje(id, signal)),
     enabled: id !== null,
+    gcTime: 0,
+    refetchOnReconnect: false,
+  });
+}
+
+/**
+ * Los viajes más recientes para el selector "Viaje" del formulario de gastos. La key cuelga de `viajesKeys.lists`:
+ * guardar o borrar un viaje la deja vieja sola. No inicializa ningún campo (solo arma las opciones), así que sí
+ * se puede refrescar con el formulario abierto; la pantalla solo muestra el error si no hay datos. Dos pantallas
+ * pueden llamar a este hook a la vez (comparten la misma key): se pide una sola vez.
+ */
+export function useViajesRecientes({ enabled = true }: { enabled?: boolean } = {}) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: viajesKeys.recientes(tenantId),
+    queryFn: ({ signal }) => fetchViajesRecientes(signal),
+    enabled,
+  });
+}
+
+/**
+ * El viaje que llega preseleccionado a un gasto nuevo (`/gastos/nuevo?viaje=<uuid>`). `id` es null si no hay
+ * parámetro o no es un uuid: no se consulta nada. Como el formulario se inicializa UNA vez con lo que vino
+ * (mismo criterio que `useGasto` y `useViaje`): sin caché y sin refresco al reconectar.
+ */
+export function useViajeOpcion(id: string | null) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: viajesKeys.opcion(tenantId, id ?? 'sin-id'),
+    queryFn: ({ signal }) => (id === null ? Promise.resolve(null) : fetchViajeOpcion(id, signal)),
+    enabled: id !== null,
+    gcTime: 0,
+    refetchOnReconnect: false,
+  });
+}
+
+/**
+ * La pantalla de solo lectura de un viaje, con sus entregas y los nombres de los clientes. `id` es null si el
+ * de la URL no es un uuid. No inicializa ningún formulario, así que se refresca con normalidad al reconectar. Sin
+ * caché (`gcTime: 0`) a propósito: al volver de editar el viaje (o de cargar un gasto) se ve el estado de ahora, no
+ * una copia vieja que, si el pedido fallara, quedaría a la vista junto a un "Viaje guardado." que no la refleja. Igual
+ * que los gastos del viaje. Los guardados además la marcan vieja (`viajesKeys.vistas`).
+ */
+export function useViajeVista(id: string | null) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: viajesKeys.vista(tenantId, id ?? 'sin-id'),
+    queryFn: ({ signal }) => (id === null ? Promise.resolve(null) : fetchViajeVista(id, signal)),
+    enabled: id !== null,
+    gcTime: 0,
+  });
+}
+
+/**
+ * Cuántos gastos tiene un viaje, para la confirmación de borrarlo. Solo se pide con `enabled` (cuando se abre la
+ * confirmación) y SIEMPRE fresco (sin caché ni reuso): el número que se muestra tiene que ser el de ahora.
+ */
+export function useGastosDelViajeCount(viajeId: string, enabled: boolean) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: viajesKeys.cantidadGastos(tenantId, viajeId),
+    queryFn: ({ signal }) => contarGastosDelViaje(viajeId, signal),
+    enabled,
+    staleTime: 0,
     gcTime: 0,
     refetchOnReconnect: false,
   });

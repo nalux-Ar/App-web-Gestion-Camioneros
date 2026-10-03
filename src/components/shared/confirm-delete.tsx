@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,15 @@ interface ConfirmDeleteProps {
   context?: DataErrorContext;
   disabled?: boolean;
   className?: string;
+  /** Pregunta del segundo paso. Por defecto "¿Seguro? Esto no se puede deshacer."; se cambia cuando el borrado tiene
+   *  consecuencias que conviene decir ("Este viaje tiene 3 gastos. Se conservan, pero quedan sin viaje."). */
+  prompt?: ReactNode;
+  /** Texto del botón que confirma. Por defecto "Sí, eliminar". Puede ser largo: el botón se parte en líneas. */
+  confirmLabel?: string;
+  /** Deshabilita el botón que confirma (p.ej. mientras se averigua qué se va a borrar). "Cancelar" sigue disponible. */
+  confirmDisabled?: boolean;
+  /** Avisa cuando se pide o se cancela la confirmación: el llamador puede averiguar lo que necesita para el `prompt`. */
+  onConfirmingChange?: (confirming: boolean) => void;
 }
 
 /**
@@ -54,6 +63,10 @@ export function ConfirmDelete({
   context,
   disabled = false,
   className,
+  prompt = '¿Seguro? Esto no se puede deshacer.',
+  confirmLabel = 'Sí, eliminar',
+  confirmDisabled = false,
+  onConfirmingChange,
 }: ConfirmDeleteProps) {
   const [confirming, setConfirming] = useState(false);
   const [deleted, setDeleted] = useState(false);
@@ -86,6 +99,12 @@ export function ConfirmDelete({
   function handleCancel() {
     clearError();
     setConfirming(false);
+    onConfirmingChange?.(false);
+  }
+
+  function handleAskConfirmation() {
+    setConfirming(true);
+    onConfirmingChange?.(true);
   }
 
   if (!confirming) {
@@ -97,7 +116,7 @@ export function ConfirmDelete({
         className={cn('border-destructive/50 text-destructive-text', className)}
         aria-label={itemLabel ? `Eliminar ${itemLabel}` : undefined}
         disabled={disabled}
-        onClick={() => setConfirming(true)}
+        onClick={handleAskConfirmation}
       >
         <Trash2 aria-hidden="true" /> {label}
       </Button>
@@ -121,15 +140,23 @@ export function ConfirmDelete({
         </p>
       ) : (
         <>
-          <p id={promptId} className="text-base font-medium">
-            ¿Seguro? Esto no se puede deshacer.
+          {/* `aria-live`: si el texto cambia con la confirmación ya abierta (p.ej. llega la cantidad de gastos del viaje), se anuncia. */}
+          <p id={promptId} aria-live="polite" className="text-base font-medium">
+            {prompt}
           </p>
 
           {error ? <InlineError message={error} /> : null}
 
           <div className="flex flex-col gap-2 sm:flex-row">
             {!error || retryable ? (
-              <Button type="button" variant="destructive" disabled={pending} onClick={() => void handleConfirm()}>
+              <Button
+                type="button"
+                variant="destructive"
+                // Con un texto largo el botón crece en alto (mínimo 48 px) en vez de cortarlo en un celular angosto.
+                className="h-auto min-h-12 whitespace-normal py-2 text-center"
+                disabled={pending || confirmDisabled}
+                onClick={() => void handleConfirm()}
+              >
                 {pending ? (
                   <>
                     <Spinner className="size-4" /> Eliminando…
@@ -137,7 +164,7 @@ export function ConfirmDelete({
                 ) : error ? (
                   'Reintentar'
                 ) : (
-                  'Sí, eliminar'
+                  confirmLabel
                 )}
               </Button>
             ) : null}

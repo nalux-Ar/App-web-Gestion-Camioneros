@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { useNavigate } from 'react-router';
 
 import { ChoiceGroup } from '@/components/shared/choice-group';
-import { ConfirmDelete } from '@/components/shared/confirm-delete';
 import { DateField } from '@/components/shared/date-field';
 import { NumberField } from '@/components/shared/number-field';
 import { SubmitBar } from '@/components/shared/submit-bar';
@@ -18,15 +17,16 @@ import { charLength } from '@/lib/text';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
 import { generateClientRef } from './client-ref';
 import {
-  ELIMINAR_VIAJE_CONTEXT,
   GUARDAR_VIAJE_CONTEXT,
   MAX_OBSERVACIONES,
   TEXTO_COUNTER_FROM,
   type ViajeAviso,
 } from './constants';
+import { EliminarViaje } from './eliminar-viaje';
 import type { CargaClientes } from './entrega-fila';
 import { CAMPO_DOM_IDS, domIdOf, type FocusRequest } from './viaje-dom-ids';
 import { ViajeEntregas } from './viaje-entregas';
+import { rutaDelViaje, type DetalleAviso } from './viaje-navegacion';
 import {
   CLIENTES_SIN_CARGAR_MESSAGE,
   KM_MODO_OPTIONS,
@@ -51,6 +51,12 @@ interface ViajeFormularioProps {
   viaje?: ViajeDetalle;
   /** `search` de la lista a la que volver ('' o '?mes=...'), ya validado. */
   volver: string;
+  /**
+   * La edición se abrió desde el detalle de ESTE viaje (ya validado en la pantalla: el `desdeViaje` del estado de
+   * navegación coincide con el id de la URL). Guardar vuelve al detalle; borrar el viaje va a la lista, porque el
+   * detalle ya no existiría.
+   */
+  desdeDetalle?: boolean;
 }
 
 /**
@@ -67,7 +73,7 @@ interface ViajeFormularioProps {
  * de entregas (las que no se mandan, se borran): si otra pestaña cambió algo mientras esta estaba abierta,
  * este guardado lo pisa. El `camion_id` que el viaje ya tenía se pasa tal cual (si no, se borraría).
  */
-export function ViajeFormulario({ viaje, volver }: ViajeFormularioProps) {
+export function ViajeFormulario({ viaje, volver, desdeDetalle = false }: ViajeFormularioProps) {
   const navigate = useNavigate();
   const tenantId = useTenantId();
   const editando = viaje !== undefined;
@@ -221,6 +227,14 @@ export function ViajeFormulario({ viaje, volver }: ViajeFormularioProps) {
       sentRef.current.clear();
       setClientRef(generateClientRef());
     }
+    if (viaje && desdeDetalle) {
+      // Se abrió desde el detalle: se vuelve a ESE viaje (`viaje.id` es el que devolvió la base). Ruta armada acá.
+      navigate(rutaDelViaje(viaje.id), {
+        replace: true,
+        state: { aviso: 'viaje-guardado' satisfies DetalleAviso, volver },
+      });
+      return;
+    }
     // A la lista del mes del viaje (si es de otro mes, así se ve que quedó guardado).
     navigate(`/viajes${searchDelMesDeFecha(datos.columns.fecha)}`, {
       replace: true,
@@ -373,12 +387,11 @@ export function ViajeFormulario({ viaje, volver }: ViajeFormularioProps) {
 
       {viaje ? (
         <div className="border-t border-border pt-6">
-          <ConfirmDelete
-            label="Eliminar viaje"
-            context={ELIMINAR_VIAJE_CONTEXT}
-            onConfirm={async () => {
+          <EliminarViaje
+            viajeId={viaje.id}
+            onConfirm={async (gastosMostrados) => {
               try {
-                await eliminar.mutateAsync({ tenantId, id: viaje.id });
+                await eliminar.mutateAsync({ tenantId, id: viaje.id, gastosMostrados });
               } catch (failure) {
                 // 0 filas: el viaje ya no estaba. Para un borrado es lo mismo que éxito: se sigue a la lista.
                 if (!(failure instanceof RecordNotFoundError)) throw failure;

@@ -11,6 +11,7 @@ import {
 import { RecordNotFoundError } from '@/lib/data-errors';
 import { LIST_LIMIT } from './constants';
 import type { Categoria } from './categorias';
+import type { ViajeOpcion } from '@/features/viajes/viaje-opciones';
 import type { GastoWriteIO } from './gasto-save';
 import { acotarLista, type ListaAcotada } from './gastos-list';
 
@@ -27,14 +28,26 @@ import { acotarLista, type ListaAcotada } from './gastos-list';
 // Lecturas
 // ---------------------------------------------------------------------------
 
-/** Solo las columnas que usa la lista. */
-const LIST_COLUMNS = 'id, categoria_id, fecha, monto, descripcion, litros, created_at' as const;
+/** Las columnas propias del gasto que muestra una fila de lista. */
+const FILA_COLUMNS = 'id, categoria_id, fecha, monto, descripcion, litros, created_at' as const;
 
-/** Columnas del formulario de edición (no incluye `client_ref`: no se usa al editar). */
+/**
+ * Las de la lista de un mes: las de la fila + el viaje al que está vinculado (`viaje_id` y el embed
+ * `viajes(origen, destino)` por la FK compuesta `gastos_viaje_fk`: PostgREST devuelve un objeto, o `null` si el
+ * gasto no tiene viaje).
+ */
+const LIST_COLUMNS = `${FILA_COLUMNS}, viaje_id, viajes(origen, destino)` as const;
+
+/**
+ * Columnas del formulario de edición (no incluye `client_ref`: no se usa al editar). Con el viaje vinculado
+ * embebido (`viajes(id, fecha, origen, destino)`): así el selector del formulario lo ofrece aunque ya no esté
+ * entre los viajes recientes y abrir el gasto no pierde el vínculo.
+ */
 const DETAIL_COLUMNS =
-  'id, categoria_id, fecha, monto, descripcion, metodo_pago, litros, precio_por_litro, km_odometro, tanque_lleno' as const;
+  'id, categoria_id, fecha, monto, descripcion, metodo_pago, litros, precio_por_litro, km_odometro, tanque_lleno, viaje_id, viajes(id, fecha, origen, destino)' as const;
 
-export interface GastoDeLista {
+/** Lo que tiene una fila de gasto en cualquier lista (la de un mes o la de un viaje). */
+export interface GastoDeFila {
   id: string;
   categoria_id: string;
   fecha: string;
@@ -42,6 +55,17 @@ export interface GastoDeLista {
   descripcion: string | null;
   litros: number | null;
   created_at: string;
+}
+
+/** El recorrido del viaje vinculado, para mostrarlo en la fila. */
+export interface ViajeDeGasto {
+  origen: string;
+  destino: string;
+}
+
+export interface GastoDeLista extends GastoDeFila {
+  viaje_id: string | null;
+  viajes: ViajeDeGasto | null;
 }
 
 export interface FetchGastosArgs {
@@ -84,6 +108,9 @@ export type GastoDetalle = {
   precio_por_litro: number | null;
   km_odometro: number | null;
   tanque_lleno: boolean | null;
+  viaje_id: string | null;
+  /** El viaje vinculado (embebido), o `null` si no tiene. Lleva lo necesario para ofrecerlo en el selector. */
+  viajes: ViajeOpcion | null;
 };
 
 /** Un gasto por id, o `null` si no existe (o no es de este transportista: la base no distingue). */
@@ -100,6 +127,24 @@ export async function fetchCategorias(signal: AbortSignal): Promise<Categoria[]>
       .order('nombre', { ascending: true })
       .abortSignal(signal),
   );
+}
+
+/**
+ * Los gastos de UN viaje, del más nuevo al más viejo (fecha desc, luego created_at desc), con tope: se piden
+ * `LIST_LIMIT + 1` y, si vino uno de más, la lista (y el total que se calcule sobre ella) es parcial.
+ */
+export async function fetchGastosDelViaje(viajeId: string, signal: AbortSignal): Promise<ListaAcotada<GastoDeFila>> {
+  const rows = unwrap(
+    await supabase
+      .from('gastos')
+      .select(FILA_COLUMNS)
+      .eq('viaje_id', viajeId)
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(LIST_LIMIT + 1)
+      .abortSignal(signal),
+  );
+  return acotarLista<GastoDeFila>(rows);
 }
 
 // ---------------------------------------------------------------------------

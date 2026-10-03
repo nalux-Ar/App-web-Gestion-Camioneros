@@ -49,9 +49,19 @@ export const METODO_PAGO_LABELS: Record<MetodoPago, string> = {
 export const METODO_PAGO_ORDER: readonly MetodoPago[] = ['efectivo', 'tarjeta_credito', 'tarjeta_debito', 'transferencia'];
 
 /** Mensajes propios de los errores de la base al GUARDAR un gasto (constante de módulo: la usa `useSubmitFeedback`). */
+/** Nombre del constraint de la FK compuesta gasto → viaje (001_schema.sql). Solo sirve para distinguir el 23503 del viaje
+ *  del de la categoría: nunca se muestra. */
+export const GASTOS_VIAJE_FK = 'gastos_viaje_fk';
+
 export const GUARDAR_GASTO_CONTEXT: DataErrorContext = {
-  // 23503: el trigger rechaza una categoría que no es del transportista ni global.
+  // 23503: el trigger rechaza una categoría que no es del transportista ni global (su mensaje no nombra ningún
+  // constraint, así que es el caso "por defecto").
   foreignKey: 'La categoría elegida ya no está disponible. Elige otra.',
+  // 23503 de `gastos_viaje_fk`: el viaje elegido (o el que ya tenía el gasto) ya no existe. No se reintenta con lo
+  // mismo: hay que elegir otro o dejarlo sin viaje.
+  foreignKeyByConstraint: {
+    [GASTOS_VIAJE_FK]: 'El viaje elegido ya no existe. Elige otro o déjalo sin viaje.',
+  },
   // Solo se ve al CREAR: se quiso actualizar el gasto ya guardado (reintento con datos cambiados) y ya no está.
   // Tocar "Guardar gasto" de nuevo lo vuelve a crear. (Al EDITAR, 0 filas muestra la pantalla "Gasto no encontrado".)
   notFound: 'El gasto que se había guardado ya no está. Toca "Guardar gasto" para guardarlo de nuevo.',

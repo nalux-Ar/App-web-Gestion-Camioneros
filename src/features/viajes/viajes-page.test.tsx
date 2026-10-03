@@ -142,6 +142,7 @@ async function mount(entry: InitialEntry = '/viajes') {
                 <Routes>
                   <Route path="/viajes" element={<ViajesPage />} />
                   <Route path="/viajes/nuevo" element={<Destino nombre="nuevo" />} />
+                  <Route path="/viajes/:id" element={<Destino nombre="detalle" />} />
                   <Route path="/viajes/:id/editar" element={<Destino nombre="editar" />} />
                 </Routes>
               </RequireMember>
@@ -156,7 +157,7 @@ async function mount(entry: InitialEntry = '/viajes') {
 
 const bodyText = () => document.body.textContent ?? '';
 const links = () => [...document.querySelectorAll<HTMLAnchorElement>('a')];
-const items = () => [...document.querySelectorAll<HTMLAnchorElement>('ul li a[href*="/editar"]')];
+const items = () => [...document.querySelectorAll<HTMLAnchorElement>('ul li a[href^="/viajes/"]')];
 const buttonByText = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(text));
 const nums = (n: number | null, decimales: number, fijos = true) => formatNumber(n, { decimales, fijos });
 async function click(el: HTMLElement | null | undefined) {
@@ -214,11 +215,13 @@ describe('lista de viajes: resumen del mes', () => {
 });
 
 describe('lista de viajes: cada ítem', () => {
-  it('muestra "origen → destino", fecha, cantidad de entregas, km e ingreso, y enlaza a la edición', async () => {
+  it('muestra "origen → destino", fecha, cantidad de entregas, km e ingreso, y enlaza al DETALLE del viaje (no a la edición)', async () => {
     await mount();
     expect(items()).toHaveLength(4);
     const [v1, v2, v3, v4] = items();
-    expect(v1!.getAttribute('href')).toBe(`/viajes/${V1}/editar`);
+    expect(v1!.getAttribute('href')).toBe(`/viajes/${V1}`);
+    expect(items().map((a) => a.getAttribute('href'))).toEqual([V1, V2, V3, V4].map((id) => `/viajes/${id}`));
+    expect(items().some((a) => a.getAttribute('href')!.includes('/editar'))).toBe(false);
 
     expect(v1!.textContent).toContain('Rosario');
     expect(v1!.textContent).toContain('Córdoba');
@@ -290,10 +293,10 @@ describe('lista de viajes: consulta y mes', () => {
     expect(document.querySelector<HTMLButtonElement>('button[aria-label="Mes siguiente"]')!.disabled).toBe(false);
   });
 
-  it('"Volver" conserva el ?mes=: el enlace a un viaje y a "Nuevo viaje" llevan el mes en el state', async () => {
+  it('"Volver" conserva el ?mes=: el enlace a un viaje (su detalle) y a "Nuevo viaje" llevan el mes en el state', async () => {
     await mount('/viajes?mes=2025-08');
     await click(items()[0]);
-    expect(document.getElementById('destino-editar')!.dataset.volver).toBe('?mes=2025-08');
+    expect(document.getElementById('destino-detalle')!.dataset.volver).toBe('?mes=2025-08');
   });
 
   it('"Nuevo viaje" lleva a /viajes/nuevo con el mes para volver', async () => {

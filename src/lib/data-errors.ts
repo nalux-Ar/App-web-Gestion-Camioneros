@@ -24,7 +24,7 @@ import {
  *    existe `unwrap()` (src/lib/db.ts), que lo copia a un `DataRequestError`.
  *  - Auth: `AuthApiError` (con `code` tipo 'session_expired') o
  *    `AuthSessionMissingError`.
- *  - Errores propios (`RecordNotFoundError`, `DataRequestError`).
+ *  - Errores propios (`RecordNotFoundError`, `DataRequestError`, `UserMessageError`).
  */
 
 export type DataErrorKind =
@@ -43,6 +43,24 @@ export type DataErrorKind =
 export interface DataErrorContext {
   /** Violación de FK (23503). Al ELIMINAR: "No se puede eliminar porque tiene gastos asociados." */
   foreignKey?: string;
+  /**
+   * La MISMA clase 23503 puede venir de constraints distintos (en un gasto: la FK del viaje, o el trigger de la
+   * categoría, que no nombra ningún constraint). Mapa `nombre del constraint → mensaje`: si el `message` o los
+   * `details` del error nombran ese constraint, gana este mensaje; si no, vale `foreignKey`. El nombre del
+   * constraint solo se usa para elegir el mensaje: nunca se muestra.
+   */
+  foreignKeyByConstraint?: Readonly<Record<string, string>>;
+  /** Con `true`, una violación de FK se considera reintentable (`isRetryableDataError`): para un borrado que puede
+   *  chocar con una carrera y que es seguro repetir. Por defecto una FK no se reintenta (daría lo mismo). */
+  foreignKeyRetryable?: boolean;
+  /**
+   * PostgreSQL 18 devuelve 23001 (`restrict_violation`) en vez de 23503 cuando un DELETE choca con un
+   * `ON DELETE RESTRICT` (la base real hoy es PG 17 y da 23503). Con `true`, en ESTA pantalla un 23001 se trata
+   * exactamente igual que una violación de FK: mismo mensaje (`foreignKey`) y mismo reintento
+   * (`foreignKeyRetryable`). Sin el flag, 23001 se sigue clasificando como el resto de la clase 23 ("datos
+   * inválidos"): es una decisión de la pantalla, no un cambio global.
+   */
+  restrictAsForeignKey?: boolean;
   /** Violación de único (23505). */
   unique?: string;
   /** No encontrado (PGRST116, P0002 de las funciones de la base, o 0 filas). */
@@ -68,6 +86,24 @@ export class RecordNotFoundError extends Error {
   constructor() {
     super('Registro no encontrado');
     this.name = 'RecordNotFoundError';
+  }
+}
+
+/**
+ * Error propio cuyo mensaje para el usuario ya viene armado (en español, sin texto del servidor), para los casos
+ * que ninguna clase de error describe bien: p. ej. "los gastos ya quedaron sin viaje, pero el viaje no se borró".
+ * `mapDataError` devuelve `userMessage` tal cual y `isRetryableDataError` respeta `retryable`, con cualquier
+ * contexto. El error original, si lo hay, va en `cause` (interno: no se muestra).
+ */
+export class UserMessageError extends Error {
+  readonly userMessage: string;
+  readonly retryable: boolean;
+
+  constructor(userMessage: string, options: { retryable: boolean; cause?: unknown }) {
+    super(userMessage, options.cause === undefined ? undefined : { cause: options.cause });
+    this.name = 'UserMessageError';
+    this.userMessage = userMessage;
+    this.retryable = options.retryable;
   }
 }
 
@@ -196,10 +232,42 @@ export function classifyDataError(error: unknown): DataErrorKind {
   return byCode ?? 'unknown';
 }
 
-/** ¿Tiene sentido ofrecer "Reintentar" con los mismos datos? Con un check
- *  violado, un permiso negado o un registro inexistente, reintentar da lo mismo. */
-export function isRetryableDataError(error: unknown): boolean {
+/**
+ * ¿El `message` o los `details` del error nombran este constraint? Postgres lo escribe entre comillas
+ * ("... violates foreign key constraint "gastos_viaje_fk"") y PostgREST copia ambos campos. Compara el nombre
+ * COMPLETO (por tokens): `gastos_viaje_fk` no coincide con `gastos_viaje_fk_viejo`. Solo sirve para decidir
+ * qué mensaje mostrar: el nombre nunca llega a la pantalla.
+ */
+export function mentionsConstraint(error: unknown, constraint: string): boolean {
+  if (typeof error !== 'object' || error === null || constraint === '') return false;
+  const { message, details } = error as Record<string, unknown>;
+  const text = [message, details].filter((part): part is string => typeof part === 'string').join('\n');
+  return text.split(/[^\w]+/).includes(constraint);
+}
+
+/** ¿Es una violación de FK (23503) de ESE constraint? */
+export function isForeignKeyViolationOf(error: unknown, constraint: string): boolean {
+  return classifyDataError(error) === 'foreign-key' && mentionsConstraint(error, constraint);
+}
+
+/** SQLSTATE `restrict_violation`: un DELETE choca con un `ON DELETE RESTRICT` en PostgreSQL 18 (en 17 es 23503). */
+const RESTRICT_VIOLATION = '23001';
+
+/** La clase del error EN ESTA pantalla: igual a `classifyDataError`, salvo que con `restrictAsForeignKey` un 23001
+ *  cuenta como violación de FK. Sin ese flag no cambia nada. */
+function kindInContext(error: unknown, context: DataErrorContext): DataErrorKind {
   const kind = classifyDataError(error);
+  if (context.restrictAsForeignKey === true && readErrorInfo(error).code === RESTRICT_VIOLATION) return 'foreign-key';
+  return kind;
+}
+
+/** ¿Tiene sentido ofrecer "Reintentar" con los mismos datos? Con un check
+ *  violado, un permiso negado o un registro inexistente, reintentar da lo mismo.
+ *  Con el `context` de la pantalla, una FK puede declararse reintentable (`foreignKeyRetryable`). */
+export function isRetryableDataError(error: unknown, context: DataErrorContext = {}): boolean {
+  if (error instanceof UserMessageError) return error.retryable;
+  const kind = kindInContext(error, context);
+  if (kind === 'foreign-key' && context.foreignKeyRetryable === true) return true;
   return kind === 'network' || kind === 'timeout' || kind === 'server' || kind === 'unknown';
 }
 
@@ -218,10 +286,15 @@ const DEFAULT_MESSAGES: Record<DataErrorKind, string> = {
 
 /** Mensaje en español neutro para mostrar al usuario. Nunca texto del servidor. */
 export function mapDataError(error: unknown, context: DataErrorContext = {}): string {
-  const kind = classifyDataError(error);
+  if (error instanceof UserMessageError) return error.userMessage;
+  const kind = kindInContext(error, context);
   switch (kind) {
-    case 'foreign-key':
-      return context.foreignKey ?? DEFAULT_MESSAGES[kind];
+    case 'foreign-key': {
+      const porConstraint = Object.entries(context.foreignKeyByConstraint ?? {}).find(([constraint]) =>
+        mentionsConstraint(error, constraint),
+      );
+      return porConstraint?.[1] ?? context.foreignKey ?? DEFAULT_MESSAGES[kind];
+    }
     case 'unique':
       return context.unique ?? DEFAULT_MESSAGES[kind];
     case 'not-found':

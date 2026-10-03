@@ -63,7 +63,7 @@ const CATS: Categoria[] = [
   { id: PROPIA_ID, nombre: 'Gastos varios', activa: true, transportista_id: 'tenant-a' },
 ];
 const TODAY = '2026-10-02';
-const ctx = { categorias: CATS, today: TODAY };
+const ctx = { categorias: CATS, today: TODAY, viajes: [] };
 const base = (over: Partial<GastoFormValues>): GastoFormValues => ({ ...emptyGastoValues(TODAY), monto: '1000', ...over });
 
 // ---------------------------------------------------------------------------
@@ -160,6 +160,7 @@ function installResponder() {
       });
     }
     if (call.table === 'categorias_gasto') return ok(CATS);
+    if (call.table === 'viajes') return ok([]); // los viajes recientes del selector "Viaje"
     if (call.table === 'gastos') return ok(null);
     throw new Error(`pedido inesperado: ${call.table} ${call.ops.map((o) => o.m).join('.')}`);
   };

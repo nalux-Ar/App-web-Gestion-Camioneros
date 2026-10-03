@@ -1,7 +1,7 @@
 import { act, useMemo, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router';
+import { QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,7 @@ import { MemberProvider } from '@/features/member/member-provider';
 import { RequireMember } from '@/app/guards';
 import { ViajeFormPage } from '@/features/viajes/viaje-form-page';
 import { entregaDomId } from '@/features/viajes/viaje-dom-ids';
+import { gastosKeys } from '@/features/gastos/gastos-keys';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { todayLocal } from '@/lib/dates';
 import { queryClient } from '@/lib/query-client';
@@ -54,8 +55,16 @@ import { queryClient } from '@/lib/query-client';
 // ---------------------------------------------------------------------------
 // "Base de datos" falsa y rutas
 // ---------------------------------------------------------------------------
-type Resp = { data: unknown; error: { message: string; code: string; details?: string; hint?: string } | null; status: number };
+type Resp = {
+  data: unknown;
+  /** Solo en la consulta de conteo (`select(..., { count: 'exact', head: true })`). */
+  count?: number | null;
+  error: { message: string; code: string; details?: string; hint?: string } | null;
+  status: number;
+};
 const ok = (data: unknown): Resp => ({ data, error: null, status: 200 });
+/** La respuesta de un conteo exacto con `head: true`: sin filas, con el número aparte. */
+const conteo = (count: number): Resp => ({ data: null, count, error: null, status: 200 });
 const fail = (code: string, message = 'falla', status = 400): Resp => ({ data: null, error: { code, message, details: '', hint: '' }, status });
 /** Una falla de red como la que arma supabase-js: sin código de servidor. */
 const sinRed = (): Resp => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
@@ -66,6 +75,7 @@ const VIAJE_ID = 'b0000000-0000-4000-8000-000000000001';
 const CAMION_ID = 'c0000000-0000-4000-8000-000000000001';
 const E_1 = 'd0000000-0000-4000-8000-000000000001';
 const E_2 = 'd0000000-0000-4000-8000-000000000002';
+const G_ID = 'e0000000-0000-4000-8000-000000000001';
 const NUEVO_VIAJE_ID = 'b0000000-0000-4000-8000-0000000000ff';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -89,6 +99,10 @@ const route: {
   actualizar: Handler;
   detalle: Handler;
   borrar: Handler;
+  /** `select('id', { count: 'exact', head: true })` sobre gastos: cuántos gastos tiene el viaje. */
+  contarGastos: Handler;
+  /** `update gastos set viaje_id = null where viaje_id = ?`. */
+  desvincular: Handler;
 } = {
   clientes: () => ok(db.clientes),
   insertCliente: () => {
@@ -98,6 +112,8 @@ const route: {
   actualizar: () => ok(null),
   detalle: () => ok(null),
   borrar: () => ok([{ id: VIAJE_ID }]),
+  contarGastos: () => conteo(0),
+  desvincular: () => ok([]),
 };
 
 function resetRoutes() {
@@ -113,6 +129,8 @@ function resetRoutes() {
   route.actualizar = () => ok(null);
   route.detalle = () => ok(null);
   route.borrar = () => ok([{ id: VIAJE_ID }]);
+  route.contarGastos = () => conteo(0);
+  route.desvincular = () => ok([]);
 }
 
 function installResponder() {
@@ -123,6 +141,7 @@ function installResponder() {
     if (call.target === 'rpc:crear_viaje_con_entregas') return route.crear(call);
     if (call.target === 'rpc:actualizar_viaje_con_entregas') return route.actualizar(call);
     if (call.target === 'viajes') return has('delete') ? route.borrar(call) : route.detalle(call);
+    if (call.target === 'gastos') return has('update') ? route.desvincular(call) : route.contarGastos(call);
     throw new Error(`pedido inesperado: ${call.target} ${call.ops.map((o) => o.m).join('.')}`);
   };
 }
@@ -151,6 +170,14 @@ const crearCalls = () => callsTo('rpc:crear_viaje_con_entregas');
 const actualizarCalls = () => callsTo('rpc:actualizar_viaje_con_entregas');
 const clientesListados = () => h.calls.filter((c) => c.target === 'clientes' && !c.ops.some((o) => o.m === 'insert'));
 const clientesInsertados = () => h.calls.filter((c) => c.target === 'clientes' && c.ops.some((o) => o.m === 'insert'));
+/** Lo que pasó con los gastos y el viaje al borrar, en orden: el conteo de la confirmación, el UPDATE que desvincula y el DELETE. */
+const secuenciaDeBorrado = () =>
+  h.calls.flatMap((c) => {
+    const has = (m: string) => c.ops.some((o) => o.m === m);
+    if (c.target === 'gastos') return [has('update') ? 'desvincular' : 'conteo'];
+    if (c.target === 'viajes' && has('delete')) return ['borrar'];
+    return [];
+  });
 
 // ---------------------------------------------------------------------------
 // Árbol de prueba
@@ -179,6 +206,17 @@ function ListaProbe() {
   );
 }
 
+/** El detalle del viaje de mentira: deja a la vista a dónde se navegó, con qué aviso y con qué `volver`. */
+function DetalleProbe() {
+  const location = useLocation();
+  const state = (location.state as { aviso?: string; volver?: string } | null) ?? {};
+  return (
+    <div id="detalle-del-viaje" data-path={location.pathname} data-aviso={state.aviso ?? ''} data-volver={state.volver ?? ''}>
+      detalle
+    </div>
+  );
+}
+
 let root: Root;
 let container: HTMLElement;
 let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -191,7 +229,7 @@ async function settle(times = 4) {
   }
 }
 
-async function mount(path = '/viajes/nuevo') {
+async function mount(entry: InitialEntry = '/viajes/nuevo') {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -200,11 +238,12 @@ async function mount(path = '/viajes/nuevo') {
       <QueryClientProvider client={queryClient}>
         <AuthHarness>
           <MemberProvider>
-            <MemoryRouter initialEntries={[path]}>
+            <MemoryRouter initialEntries={[entry]}>
               <RequireMember>
                 <Routes>
                   <Route path="/viajes/nuevo" element={<ViajeFormPage modo="nuevo" />} />
                   <Route path="/viajes/:id/editar" element={<ViajeFormPage modo="editar" />} />
+                  <Route path="/viajes/:id" element={<DetalleProbe />} />
                   <Route path="/viajes" element={<ListaProbe />} />
                 </Routes>
               </RequireMember>
@@ -266,6 +305,12 @@ async function llenarLoMinimo() {
 async function agregarEntrega() {
   await click(buttonByText('Agregar entrega'));
 }
+/** Abre la confirmación de borrar el viaje y la acepta (con el conteo de gastos que dé `route.contarGastos`). */
+async function eliminarViajeConfirmando() {
+  await click(buttonByText('Eliminar viaje'));
+  await click(buttonByText('Sí, eliminar'));
+  await settle(4);
+}
 
 beforeEach(() => {
   h.calls.length = 0;
@@ -274,6 +319,9 @@ beforeEach(() => {
   localStorage.clear();
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  // Si una prueba "sin señal" falló a mitad de camino, TanStack quedó creyendo que no hay red: se restablece
+  // directamente (entre pruebas no hay árbol montado, así que nadie escucha el evento 'online').
+  onlineManager.setOnline(true);
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   window.scrollTo = (() => {}) as never;
   Element.prototype.scrollIntoView = (() => {}) as never;
@@ -1181,6 +1229,20 @@ describe('formulario de viaje: editar', () => {
     expect(document.activeElement).toBe(select);
   });
 
+  it('guardar una edición marca vieja la lista de gastos (muestra el recorrido de cada viaje); si falla, no', async () => {
+    const listaDeGastos = gastosKeys.list('tenant-a', '2025-06-01', '2025-07-01', null);
+    route.detalle = () => ok(detalleViaje());
+    route.actualizar = () => sinRed();
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    queryClient.setQueryData(listaDeGastos, { items: [], truncado: false });
+    await guardar();
+    expect(queryClient.getQueryState(listaDeGastos)?.isInvalidated).toBe(false);
+
+    route.actualizar = () => ok(null);
+    await guardar();
+    expect(queryClient.getQueryState(listaDeGastos)?.isInvalidated).toBe(true);
+  });
+
   it('un viaje sin camión se guarda con p_camion_id = null', async () => {
     route.detalle = () => ok(detalleViaje({ camion_id: null }));
     await mount(`/viajes/${VIAJE_ID}/editar`);
@@ -1326,7 +1388,7 @@ describe('formulario de viaje: eliminar', () => {
     await settle(4);
   };
 
-  it('pide confirmación, borra por id y vuelve a la lista con el aviso "eliminado" (conservando el mes)', async () => {
+  it('pide confirmación, desvincula los gastos, borra por id y vuelve a la lista con el aviso "eliminado" (conservando el mes)', async () => {
     route.detalle = () => ok(detalleViaje());
     await mount(`/viajes/${VIAJE_ID}/editar`);
     await click(buttonByText('Eliminar viaje'));
@@ -1339,22 +1401,96 @@ describe('formulario de viaje: eliminar', () => {
     expect(borrado.ops.map((o) => o.m)).toEqual(['delete', 'eq', 'select', 'abortSignal']);
     expect(borrado.ops.find((o) => o.m === 'eq')!.args).toEqual(['id', VIAJE_ID]);
     expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+    // SIEMPRE los dos pasos, aunque no haya gastos: se vuelve a contar, se desvincula y después se borra.
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'desvincular', 'borrar']);
   });
 
-  it('23503 (el viaje tiene gastos vinculados): mensaje del contexto del borrado, sin "Reintentar", y se queda en el formulario', async () => {
+  it('23503 en el DELETE (una carrera: se vinculó un gasto entre los dos pasos): mensaje nuevo, SIN el nombre del constraint, con "Reintentar", y se queda en el formulario', async () => {
     route.detalle = () => ok(detalleViaje());
     route.borrar = () => fail('23503', 'update or delete on table "viajes" violates foreign key constraint "gastos_viaje_fk" on table "gastos"', 409);
     await mount(`/viajes/${VIAJE_ID}/editar`);
     await eliminar();
 
-    expect(bodyText()).toContain('Este viaje tiene gastos vinculados. Cambia o quita esos gastos antes de borrarlo.');
+    expect(bodyText()).toContain('Se vinculó un gasto a este viaje mientras lo borrabas. Vuelve a intentarlo.');
+    expect(bodyText()).not.toContain('Este viaje tiene gastos vinculados. Cambia o quita'); // el mensaje viejo ya no existe
     expect(bodyText()).not.toContain('gastos_viaje_fk');
     expect(bodyText()).not.toContain('Alguno de los clientes'); // el mensaje del GUARDADO no se confunde con este
-    expect(buttonByText('Reintentar')).toBeUndefined();
-    expect(buttonByText('Sí, eliminar')).toBeUndefined(); // reintentar daría lo mismo: solo queda Cancelar
+    expect(buttonByText('Reintentar')).toBeTruthy(); // repetir los dos pasos es seguro
     expect(buttonByText('Cancelar')).toBeTruthy();
     expect(byId('lista-de-viajes')).toBeNull();
     expect(byId<HTMLInputElement>('viaje-origen')!.value).toBe('Rosario');
+  });
+
+  it('carrera: "Reintentar" repite los DOS pasos (desvincula de nuevo) y entonces borra', async () => {
+    route.detalle = () => ok(detalleViaje());
+    let intento = 0;
+    route.borrar = () => {
+      intento += 1;
+      return intento === 1
+        ? fail('23503', 'update or delete on table "viajes" violates foreign key constraint "gastos_viaje_fk" on table "gastos"', 409)
+        : ok([{ id: VIAJE_ID }]);
+    };
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    await eliminar();
+    expect(bodyText()).toContain('Se vinculó un gasto a este viaje mientras lo borrabas.');
+
+    await click(buttonByText('Reintentar'));
+    await settle(4);
+    // Tras el error se vuelve a pedir el conteo (la confirmación sigue abierta) y el reintento recuenta, desvincula y borra.
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'desvincular', 'borrar', 'conteo', 'conteo', 'desvincular', 'borrar']);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+  });
+
+  it('PostgreSQL 18 devuelve 23001 (restrict_violation) en vez de 23503: en el borrado del viaje es EXACTAMENTE lo mismo (mismo mensaje, reintentable, y el reintento borra)', async () => {
+    route.detalle = () => ok(detalleViaje());
+    let intento = 0;
+    route.borrar = () => {
+      intento += 1;
+      return intento === 1
+        ? fail('23001', 'update or delete on table "viajes" violates RESTRICT setting of foreign key constraint "gastos_viaje_fk" on table "gastos"', 409)
+        : ok([{ id: VIAJE_ID }]);
+    };
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    await eliminar();
+    expect(bodyText()).toContain('Se vinculó un gasto a este viaje mientras lo borrabas. Vuelve a intentarlo.');
+    expect(bodyText()).not.toContain('Alguno de los datos del viaje no es válido'); // no cae en "datos inválidos"
+    expect(bodyText()).not.toContain('gastos_viaje_fk');
+    expect(buttonByText('Reintentar')).toBeTruthy();
+    expect(byId('lista-de-viajes')).toBeNull();
+
+    await click(buttonByText('Reintentar'));
+    await settle(4);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+  });
+
+  it('con falla de red entre los pasos (el UPDATE salió y el DELETE no): error con "Reintentar"; el viaje sigue existiendo y reintentar completa el borrado', async () => {
+    route.detalle = () => ok(detalleViaje());
+    let intento = 0;
+    route.borrar = () => {
+      intento += 1;
+      return intento === 1 ? sinRed() : ok([{ id: VIAJE_ID }]);
+    };
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    await eliminar();
+    expect(bodyText()).toContain('No hay conexión');
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'desvincular', 'borrar', 'conteo']);
+    expect(byId('lista-de-viajes')).toBeNull(); // el viaje sigue ahí
+    expect(byId<HTMLInputElement>('viaje-origen')!.value).toBe('Rosario');
+
+    await click(buttonByText('Reintentar'));
+    await settle(4);
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'desvincular', 'borrar', 'conteo', 'conteo', 'desvincular', 'borrar']);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+  });
+
+  it('si el paso 1 (desvincular) falla, NO se intenta borrar el viaje', async () => {
+    route.detalle = () => ok(detalleViaje());
+    route.desvincular = () => sinRed();
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    await eliminar();
+    expect(bodyText()).toContain('No hay conexión');
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'desvincular', 'conteo']);
+    expect(byId('lista-de-viajes')).toBeNull();
   });
 
   it('0 filas borradas (ya no existía) se trata como éxito: vuelve a la lista con "eliminado"', async () => {
@@ -1383,6 +1519,330 @@ describe('formulario de viaje: eliminar', () => {
   it('el alta no ofrece "Eliminar viaje"', async () => {
     await mount();
     expect(buttonByText('Eliminar viaje')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Borrado de un viaje CON gastos: la confirmación dice cuántos y los conserva
+// ---------------------------------------------------------------------------
+describe('formulario de viaje: eliminar un viaje con gastos vinculados', () => {
+  const abrirConfirmacion = async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    await click(buttonByText('Eliminar viaje'));
+  };
+
+  it('no pide el conteo hasta que se abre la confirmación; después lo pide UNA vez con select("id", { count: "exact", head: true }) por viaje_id', async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    expect(secuenciaDeBorrado()).toEqual([]); // abrir el formulario no cuenta nada
+    await click(buttonByText('Eliminar viaje'));
+    expect(secuenciaDeBorrado()).toEqual(['conteo']);
+    const call = callsTo('gastos')[0]!;
+    expect(call.ops.find((o) => o.m === 'select')!.args).toEqual(['id', { count: 'exact', head: true }]);
+    expect(call.ops.find((o) => o.m === 'eq')!.args).toEqual(['viaje_id', VIAJE_ID]);
+  });
+
+  it('con 3 gastos: "Este viaje tiene 3 gastos. Se conservan, pero quedan sin viaje." y el botón dice "Desvincular los gastos y borrar el viaje"', async () => {
+    route.contarGastos = () => conteo(3);
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Este viaje tiene 3 gastos. Se conservan, pero quedan sin viaje.');
+    expect(buttonByText('Desvincular los gastos y borrar el viaje')).toBeTruthy();
+    expect(buttonByText('Sí, eliminar')).toBeUndefined();
+    expect(buttonByText('Cancelar')).toBeTruthy();
+  });
+
+  it('con 1 gasto el texto va en singular (se conserva / queda) y el botón también', async () => {
+    route.contarGastos = () => conteo(1);
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Este viaje tiene 1 gasto. Se conserva, pero queda sin viaje.');
+    expect(bodyText()).not.toContain('1 gastos');
+    expect(buttonByText('Desvincular el gasto y borrar el viaje')).toBeTruthy();
+  });
+
+  it('con 0 gastos queda el texto de siempre ("¿Seguro? Esto no se puede deshacer.") y "Sí, eliminar"', async () => {
+    route.contarGastos = () => conteo(0);
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('¿Seguro? Esto no se puede deshacer.');
+    expect(bodyText()).not.toContain('gasto');
+    expect(buttonByText('Sí, eliminar')).toBeTruthy();
+  });
+
+  it('confirmar con gastos: conteo -> UPDATE que desvincula (viaje_id = null, filtrado por viaje_id) -> DELETE del viaje, en ese orden, y vuelve a la lista', async () => {
+    route.contarGastos = () => conteo(3);
+    await abrirConfirmacion();
+    await click(buttonByText('Desvincular los gastos y borrar el viaje'));
+    await settle(4);
+
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'desvincular', 'borrar']);
+    const update = callsTo('gastos').find((c) => c.ops.some((o) => o.m === 'update'))!;
+    expect(update.ops.find((o) => o.m === 'update')!.args[0]).toEqual({ viaje_id: null });
+    expect(update.ops.find((o) => o.m === 'eq')!.args).toEqual(['viaje_id', VIAJE_ID]);
+    expect(update.ops.find((o) => o.m === 'abortSignal')!.args[0]).toBeInstanceOf(AbortSignal); // timeout de escritura
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+  });
+
+  it('mientras se cuentan los gastos el botón de confirmar está deshabilitado ("Revisando…") y recién después aparece el texto con el número', async () => {
+    let resolver: (r: Resp) => void = () => {};
+    const pendiente = new Promise<Resp>((resolve) => {
+      resolver = resolve;
+    });
+    route.contarGastos = () => pendiente;
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Revisando si el viaje tiene gastos…');
+    expect(buttonByText('Sí, eliminar')!.disabled).toBe(true);
+    expect(buttonByText('Cancelar')!.disabled).toBe(false); // se puede cancelar mientras tanto
+
+    await act(async () => {
+      resolver(conteo(2));
+    });
+    await settle(4);
+    expect(bodyText()).toContain('Este viaje tiene 2 gastos.');
+    expect(buttonByText('Desvincular los gastos y borrar el viaje')!.disabled).toBe(false);
+  });
+
+  it('si el conteo falla: texto genérico ("Si tiene gastos vinculados, se conservan pero quedan sin viaje.") y se puede borrar igual', async () => {
+    route.contarGastos = () => sinRed();
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Si tiene gastos vinculados, se conservan pero quedan sin viaje.');
+    expect(buttonByText('Sí, eliminar')!.disabled).toBe(false);
+    await click(buttonByText('Sí, eliminar'));
+    await settle(4);
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'desvincular', 'borrar']);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+  });
+
+  it('un conteo con otra forma (sin número) también cae en el texto genérico, sin inventar un 0', async () => {
+    route.contarGastos = () => ok(null); // `count` ausente
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Si tiene gastos vinculados, se conservan pero quedan sin viaje.');
+    expect(bodyText()).not.toContain('¿Seguro? Esto no se puede deshacer.');
+    expect(buttonByText('Sí, eliminar')!.disabled).toBe(false);
+  });
+
+  it('cancelar y volver a abrir vuelve a contar (el número es siempre el de ahora)', async () => {
+    let cantidad = 2;
+    route.contarGastos = () => conteo(cantidad);
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Este viaje tiene 2 gastos.');
+    await click(buttonByText('Cancelar'));
+    cantidad = 0;
+    await click(buttonByText('Eliminar viaje'));
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo']);
+    expect(bodyText()).toContain('¿Seguro? Esto no se puede deshacer.');
+    expect(bodyText()).not.toContain('Este viaje tiene');
+  });
+
+  /** Una query de cada clase que el borrado tiene que dejar vieja, sin observadores (solo se marca; no se vuelve a pedir). */
+  const clavesQueDebenQuedarViejas = () => ({
+    'lista de viajes del mes': viajesKeys.list('tenant-a', '2025-06-01', '2025-07-01'),
+    'viajes recientes del selector de gastos': viajesKeys.recientes('tenant-a'),
+    'pantalla de solo lectura del viaje': viajesKeys.vista('tenant-a', VIAJE_ID),
+    'lista de gastos del mes': gastosKeys.list('tenant-a', '2025-06-01', '2025-07-01', null),
+    'gastos del viaje': gastosKeys.delViaje('tenant-a', VIAJE_ID),
+    'detalle de un gasto': gastosKeys.detail('tenant-a', G_ID),
+  });
+
+  it('tras borrar: se invalidan las listas de viajes (y los recientes y la vista) y TODO lo de gastos, que cambió', async () => {
+    route.detalle = () => ok(detalleViaje());
+    route.contarGastos = () => conteo(2);
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    const claves = clavesQueDebenQuedarViejas();
+    for (const key of Object.values(claves)) queryClient.setQueryData(key, []);
+    await click(buttonByText('Eliminar viaje'));
+    await click(buttonByText('Desvincular los gastos y borrar el viaje'));
+    await settle(4);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+    for (const [nombre, key] of Object.entries(claves)) expect(queryClient.getQueryState(key)?.isInvalidated, nombre).toBe(true);
+  });
+
+  it('si el borrado falla DESPUÉS de desvincular (el paso 1 sí se aplicó), los gastos también se marcan viejos', async () => {
+    route.detalle = () => ok(detalleViaje());
+    route.borrar = () => sinRed();
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    const claves = clavesQueDebenQuedarViejas();
+    for (const key of Object.values(claves)) queryClient.setQueryData(key, []);
+    await eliminarViajeConfirmando();
+    expect(bodyText()).toContain('No hay conexión');
+    expect(queryClient.getQueryState(claves['gastos del viaje'])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(claves['lista de gastos del mes'])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(claves['lista de viajes del mes'])?.isInvalidated).toBe(true);
+  });
+
+  it('si al confirmar la cantidad de gastos ya no es la mostrada (la confirmación quedó abierta y alguien vinculó otros), NO desvincula ni borra: avisa, muestra el número nuevo y el reintento usa ese', async () => {
+    let conteos = 0;
+    route.contarGastos = () => {
+      conteos += 1;
+      return conteo(conteos === 1 ? 3 : 5); // al abrir había 3; al confirmar ya son 5
+    };
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Este viaje tiene 3 gastos.');
+    await click(buttonByText('Desvincular los gastos y borrar el viaje'));
+    await settle(4);
+
+    expect(bodyText()).toContain('Ahora el viaje tiene 5 gastos vinculados. Revisa y vuelve a confirmar.');
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'conteo']); // abrir, recontar al confirmar y refrescar: nada más
+    expect(bodyText()).toContain('Este viaje tiene 5 gastos.'); // el texto ya muestra el número de ahora
+    expect(byId('lista-de-viajes')).toBeNull();
+
+    await click(buttonByText('Reintentar'));
+    await settle(4);
+    expect(secuenciaDeBorrado()).toEqual(['conteo', 'conteo', 'conteo', 'conteo', 'desvincular', 'borrar']);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+  });
+
+  it('si se corta DESPUÉS de desvincular (el viaje no se borró), el error dice que los gastos ya quedaron sin viaje; "Reintentar" termina el borrado', async () => {
+    let conteos = 0;
+    route.contarGastos = () => {
+      conteos += 1;
+      return conteo(conteos <= 2 ? 3 : 0); // 3 antes de desvincular; 0 después (ya no están vinculados)
+    };
+    route.desvincular = () => ok([{ id: 'g-1' }, { id: 'g-2' }, { id: 'g-3' }]);
+    let borrados = 0;
+    route.borrar = () => {
+      borrados += 1;
+      return borrados === 1 ? sinRed() : ok([{ id: VIAJE_ID }]);
+    };
+    await abrirConfirmacion();
+    await click(buttonByText('Desvincular los gastos y borrar el viaje'));
+    await settle(4);
+
+    expect(bodyText()).toContain('Los 3 gastos ya quedaron sin viaje, pero el viaje no se borró.');
+    expect(bodyText()).toContain('No hay conexión'); // y el motivo
+    expect(buttonByText('Reintentar')).toBeTruthy();
+    expect(byId('lista-de-viajes')).toBeNull();
+    expect(bodyText()).toContain('¿Seguro? Esto no se puede deshacer.'); // el conteo refrescado: ya no quedan gastos vinculados
+
+    await click(buttonByText('Reintentar'));
+    await settle(4);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+  });
+
+  it('sin señal, al volver a abrir la confirmación NO se muestra el número de la vez anterior: espera ("Revisando…", botón deshabilitado) hasta poder contar', async () => {
+    let cantidad = 3;
+    route.contarGastos = () => conteo(cantidad);
+    await abrirConfirmacion();
+    expect(bodyText()).toContain('Este viaje tiene 3 gastos.');
+    await click(buttonByText('Cancelar'));
+
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    await act(async () => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    cantidad = 1;
+    await click(buttonByText('Eliminar viaje'));
+    await settle(4);
+    expect(bodyText()).toContain('Revisando si el viaje tiene gastos…');
+    expect(bodyText()).not.toContain('Este viaje tiene 3 gastos.');
+    expect(buttonByText('Sí, eliminar')!.disabled).toBe(true);
+
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    await settle(6);
+    expect(bodyText()).toContain('Este viaje tiene 1 gasto.');
+    expect(buttonByText('Desvincular el gasto y borrar el viaje')!.disabled).toBe(false);
+  });
+
+  it('el botón largo se parte en líneas (no se corta) y sigue siendo de al menos 48 px', async () => {
+    route.contarGastos = () => conteo(3);
+    await abrirConfirmacion();
+    const boton = buttonByText('Desvincular los gastos y borrar el viaje')!;
+    expect(boton.className).toContain('whitespace-normal');
+    expect(boton.className).toContain('min-h-12');
+  });
+
+  it('el texto de la confirmación queda enlazado a "Cancelar" (aria-describedby) y se anuncia el estado al lector de pantalla', async () => {
+    route.contarGastos = () => conteo(3);
+    await abrirConfirmacion();
+    const cancelar = buttonByText('Cancelar')!;
+    const descripcion = document.getElementById(cancelar.getAttribute('aria-describedby')!);
+    expect(descripcion?.textContent).toContain('Este viaje tiene 3 gastos.');
+    expect(descripcion?.getAttribute('aria-live')).toBe('polite'); // si el texto cambia con la confirmación abierta, se anuncia
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Editar un viaje abierto desde su detalle
+// ---------------------------------------------------------------------------
+describe('formulario de viaje: abierto desde el detalle', () => {
+  const desdeDetalle = (over: Record<string, unknown> = {}): InitialEntry => ({
+    pathname: `/viajes/${VIAJE_ID}/editar`,
+    state: { desdeViaje: VIAJE_ID, volverViaje: '?mes=2025-06', ...over },
+  });
+
+  it('guardar vuelve al DETALLE de ese viaje (con el aviso "viaje-guardado" y el mes para su enlace "Viajes")', async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount(desdeDetalle());
+    await guardar();
+    expect(actualizarCalls()).toHaveLength(1);
+    const detalle = byId('detalle-del-viaje')!;
+    expect(detalle.dataset.path).toBe(`/viajes/${VIAJE_ID}`);
+    expect(detalle.dataset.aviso).toBe('viaje-guardado');
+    expect(detalle.dataset.volver).toBe('?mes=2025-06');
+    expect(byId('lista-de-viajes')).toBeNull();
+  });
+
+  it('el enlace "volver" lleva al detalle de ese viaje (no a la lista), con el mes en el state', async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount(desdeDetalle());
+    const volver = document.querySelector<HTMLAnchorElement>(`a[href="/viajes/${VIAJE_ID}"]`)!;
+    expect(volver).not.toBeNull();
+    expect(volver.textContent).toContain('Viaje');
+    expect(document.querySelector('a[href="/viajes"]')).toBeNull();
+    await click(volver);
+    expect(byId('detalle-del-viaje')!.dataset.volver).toBe('?mes=2025-06');
+  });
+
+  it('BORRAR el viaje lleva a la LISTA de viajes (el detalle ya no existiría), con el aviso "eliminado" y el mes', async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount(desdeDetalle());
+    await eliminarViajeConfirmando();
+    expect(byId('detalle-del-viaje')).toBeNull();
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('eliminado');
+    expect(byId('lista-de-viajes')!.dataset.search).toBe('?mes=2025-06');
+  });
+
+  it('sin desdeViaje todo sigue como hoy: guardar y "volver" van a la lista', async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount({ pathname: `/viajes/${VIAJE_ID}/editar`, state: { volver: '?mes=2025-06' } });
+    expect(document.querySelector('a[href="/viajes?mes=2025-06"]')).not.toBeNull();
+    await guardar();
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('guardado');
+    expect(byId('detalle-del-viaje')).toBeNull();
+  });
+
+  it('lista blanca: un desdeViaje que NO es un uuid (una ruta, una URL, un objeto) se ignora y no se navega a ningún lado raro', async () => {
+    for (const basura of ['/gastos', '//evil.com', 'https://evil.com/x', '/viajes/../gastos', { id: VIAJE_ID }, ['x'], 42, true, null]) {
+      h.calls.length = 0;
+      route.detalle = () => ok(detalleViaje());
+      await mount({ pathname: `/viajes/${VIAJE_ID}/editar`, state: { desdeViaje: basura, volverViaje: '?mes=2025-06' } });
+      expect(document.querySelector('a[href="/viajes"]'), JSON.stringify(basura)).not.toBeNull();
+      await guardar();
+      expect(byId('lista-de-viajes')?.dataset.aviso, JSON.stringify(basura)).toBe('guardado');
+      expect(byId('detalle-del-viaje'), JSON.stringify(basura)).toBeNull();
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      queryClient.clear();
+    }
+  });
+
+  it('un desdeViaje de OTRO viaje (uuid válido pero distinto del de la URL) no cuenta: se vuelve a la lista', async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount(desdeDetalle({ desdeViaje: 'b0000000-0000-4000-8000-0000000000aa' }));
+    expect(document.querySelector('a[href^="/viajes/b0000000"]')).toBeNull();
+    await guardar();
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('guardado');
+  });
+
+  it('el volverViaje se sanea: un search raro se descarta y queda solo lo que la lista podría haber escrito', async () => {
+    route.detalle = () => ok(detalleViaje());
+    await mount(desdeDetalle({ volverViaje: '?mes=2025-06&x=<script>alert(1)</script>' }));
+    await guardar();
+    expect(byId('detalle-del-viaje')!.dataset.volver).toBe('?mes=2025-06');
   });
 });
 

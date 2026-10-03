@@ -9,6 +9,7 @@ import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { isUuid } from '@/lib/uuid';
 import { useViaje } from './use-viajes';
 import { ViajeFormulario } from './viaje-formulario';
+import { leerDesdeViaje, rutaDelViaje } from './viaje-navegacion';
 import { ViajeNoEncontrado } from './viaje-no-encontrado';
 import { sanitizeVolver } from './viajes-filters';
 
@@ -21,16 +22,25 @@ interface ViajeFormPageProps {
  * sus entregas antes de mostrar el formulario, así el formulario se inicializa UNA vez con datos
  * completos y nunca se pisa lo que el usuario tipea. Los clientes los pide el propio formulario: su
  * carga no bloquea la pantalla (si falla, el error con "Reintentar" va dentro de la sección de entregas).
+ *
+ * Volver: a la lista de Viajes con su mes (`state.volver`, saneado) o, si la edición se abrió desde el detalle de
+ * ESTE viaje (`state.desdeViaje`, un uuid validado que además tiene que coincidir con el id de la URL), al detalle.
+ * Nunca se navega a algo que venga del estado o de la URL: la ruta se arma acá con un uuid.
  */
 export function ViajeFormPage({ modo }: ViajeFormPageProps) {
   useScrollToTopOnMount();
   const params = useParams();
   const location = useLocation();
-  const volver = sanitizeVolver((location.state as { volver?: unknown } | null)?.volver);
 
   // Un id que no es uuid no se consulta: es "no encontrado" sin pedir nada.
   const id = modo === 'editar' && isUuid(params.id) ? params.id : null;
   const idInvalido = modo === 'editar' && id === null;
+
+  // ¿Se llegó desde el detalle de ESTE viaje? Con el mismo id que la URL: un estado viejo de otro viaje no cuenta.
+  const desdeViaje = leerDesdeViaje(location.state);
+  const desdeDetalle = id !== null && desdeViaje !== null && desdeViaje.id === id.toLowerCase();
+  // La lista a la que volver (su `search`, con el mes): del estado, o el que el detalle ya traía.
+  const volver = desdeDetalle ? desdeViaje.volver : sanitizeVolver((location.state as { volver?: unknown } | null)?.volver);
 
   const viaje = useViaje(id);
   // Los clientes los usa el formulario (comparte esta misma consulta): pedirlos acá los trae EN PARALELO con el
@@ -52,7 +62,7 @@ export function ViajeFormPage({ modo }: ViajeFormPageProps) {
   } else if (modo === 'editar' && viaje.data === null) {
     contenido = <ViajeNoEncontrado volver={volver} />;
   } else if (modo === 'editar' && viaje.data) {
-    contenido = <ViajeFormulario key={viaje.data.id} viaje={viaje.data} volver={volver} />;
+    contenido = <ViajeFormulario key={viaje.data.id} viaje={viaje.data} volver={volver} desdeDetalle={desdeDetalle} />;
   } else {
     contenido = <ViajeFormulario volver={volver} />;
   }
@@ -61,10 +71,11 @@ export function ViajeFormPage({ modo }: ViajeFormPageProps) {
     <div className="space-y-5">
       <div className="space-y-1">
         <Link
-          to={`/viajes${volver}`}
+          to={desdeDetalle && id !== null ? rutaDelViaje(id.toLowerCase()) : `/viajes${volver}`}
+          state={desdeDetalle ? { volver } : undefined}
           className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <ChevronLeft className="size-5" aria-hidden="true" /> Viajes
+          <ChevronLeft className="size-5" aria-hidden="true" /> {desdeDetalle ? 'Viaje' : 'Viajes'}
         </Link>
         <h1 className="text-2xl font-semibold">{titulo}</h1>
       </div>

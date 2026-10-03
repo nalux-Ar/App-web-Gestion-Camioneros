@@ -35,6 +35,9 @@ const ViajesPage = lazy(() => import('@/features/viajes/viajes-page').then((m) =
 const ViajeFormPage = lazy(() =>
   import('@/features/viajes/viaje-form-page').then((m) => ({ default: m.ViajeFormPage })),
 );
+const ViajeDetallePage = lazy(() =>
+  import('@/features/viajes/viaje-detalle-page').then((m) => ({ default: m.ViajeDetallePage })),
+);
 const GastosPage = lazy(() => import('@/features/gastos/gastos-page').then((m) => ({ default: m.GastosPage })));
 const GastoFormPage = lazy(() =>
   import('@/features/gastos/gasto-form-page').then((m) => ({ default: m.GastoFormPage })),
@@ -106,6 +109,7 @@ export function AppRouter() {
           <Route index element={<InicioPage />} />
           <Route path="viajes" element={<ViajesPage />} />
           <Route path="viajes/nuevo" element={<ViajeFormPage modo="nuevo" />} />
+          <Route path="viajes/:id" element={<ViajeDetallePage />} />
           <Route path="viajes/:id/editar" element={<ViajeFormPage modo="editar" />} />
           <Route path="gastos" element={<GastosPage />} />
           <Route path="gastos/nuevo" element={<GastoFormPage modo="nuevo" />} />

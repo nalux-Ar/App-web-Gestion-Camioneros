@@ -91,6 +91,7 @@ function installResponder(opts: { gastoFalla?: boolean; categoriasFalla?: boolea
       // La primera carga sale bien; las siguientes (refrescos) fallan si se pidió.
       return opts.categoriasFalla && cargas.categorias > 1 ? sinRed() : ok(CATS);
     }
+    if (call.table === 'viajes') return ok([]); // los viajes recientes del selector "Viaje"
     if (call.table === 'gastos') {
       cargas.gasto += 1;
       return opts.gastoFalla && cargas.gasto > 1 ? sinRed() : ok(GASTO);
@@ -223,6 +224,7 @@ describe('formulario de gasto: un refresco fallido no desmonta el formulario abi
         });
       }
       if (call.table === 'categorias_gasto') return sinRed();
+      if (call.table === 'viajes') return ok([]);
       throw new Error(`pedido inesperado: ${call.table}`);
     };
     await mount('/gastos/nuevo');
