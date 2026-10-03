@@ -41,6 +41,9 @@ export function useGastosDelMes(filtro: GastosFiltro, enabled: boolean) {
  * `gcTime: 0`: no se guarda en caché al salir de la pantalla, así cada vez que se abre el formulario
  * de edición se pide el gasto fresco (el formulario se inicializa UNA vez con lo que vino: si arrancara
  * con una copia vieja, guardar pisaría con datos desactualizados lo que se cambió desde otro lado).
+ *
+ * Se lee UNA vez: el formulario no vuelve a leer el gasto, así que refrescarlo al volver la señal no sirve
+ * de nada (`refetchOnReconnect: false`; `refetchOnWindowFocus` ya está apagado en `query-client.ts`).
  */
 export function useGasto(id: string | null) {
   const tenantId = useTenantId();
@@ -49,5 +52,6 @@ export function useGasto(id: string | null) {
     queryFn: ({ signal }) => (id === null ? Promise.resolve(null) : fetchGasto(id, signal)),
     enabled: id !== null,
     gcTime: 0,
+    refetchOnReconnect: false,
   });
 }

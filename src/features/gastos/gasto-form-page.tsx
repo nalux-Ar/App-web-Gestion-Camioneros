@@ -39,7 +39,9 @@ export function GastoFormPage({ modo }: GastoFormPageProps) {
   let contenido;
   if (idInvalido) {
     contenido = <GastoNoEncontrado volver={volver} />;
-  } else if (categorias.isError) {
+  } else if (categorias.isError && categorias.data === undefined) {
+    // Los errores de carga solo ocupan la pantalla si NO hay datos: un refresco fallido (típico al volver la
+    // señal) con el formulario ya abierto no lo desmonta, porque se llevaría lo que el usuario tipeó.
     contenido = (
       <InlineError
         message={mapDataError(categorias.error)}
@@ -47,7 +49,7 @@ export function GastoFormPage({ modo }: GastoFormPageProps) {
         retrying={categorias.isFetching}
       />
     );
-  } else if (modo === 'editar' && gasto.isError) {
+  } else if (modo === 'editar' && gasto.isError && gasto.data === undefined) {
     contenido = (
       <InlineError
         message={mapDataError(gasto.error)}
