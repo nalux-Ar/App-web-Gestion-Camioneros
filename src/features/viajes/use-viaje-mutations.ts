@@ -1,8 +1,10 @@
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { clientesKeys } from '@/features/clientes/clientes-keys';
+import { devolucionesKeys } from '@/features/devoluciones/devoluciones-keys';
 import { gastosKeys } from '@/features/gastos/gastos-keys';
 import { classifyDataError } from '@/lib/data-errors';
+import type { ConteosDelViaje } from './eliminar-viaje-textos';
 import type { ViajeDatos } from './viaje-form';
 import { actualizarViaje, crearViaje, type CrearViajeResultado } from './viaje-save';
 import { eliminarViajeDesvinculandoGastos, viajeWriteIO } from './viajes-api';
@@ -87,30 +89,34 @@ export function useActualizarViaje() {
 export interface EliminarViajeVariables {
   tenantId: string;
   id: string;
-  /** Cuántos gastos le mostró la confirmación (null si no se pudo contar): se vuelve a contar antes de desvincular. */
-  gastosMostrados: number | null;
+  /** Cuántos gastos y devoluciones le mostró la confirmación (null si no se pudo contar alguno): se vuelven a contar
+   *  antes de desvincular. */
+  conteosMostrados: ConteosDelViaje | null;
 }
 
 /**
- * Borra el viaje en dos pasos (desvincula sus gastos y luego lo borra: `eliminarViajeDesvinculandoGastos`).
- * Tira `RecordNotFoundError` si el viaje ya no estaba: para un borrado es lo mismo que éxito (lo trata la
- * pantalla). Se invalida en `onSettled`, también si falla: el paso 1 pudo haberse aplicado igual (los gastos ya
- * perdieron el vínculo) y las listas de gastos y de viajes no tienen que mostrar el estado de antes.
+ * Borra el viaje en dos pasos (desvincula sus gastos y luego lo borra: `eliminarViajeDesvinculandoGastos`); sus
+ * devoluciones se borran en cascada, por la base. Tira `RecordNotFoundError` si el viaje ya no estaba: para un
+ * borrado es lo mismo que éxito (lo trata la pantalla). Se invalida en `onSettled`, también si falla: el paso 1 pudo
+ * haberse aplicado igual (los gastos ya perdieron el vínculo) y las listas de gastos, de devoluciones y de viajes no
+ * tienen que mostrar el estado de antes.
  */
 export function useEliminarViaje() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, EliminarViajeVariables>({
     scope: { id: 'eliminar-viaje' },
-    mutationFn: ({ id, gastosMostrados }) => eliminarViajeDesvinculandoGastos(id, gastosMostrados),
+    mutationFn: ({ id, conteosMostrados }) => eliminarViajeDesvinculandoGastos(id, conteosMostrados),
     onSettled: (_resultado, _error, { tenantId }) => {
       invalidarViajes(queryClient, tenantId);
       // Los gastos cambiaron (perdieron su viaje): también sus listas, el detalle y los conteos.
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
+      // Las devoluciones del viaje se borraron con él (o, si falló, ya no hay que fiarse de lo que se veía).
+      void queryClient.invalidateQueries({ queryKey: devolucionesKeys.all(tenantId) });
     },
-    // Si falló (cambió la cantidad, o se cortó después de desvincular), la confirmación sigue abierta: su conteo se
-    // vuelve a pedir para que el texto y el "Reintentar" usen la cantidad de AHORA (mientras tanto, el botón espera).
+    // Si falló (cambió alguna cantidad, o se cortó después de desvincular), la confirmación sigue abierta: sus conteos
+    // se vuelven a pedir para que el texto y el "Reintentar" usen los números de AHORA (mientras tanto, el botón espera).
     onError: (_error, { tenantId, id }) => {
-      void queryClient.invalidateQueries({ queryKey: viajesKeys.cantidadGastos(tenantId, id) });
+      void queryClient.invalidateQueries({ queryKey: viajesKeys.conteos(tenantId, id) });
     },
   });
 }

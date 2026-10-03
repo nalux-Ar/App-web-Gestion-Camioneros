@@ -29,6 +29,12 @@ interface ConfirmDeleteProps {
   confirmDisabled?: boolean;
   /** Avisa cuando se pide o se cancela la confirmación: el llamador puede averiguar lo que necesita para el `prompt`. */
   onConfirmingChange?: (confirming: boolean) => void;
+  /**
+   * Después de un error reintentable, el botón dice "Reintentar". Con `true` conserva `confirmLabel` en su lugar: para
+   * un borrado que destruye datos (p.ej. "Borrar el viaje y sus devoluciones") la etiqueta que nombra la consecuencia
+   * tiene que seguir a la vista, también cuando el aviso de error pide volver a confirmar.
+   */
+  keepConfirmLabelOnError?: boolean;
 }
 
 /**
@@ -67,6 +73,7 @@ export function ConfirmDelete({
   confirmLabel = 'Sí, eliminar',
   confirmDisabled = false,
   onConfirmingChange,
+  keepConfirmLabelOnError = false,
 }: ConfirmDeleteProps) {
   const [confirming, setConfirming] = useState(false);
   const [deleted, setDeleted] = useState(false);
@@ -161,7 +168,7 @@ export function ConfirmDelete({
                   <>
                     <Spinner className="size-4" /> Eliminando…
                   </>
-                ) : error ? (
+                ) : error && !keepConfirmLabelOnError ? (
                   'Reintentar'
                 ) : (
                   confirmLabel

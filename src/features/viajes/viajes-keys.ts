@@ -22,8 +22,9 @@ export const viajesKeys = {
   /** La pantalla de solo lectura de un viaje (con los nombres de los clientes de sus entregas). */
   vistas: (tenantId: string) => tenantKey(tenantId, 'viajes', 'vista'),
   vista: (tenantId: string, id: string) => tenantKey(tenantId, 'viajes', 'vista', id),
-  /** Cuántos gastos tiene un viaje (la confirmación de borrarlo). A propósito NO cuelga de `lists`, `vistas` ni de las
-   *  keys de gastos: el borrado invalida esas, y refrescar el conteo con la confirmación abierta cambiaría el texto
-   *  mientras se está borrando. Se pide fresco cada vez que se abre la confirmación. */
-  cantidadGastos: (tenantId: string, id: string) => tenantKey(tenantId, 'viajes', 'cantidad-gastos', id),
+  /** Cuántos gastos y cuántas devoluciones tiene un viaje (la confirmación de borrarlo). A propósito NO cuelga de
+   *  `lists`, `vistas` ni de las keys de gastos o de devoluciones: el borrado invalida esas, y refrescar el conteo
+   *  con la confirmación abierta cambiaría el texto mientras se está borrando. Se pide fresco cada vez que se abre
+   *  la confirmación. */
+  conteos: (tenantId: string, id: string) => tenantKey(tenantId, 'viajes', 'conteos-del-borrado', id),
 };

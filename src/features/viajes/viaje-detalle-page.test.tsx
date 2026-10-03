@@ -38,6 +38,7 @@ import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context
 import { MemberProvider } from '@/features/member/member-provider';
 import { RequireMember } from '@/app/guards';
 import { ViajeDetallePage } from '@/features/viajes/viaje-detalle-page';
+import { devolucionesKeys } from '@/features/devoluciones/devoluciones-keys';
 import { gastosKeys } from '@/features/gastos/gastos-keys';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID } from '@/features/gastos/constants';
@@ -56,6 +57,12 @@ const VIAJE_ID = 'b0000000-0000-4000-8000-000000000001';
 const E_1 = 'd0000000-0000-4000-8000-000000000001';
 const E_2 = 'd0000000-0000-4000-8000-000000000002';
 const E_3 = 'd0000000-0000-4000-8000-000000000003';
+const D_1 = 'f0000000-0000-4000-8000-000000000001';
+const D_2 = 'f0000000-0000-4000-8000-000000000002';
+const D_3 = 'f0000000-0000-4000-8000-000000000003';
+const C_1 = 'a0000000-0000-4000-8000-000000000001';
+const C_2 = 'a0000000-0000-4000-8000-000000000002';
+const C_3 = 'a0000000-0000-4000-8000-000000000003';
 const G_1 = 'e0000000-0000-4000-8000-000000000001';
 const G_2 = 'e0000000-0000-4000-8000-000000000002';
 const G_3 = 'e0000000-0000-4000-8000-000000000003';
@@ -84,9 +91,9 @@ const vista = (over: Record<string, unknown> = {}) => ({
   ingreso: 15000.5,
   observaciones: 'Todo bien\nSegunda línea',
   entregas: [
-    { id: E_1, incidencias: 'Golpe en un pallet', created_at: '2025-06-15T10:00:00.001Z', clientes: { nombre: 'Almacén Central' } },
-    { id: E_2, incidencias: null, created_at: '2025-06-15T10:00:00.002Z', clientes: { nombre: 'Frigorífico Sur' } },
-    { id: E_3, incidencias: 'Llegó tarde', created_at: '2025-06-15T10:00:00.003Z', clientes: { nombre: 'Distribuidora Norte' } },
+    { id: E_1, cliente_id: C_1, incidencias: 'Golpe en un pallet', created_at: '2025-06-15T10:00:00.001Z', clientes: { nombre: 'Almacén Central' } },
+    { id: E_2, cliente_id: C_2, incidencias: null, created_at: '2025-06-15T10:00:00.002Z', clientes: { nombre: 'Frigorífico Sur' } },
+    { id: E_3, cliente_id: C_3, incidencias: 'Llegó tarde', created_at: '2025-06-15T10:00:00.003Z', clientes: { nombre: 'Distribuidora Norte' } },
   ],
   ...over,
 });
@@ -108,16 +115,34 @@ const GASTOS = [
   gasto(G_3, 100.3, { categoria_id: COMBUSTIBLE_CATEGORIA_ID, litros: 40.5 }),
 ];
 
+const devolucion = (id: string, over: Record<string, unknown> = {}) => ({
+  id,
+  motivo: 'rotura_danio',
+  descripcion: null,
+  cliente_id: C_1,
+  created_at: '2025-06-16T09:00:00Z',
+  clientes: { nombre: 'Almacén Central' },
+  ...over,
+});
+// De la más nueva a la más vieja (el orden lo pone la base: acá solo se muestra tal cual llega).
+const DEVOLUCIONES = [
+  devolucion(D_3, { motivo: 'otro', descripcion: 'El cliente cerró antes de la hora', cliente_id: C_3, clientes: { nombre: 'Distribuidora Norte' } }),
+  devolucion(D_2, { motivo: 'vencimiento', cliente_id: C_2, clientes: { nombre: 'Frigorífico Sur' } }),
+  devolucion(D_1, { motivo: 'mercaderia_incorrecta', descripcion: 'Cajas de otro pedido' }),
+];
+
 type Handler = (call: Call) => unknown;
-const route: { viaje: Handler; gastos: Handler; categorias: Handler } = {
+const route: { viaje: Handler; gastos: Handler; categorias: Handler; devoluciones: Handler } = {
   viaje: () => ok(vista()),
   gastos: () => ok(GASTOS),
   categorias: () => ok(CATS),
+  devoluciones: () => ok(DEVOLUCIONES),
 };
 function resetRoutes() {
   route.viaje = () => ok(vista());
   route.gastos = () => ok(GASTOS);
   route.categorias = () => ok(CATS);
+  route.devoluciones = () => ok(DEVOLUCIONES);
 }
 
 function installResponder() {
@@ -127,6 +152,7 @@ function installResponder() {
     if (call.table === 'categorias_gasto') return route.categorias(call);
     if (call.table === 'viajes') return route.viaje(call);
     if (call.table === 'gastos') return route.gastos(call);
+    if (call.table === 'devoluciones') return route.devoluciones(call);
     throw new Error(`pedido inesperado: ${call.table} ${call.ops.map((o) => o.m).join('.')}`);
   };
 }
@@ -189,6 +215,8 @@ async function mount(entry: InitialEntry = `/viajes/${VIAJE_ID}`) {
                 <Routes>
                   <Route path="/viajes/:id" element={<ViajeDetallePage />} />
                   <Route path="/viajes/:id/editar" element={<Destino nombre="editar-viaje" />} />
+                  <Route path="/viajes/:id/devoluciones/nueva" element={<Destino nombre="nueva-devolucion" />} />
+                  <Route path="/viajes/:id/devoluciones/:devolucionId/editar" element={<Destino nombre="editar-devolucion" />} />
                   <Route path="/viajes" element={<Destino nombre="lista-de-viajes" />} />
                   <Route path="/gastos/nuevo" element={<Destino nombre="nuevo-gasto" />} />
                   <Route path="/gastos/:id/editar" element={<Destino nombre="editar-gasto" />} />
@@ -304,7 +332,8 @@ describe('detalle de un viaje: los datos', () => {
     const consultas = callsTo('viajes');
     expect(consultas).toHaveLength(1);
     const call = consultas[0]!;
-    expect(call.ops.find((o) => o.m === 'select')!.args[0]).toContain('entregas(id, incidencias, created_at, clientes(nombre))');
+    // Con el cliente_id de cada entrega: el formulario de devoluciones ofrece primero los clientes del viaje.
+    expect(call.ops.find((o) => o.m === 'select')!.args[0]).toContain('entregas(id, cliente_id, incidencias, created_at, clientes(nombre))');
     expect(call.ops.find((o) => o.m === 'eq')!.args).toEqual(['id', VIAJE_ID]);
     expect(call.ops.filter((o) => o.m === 'order').map((o) => o.args)).toEqual([
       ['created_at', { ascending: true, referencedTable: 'entregas' }],
@@ -343,6 +372,253 @@ describe('detalle de un viaje: las entregas', () => {
     route.viaje = () => ok(vista({ entregas: [{ id: E_1, incidencias: null, created_at: '2025-06-15T10:00:00.001Z', clientes: null }] }));
     await mount();
     expect(section('Entregas').textContent).toContain('Cliente');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Devoluciones del viaje
+// ---------------------------------------------------------------------------
+const devolucionItems = () => [...document.querySelectorAll<HTMLAnchorElement>('a[href*="/devoluciones/"][href$="/editar"]')];
+
+describe('detalle de un viaje: las devoluciones', () => {
+  it('la sección va ENTRE las entregas y los gastos, con su título "Devoluciones (N)"', async () => {
+    await mount();
+    const titulos = [...document.querySelectorAll('section h2')].map((e) => e.textContent);
+    expect(titulos).toEqual(['Datos del viaje', 'Entregas (3)', 'Devoluciones (3)', 'Gastos del viaje']);
+    const entregas = section('Entregas');
+    const devoluciones = section('Devoluciones');
+    const gastos = section('Gastos del viaje');
+    const despues = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(despues(entregas, devoluciones)).toBe(true);
+    expect(despues(devoluciones, gastos)).toBe(true);
+    expect(devoluciones.getAttribute('aria-labelledby')).toBe('viaje-devoluciones-titulo');
+  });
+
+  it('muestra cada devolución con el cliente, el motivo en español y la descripción (cortada a 2 líneas), en el orden que llega (la más nueva primero)', async () => {
+    await mount();
+    const items = devolucionItems();
+    expect(items).toHaveLength(3);
+    expect(items[0]!.textContent).toContain('Distribuidora Norte');
+    expect(items[0]!.textContent).toContain('Otro');
+    expect(items[0]!.textContent).toContain('El cliente cerró antes de la hora');
+    expect(items[1]!.textContent).toContain('Frigorífico Sur');
+    expect(items[1]!.textContent).toContain('Vencimiento');
+    expect(items[2]!.textContent).toContain('Almacén Central');
+    expect(items[2]!.textContent).toContain('Mercadería incorrecta');
+    expect(items[2]!.textContent).toContain('Cajas de otro pedido');
+    const descripcion = [...items[0]!.querySelectorAll('p')].find((p) => p.textContent === 'El cliente cerró antes de la hora')!;
+    expect(descripcion.className).toContain('line-clamp-2');
+  });
+
+  it('los cuatro motivos con su etiqueta exacta', async () => {
+    route.devoluciones = () =>
+      ok([
+        devolucion(D_1, { motivo: 'rotura_danio' }),
+        devolucion(D_2, { motivo: 'vencimiento' }),
+        devolucion(D_3, { motivo: 'mercaderia_incorrecta' }),
+        devolucion('f0000000-0000-4000-8000-000000000004', { motivo: 'otro' }),
+      ]);
+    await mount();
+    const motivos = devolucionItems().map((a) => [...a.querySelectorAll('p')][1]!.textContent);
+    expect(motivos).toEqual(['Rotura o daño', 'Vencimiento', 'Mercadería incorrecta', 'Otro']);
+  });
+
+  it('sin descripción no hay línea de descripción; sin el nombre del cliente (no vino) dice "Cliente"', async () => {
+    route.devoluciones = () => ok([devolucion(D_1, { descripcion: null, clientes: null })]);
+    await mount();
+    const [item] = devolucionItems();
+    expect(item!.querySelectorAll('p')).toHaveLength(2); // cliente y motivo
+    expect(item!.textContent).toContain('Cliente');
+  });
+
+  it('con una sola devolución el título dice "Devoluciones (1)"', async () => {
+    route.devoluciones = () => ok([devolucion(D_1)]);
+    await mount();
+    expect(section('Devoluciones').querySelector('h2')!.textContent).toBe('Devoluciones (1)');
+  });
+
+  it('sin devoluciones: "Este viaje no tiene devoluciones." y el título sin cantidad', async () => {
+    route.devoluciones = () => ok([]);
+    await mount();
+    const devoluciones = section('Devoluciones');
+    expect(devoluciones.querySelector('h2')!.textContent).toBe('Devoluciones');
+    expect(devoluciones.textContent).toContain('Este viaje no tiene devoluciones.');
+    expect(devolucionItems()).toHaveLength(0);
+    expect(devoluciones.querySelector('ul')).toBeNull();
+    expect(linkTo(`/viajes/${VIAJE_ID}/devoluciones/nueva`)).toHaveLength(1); // el botón sigue
+  });
+
+  it('cada devolución es un enlace a su edición (área táctil de 64 px) con el mes de la lista como ÚNICO dato en el state', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?mes=2025-06' } });
+    const primero = devolucionItems()[0]!;
+    expect(primero.getAttribute('href')).toBe(`/viajes/${VIAJE_ID}/devoluciones/${D_3}/editar`);
+    expect(primero.className).toContain('min-h-16');
+    await click(primero);
+    const destino = byId('destino-editar-devolucion')!;
+    expect(destino).not.toBeNull();
+    expect(stateOf(destino)).toEqual({ volver: '?mes=2025-06' });
+  });
+
+  it('el texto de la devolución se muestra como texto (sin interpretar HTML)', async () => {
+    route.devoluciones = () =>
+      ok([devolucion(D_1, { descripcion: '<img src=x onerror=alert(1)><script>alert(1)</script>', clientes: { nombre: '<b>Cliente</b>' } })]);
+    await mount();
+    expect(document.querySelector('img')).toBeNull();
+    expect(document.querySelector('script')).toBeNull();
+    expect(section('Devoluciones').querySelector('b')).toBeNull();
+    expect(bodyText()).toContain('<script>alert(1)</script>');
+    expect(bodyText()).toContain('<b>Cliente</b>');
+  });
+
+  it('pide las devoluciones por viaje_id: created_at desc, id desc, 201 pedidas, con el cliente embebido, y con una key propia que cuelga de las de devoluciones', async () => {
+    await mount();
+    const consultas = callsTo('devoluciones');
+    expect(consultas).toHaveLength(1);
+    const call = consultas[0]!;
+    expect(call.ops.find((o) => o.m === 'select')!.args[0]).toBe('id, motivo, descripcion, cliente_id, created_at, clientes(nombre)');
+    expect(call.ops.find((o) => o.m === 'eq')!.args).toEqual(['viaje_id', VIAJE_ID]);
+    expect(call.ops.filter((o) => o.m === 'order').map((o) => o.args)).toEqual([
+      ['created_at', { ascending: false }],
+      ['id', { ascending: false }],
+    ]);
+    expect(call.ops.find((o) => o.m === 'limit')!.args).toEqual([201]);
+    expect(queryClient.getQueryCache().find({ queryKey: devolucionesKeys.delViaje('tenant-a', VIAJE_ID) })).toBeDefined();
+    expect(callsTo('viajes')).toHaveLength(1); // las devoluciones no se piden dentro de la consulta del viaje
+  });
+
+  it('más de 200 devoluciones: se muestran 200 y se avisa; con exactamente 200, sin aviso', async () => {
+    const muchas = (n: number) => Array.from({ length: n }, (_, i) => devolucion(`f0000000-0000-4000-8000-${String(i + 1000).padStart(12, '0')}`));
+    route.devoluciones = () => ok(muchas(201));
+    await mount();
+    expect(devolucionItems()).toHaveLength(200);
+    expect(bodyText()).toContain('Hay más de 200 devoluciones en este viaje. Se muestran las 200 más recientes.');
+    expect(section('Devoluciones').querySelector('h2')!.textContent).toBe('Devoluciones (200+)');
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+    route.devoluciones = () => ok(muchas(200));
+    await mount();
+    expect(devolucionItems()).toHaveLength(200);
+    expect(bodyText()).not.toContain('Hay más de 200 devoluciones');
+    expect(section('Devoluciones').querySelector('h2')!.textContent).toBe('Devoluciones (200)');
+  }, 60_000);
+
+  it('si fallan las devoluciones: error con "Reintentar" que vuelve a pedirlas; el resto del viaje se ve igual', async () => {
+    let intento = 0;
+    route.devoluciones = () => {
+      intento += 1;
+      return intento === 1 ? sinRed() : ok(DEVOLUCIONES);
+    };
+    await mount();
+    expect(section('Datos del viaje').textContent).toContain('15 jun 2025');
+    expect(gastoItems()).toHaveLength(3); // los gastos y las entregas no se enteran
+    const devoluciones = section('Devoluciones');
+    expect(devoluciones.textContent).toContain('No hay conexión');
+    expect(devoluciones.textContent).not.toContain('Este viaje no tiene devoluciones.'); // un error NO es "vacío"
+    expect(devolucionItems()).toHaveLength(0);
+    await click([...devoluciones.querySelectorAll('button')].find((b) => b.textContent?.includes('Reintentar')));
+    expect(devolucionItems()).toHaveLength(3);
+    expect(bodyText()).not.toContain('No hay conexión');
+  });
+
+  it('con el error, el botón "Cargar devolución" sigue disponible', async () => {
+    route.devoluciones = () => sinRed();
+    await mount();
+    expect(linkTo(`/viajes/${VIAJE_ID}/devoluciones/nueva`)).toHaveLength(1);
+  });
+
+  it('si ya había lista y un refresco falla: se sigue mostrando la lista, con el error y su "Reintentar" arriba', async () => {
+    let cargas = 0;
+    route.devoluciones = () => {
+      cargas += 1;
+      return cargas === 1 ? ok(DEVOLUCIONES) : sinRed();
+    };
+    await mount();
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: devolucionesKeys.delViaje('tenant-a', VIAJE_ID) });
+    });
+    await settle(4);
+    expect(cargas).toBe(2);
+    expect(devolucionItems()).toHaveLength(3); // la lista sigue a la vista
+    const devoluciones = section('Devoluciones');
+    expect(devoluciones.textContent).toContain('No hay conexión');
+    expect([...devoluciones.querySelectorAll('button')].some((b) => b.textContent?.includes('Reintentar'))).toBe(true);
+  });
+
+  it('cualquier alta, edición o borrado de una devolución invalida la lista (la key cuelga de devolucionesKeys) y se actualiza', async () => {
+    await mount();
+    expect(devolucionItems()).toHaveLength(3);
+    route.devoluciones = () => ok([devolucion(D_1)]);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: devolucionesKeys.delosViajes('tenant-a') });
+    });
+    await settle(4);
+    expect(callsTo('devoluciones')).toHaveLength(2);
+    expect(devolucionItems()).toHaveLength(1);
+    expect(section('Devoluciones').querySelector('h2')!.textContent).toBe('Devoluciones (1)');
+  });
+
+  it('mientras cargan, la sección muestra su esqueleto (sin "Este viaje no tiene devoluciones.")', async () => {
+    route.devoluciones = () => new Promise<Resp>(() => {});
+    await mount();
+    expect(section('Devoluciones').querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(bodyText()).not.toContain('Este viaje no tiene devoluciones.');
+  });
+});
+
+describe('detalle de un viaje: "Cargar devolución" (acción secundaria)', () => {
+  it('lleva a /viajes/<id>/devoluciones/nueva con el mes como único dato en el state', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?mes=2025-06' } });
+    const cargar = linkTo(`/viajes/${VIAJE_ID}/devoluciones/nueva`);
+    expect(cargar).toHaveLength(1);
+    expect(cargar[0]!.textContent).toContain('Cargar devolución');
+    await click(cargar[0]!);
+    const destino = byId('destino-nueva-devolucion')!;
+    expect(destino).not.toBeNull();
+    expect(stateOf(destino)).toEqual({ volver: '?mes=2025-06' });
+  });
+
+  it('es SECUNDARIO (outline, no el color primario) y de al menos 48 px; está dentro de la sección de devoluciones', async () => {
+    await mount();
+    const [boton] = linkTo(`/viajes/${VIAJE_ID}/devoluciones/nueva`);
+    expect(boton!.className).toContain('border'); // outline
+    expect(boton!.className).not.toContain('bg-primary');
+    expect(boton!.className).toContain('h-12'); // 48 px, no el de 56 del botón principal
+    expect(boton!.className).not.toContain('h-14');
+    expect(section('Devoluciones').contains(boton!)).toBe(true);
+  });
+
+  it('un volver raro en el state se sanea antes de pasarlo al formulario', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '//evil.com?mes=2025-06&x=<script>' } });
+    await click(linkTo(`/viajes/${VIAJE_ID}/devoluciones/nueva`)[0]!);
+    expect(stateOf(byId('destino-nueva-devolucion')!)).toEqual({ volver: '' });
+  });
+
+  it('la acción PRIMARIA sigue siendo "Cargar gasto de este viaje": única en el encabezado (desde md) y fija abajo en el celular; la devolución no la reemplaza', async () => {
+    await mount();
+    const raiz = container.querySelector('div.space-y-5')!;
+    const ocultosEnCelular = [...raiz.querySelectorAll('.max-md\\:hidden')];
+    expect(ocultosEnCelular).toHaveLength(1);
+    expect(ocultosEnCelular[0]!.querySelector(`a[href="/gastos/nuevo?viaje=${VIAJE_ID}"]`)).not.toBeNull();
+    expect(ocultosEnCelular[0]!.textContent).not.toContain('devolución');
+    const ultimo = raiz.lastElementChild as HTMLElement; // la barra fija: ÚLTIMO hijo de la pantalla
+    expect(ultimo.className).toContain('md:hidden');
+    expect(ultimo.querySelector(`a[href="/gastos/nuevo?viaje=${VIAJE_ID}"]`)).not.toBeNull();
+    expect(ultimo.querySelector(`a[href="/viajes/${VIAJE_ID}/devoluciones/nueva"]`)).toBeNull();
+    expect(ultimo.textContent).not.toContain('Cargar devolución');
+    // El primario conserva su tamaño (56 px) y su color.
+    expect(ocultosEnCelular[0]!.querySelector('a')!.className).toContain('h-14');
+    expect(ocultosEnCelular[0]!.querySelector('a')!.className).toContain('bg-primary');
+  });
+
+  it('sin viaje (no encontrado) no hay botón de devoluciones', async () => {
+    route.viaje = () => ok(null);
+    await mount();
+    expect(bodyText()).not.toContain('Cargar devolución');
+    expect(bodyText()).not.toContain('Devoluciones');
   });
 });
 
@@ -560,7 +836,7 @@ describe('detalle de un viaje: estados', () => {
   it('un id que no es uuid no consulta nada y muestra "Viaje no encontrado"', async () => {
     await mount('/viajes/no-es-un-uuid');
     expect(bodyText()).toContain('Viaje no encontrado');
-    expect(h.calls.filter((c) => c.table === 'viajes' || c.table === 'gastos')).toHaveLength(0);
+    expect(h.calls.filter((c) => c.table === 'viajes' || c.table === 'gastos' || c.table === 'devoluciones')).toHaveLength(0);
     expect(linkTo('/viajes')).not.toHaveLength(0);
     expect(document.querySelector('h1')).not.toBeNull(); // la pantalla siempre tiene su titulo
   });
@@ -617,6 +893,7 @@ describe('detalle de un viaje: estados', () => {
     await mount();
     expect(callsTo('viajes')).toHaveLength(1);
     expect(callsTo('gastos')).toHaveLength(1);
+    expect(callsTo('devoluciones')).toHaveLength(1);
     await act(async () => {
       root.unmount();
     });
@@ -624,10 +901,12 @@ describe('detalle de un viaje: estados', () => {
     await settle(2); // TanStack descarta una consulta sin observadores con gcTime 0 en el próximo turno
     expect(queryClient.getQueryCache().find({ queryKey: viajesKeys.vista('tenant-a', VIAJE_ID) })).toBeUndefined();
     expect(queryClient.getQueryCache().find({ queryKey: gastosKeys.delViaje('tenant-a', VIAJE_ID) })).toBeUndefined();
+    expect(queryClient.getQueryCache().find({ queryKey: devolucionesKeys.delViaje('tenant-a', VIAJE_ID) })).toBeUndefined();
     route.viaje = () => ok(vista({ origen: 'San Lorenzo' }));
     await mount();
     expect(callsTo('viajes')).toHaveLength(2);
     expect(callsTo('gastos')).toHaveLength(2);
+    expect(callsTo('devoluciones')).toHaveLength(2);
     expect(document.querySelector('h1')!.textContent).toContain('San Lorenzo');
   });
 
@@ -648,6 +927,8 @@ describe('detalle de un viaje: aviso al volver de guardar o borrar', () => {
     ['gasto-guardado', 'Gasto guardado.'],
     ['gasto-eliminado', 'Gasto eliminado.'],
     ['viaje-guardado', 'Viaje guardado.'],
+    ['devolucion-guardada', 'Devolución guardada.'],
+    ['devolucion-eliminada', 'Devolución eliminada.'],
   ] as const) {
     it(`"${mensaje}" con el aviso "${aviso}" del state`, async () => {
       await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso, volver: '?mes=2025-06' } });
@@ -667,7 +948,7 @@ describe('detalle de un viaje: aviso al volver de guardar o borrar', () => {
   });
 
   it('lista blanca: los avisos de las listas ("guardado") y cualquier otro valor no se muestran', async () => {
-    for (const raro of ['guardado', 'eliminado', '<b>hack</b>', 'toString', 42, { x: 1 }]) {
+    for (const raro of ['guardado', 'eliminado', 'devolucion', 'devolucion-guardado', '<b>hack</b>', 'toString', 42, { x: 1 }]) {
       await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: raro } });
       expect(bodyText(), JSON.stringify(raro)).not.toContain('hack');
       expect(bodyText(), JSON.stringify(raro)).not.toContain('guardado.');

@@ -6,6 +6,8 @@ import {
   leerAvisoDetalle,
   leerDesdeViaje,
   rutaDelViaje,
+  rutaEditarDevolucion,
+  rutaNuevaDevolucion,
 } from '@/features/viajes/viaje-navegacion';
 
 const ID = 'b0000000-0000-4000-8000-000000000001';
@@ -80,21 +82,42 @@ describe('rutaDelViaje', () => {
   });
 });
 
+describe('rutas de las devoluciones (se arman en el código, con uuid ya validados)', () => {
+  const DEV = 'f0000000-0000-4000-8000-000000000001';
+
+  it('nueva: /viajes/<viaje>/devoluciones/nueva', () => {
+    expect(rutaNuevaDevolucion(ID)).toBe(`/viajes/${ID}/devoluciones/nueva`);
+  });
+
+  it('editar: /viajes/<viaje>/devoluciones/<id>/editar', () => {
+    expect(rutaEditarDevolucion(ID, DEV)).toBe(`/viajes/${ID}/devoluciones/${DEV}/editar`);
+  });
+
+  it('lo que sale de leerDesdeViaje arma siempre una ruta interna con uuid', () => {
+    const leido = leerDesdeViaje({ desdeViaje: ID.toUpperCase() })!;
+    expect(rutaNuevaDevolucion(leido.id)).toMatch(/^\/viajes\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/devoluciones\/nueva$/);
+  });
+});
+
 describe('leerAvisoDetalle (lista blanca de avisos)', () => {
-  it('acepta solo los tres valores y cada uno tiene su mensaje', () => {
+  it('acepta solo los cinco valores y cada uno tiene su mensaje', () => {
     expect(leerAvisoDetalle({ aviso: 'gasto-guardado' })).toBe('gasto-guardado');
     expect(leerAvisoDetalle({ aviso: 'gasto-eliminado' })).toBe('gasto-eliminado');
     expect(leerAvisoDetalle({ aviso: 'viaje-guardado' })).toBe('viaje-guardado');
+    expect(leerAvisoDetalle({ aviso: 'devolucion-guardada' })).toBe('devolucion-guardada');
+    expect(leerAvisoDetalle({ aviso: 'devolucion-eliminada' })).toBe('devolucion-eliminada');
     expect(DETALLE_AVISO_MENSAJES['gasto-guardado']).toBe('Gasto guardado.');
     expect(DETALLE_AVISO_MENSAJES['gasto-eliminado']).toBe('Gasto eliminado.');
     expect(DETALLE_AVISO_MENSAJES['viaje-guardado']).toBe('Viaje guardado.');
+    expect(DETALLE_AVISO_MENSAJES['devolucion-guardada']).toBe('Devolución guardada.');
+    expect(DETALLE_AVISO_MENSAJES['devolucion-eliminada']).toBe('Devolución eliminada.');
   });
 
   it('los avisos de las listas ("guardado" / "eliminado") y cualquier otra cosa NO pasan', () => {
-    for (const raro of ['guardado', 'eliminado', '<b>hack</b>', '', 'GASTO-GUARDADO', 'toString', '__proto__', 'constructor', 42, null, undefined, {}, ['gasto-guardado']]) {
+    for (const raro of ['guardado', 'eliminado', 'devolucion', 'devolucion-guardado', 'DEVOLUCION-GUARDADA', '<b>hack</b>', '', 'GASTO-GUARDADO', 'toString', '__proto__', 'constructor', 42, null, undefined, {}, ['gasto-guardado'], ['devolucion-guardada']]) {
       expect(leerAvisoDetalle({ aviso: raro }), JSON.stringify(raro)).toBeNull();
     }
-    for (const estado of [null, undefined, 'gasto-guardado', 42, true, [], {}]) {
+    for (const estado of [null, undefined, 'gasto-guardado', 'devolucion-guardada', 42, true, [], {}]) {
       expect(leerAvisoDetalle(estado), JSON.stringify(estado)).toBeNull();
     }
   });

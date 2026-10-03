@@ -10,7 +10,7 @@ import { unwrap, updatePayload, writeTimeoutSignal } from '@/lib/db';
 import type { Database } from '@/lib/database.types';
 import { acotarLista, type ListaAcotada } from '@/lib/lista-acotada';
 import { ELIMINAR_VIAJE_CONTEXT, LIST_LIMIT, RECIENTES_LIMIT } from './constants';
-import { textoBorradoIncompleto, textoConteoCambiado } from './eliminar-viaje-textos';
+import { textoBorradoIncompleto, textoConteoCambiado, type ConteosDelViaje } from './eliminar-viaje-textos';
 import type { ViajeOpcion } from './viaje-opciones';
 import type { ActualizarViajeArgs, CrearViajeArgs, ViajeWriteIO } from './viaje-save';
 import { aViajeDeLista, type FilaViajeDeLista, type ViajeDeLista } from './viajes-list';
@@ -134,14 +134,16 @@ export async function fetchViajeOpcion(id: string, signal: AbortSignal): Promise
 
 /**
  * Columnas de la pantalla de solo lectura de un viaje. Las entregas vienen embebidas con el nombre del cliente
- * (`clientes(nombre)`, por la FK compuesta `entregas_cliente_fk`: PostgREST devuelve un objeto, o `null`).
+ * (`clientes(nombre)`, por la FK compuesta `entregas_cliente_fk`: PostgREST devuelve un objeto, o `null`) y con su
+ * `cliente_id`: el formulario de devoluciones lo usa para ofrecer primero los clientes de las entregas del viaje.
  * No incluye `camion_id` ni `client_ref`: nada de esto se edita desde esta pantalla.
  */
 const VISTA_COLUMNS =
-  'id, fecha, origen, destino, km_inicial, km_final, km_recorridos, ingreso, observaciones, entregas(id, incidencias, created_at, clientes(nombre))' as const;
+  'id, fecha, origen, destino, km_inicial, km_final, km_recorridos, ingreso, observaciones, entregas(id, cliente_id, incidencias, created_at, clientes(nombre))' as const;
 
 export interface EntregaVista {
   id: string;
+  cliente_id: string;
   incidencias: string | null;
   created_at: string;
   clientes: { nombre: string } | null;
@@ -177,6 +179,17 @@ export async function fetchViajeVista(id: string, signal: AbortSignal): Promise<
 }
 
 /**
+ * Con `count: 'exact'` siempre viene un número; otra cosa es una respuesta inesperada (el llamador la trata como
+ * "no se pudo contar").
+ */
+function numeroDeConteo(count: number | null, que: 'gastos' | 'devoluciones'): number {
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+    throw new DataRequestError({ message: `Respuesta inesperada del conteo de ${que} del viaje` });
+  }
+  return count;
+}
+
+/**
  * Cuántos gastos tiene vinculados un viaje, sin traer las filas (`count: 'exact'` + `head: true`). Lo usa la
  * confirmación de borrar el viaje.
  */
@@ -187,11 +200,34 @@ export async function contarGastosDelViaje(viajeId: string, signal: AbortSignal)
     .eq('viaje_id', viajeId)
     .abortSignal(signal);
   if (error !== null) throw new DataRequestError(error, status);
-  // Con `count: 'exact'` siempre viene un número; otra cosa es una respuesta inesperada (el llamador la trata como "no se pudo contar").
-  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
-    throw new DataRequestError({ message: 'Respuesta inesperada del conteo de gastos del viaje' });
-  }
-  return count;
+  return numeroDeConteo(count, 'gastos');
+}
+
+/**
+ * Cuántas devoluciones tiene un viaje, sin traer las filas (`count: 'exact'` + `head: true`). Se borran en
+ * cascada con el viaje: la confirmación de borrarlo las cuenta para decirlo.
+ */
+export async function contarDevolucionesDelViaje(viajeId: string, signal: AbortSignal): Promise<number> {
+  const { count, error, status } = await supabase
+    .from('devoluciones')
+    .select('id', { count: 'exact', head: true })
+    .eq('viaje_id', viajeId)
+    .abortSignal(signal);
+  if (error !== null) throw new DataRequestError(error, status);
+  return numeroDeConteo(count, 'devoluciones');
+}
+
+/**
+ * Los DOS conteos que pide la confirmación de borrar un viaje (y el recuento justo antes de desvincular), pedidos a
+ * la vez. Si cualquiera falla, falla todo: el llamador lo trata como "no se pudo contar" (nunca se muestra un número
+ * a medias).
+ */
+export async function contarDelViaje(viajeId: string, signal: AbortSignal): Promise<ConteosDelViaje> {
+  const [gastos, devoluciones] = await Promise.all([
+    contarGastosDelViaje(viajeId, signal),
+    contarDevolucionesDelViaje(viajeId, signal),
+  ]);
+  return { gastos, devoluciones };
 }
 
 // ---------------------------------------------------------------------------
@@ -273,20 +309,35 @@ export async function desvincularGastosDelViaje(id: string): Promise<number> {
  * gastos ya sin vínculo) y reintentar completa el borrado sin duplicar nada. Un 23503 en el paso 2 solo
  * puede ser una carrera (alguien vinculó un gasto entre los dos pasos): repetir los dos pasos lo resuelve.
  *
- * `gastosMostrados`: la cantidad que la confirmación le mostró al usuario (null si no se pudo contar). Justo
- * antes del paso 1 se vuelve a contar y, si ya no coincide, no se toca nada (`UserMessageError` con el número
- * nuevo): así se desvincula lo que el usuario vio, aunque la confirmación haya quedado abierta mucho tiempo.
- * Queda una ventana de milisegundos entre ese conteo y el UPDATE; un gasto vinculado justo ahí también se
- * desvincula (se conserva, solo pierde el vínculo).
+ * Las DEVOLUCIONES del viaje no tienen paso propio: la base las borra en cascada con el viaje
+ * (`devoluciones_viaje_fk`, ON DELETE CASCADE). Lo único que se hace con ellas es contarlas y decirlo.
+ *
+ * `conteosMostrados`: los números que la confirmación le mostró al usuario (null si no se pudo contar alguno).
+ * Justo antes del paso 1 se vuelve a contar AMBOS, SIEMPRE:
+ *  - Con números mostrados: si cualquiera ya no coincide, no se toca nada (`UserMessageError` con los números
+ *    nuevos): así se desvincula (y se borra) lo que el usuario vio, aunque la confirmación haya quedado abierta mucho
+ *    tiempo.
+ *  - Sin números mostrados (el conteo de la confirmación falló): si el recuento encuentra DEVOLUCIONES, tampoco se
+ *    toca nada y se avisa con los números de ahora, porque las devoluciones se borran sin vuelta atrás y el usuario
+ *    no vio cuántas eran. Sin devoluciones se sigue (desvincular gastos no destruye nada). Si el recuento también
+ *    falla, el error se propaga y no se toca nada.
+ * Queda una ventana entre ese recuento y el DELETE: son uno o dos viajes de ida y vuelta (el UPDATE de los gastos y
+ * el DELETE, cada uno con su timeout), que con mala señal pueden ser segundos. Un gasto vinculado justo ahí también
+ * se desvincula (se conserva, solo pierde el vínculo) y una devolución cargada justo ahí desde otro dispositivo se
+ * borra con el viaje. Cerrarla del todo exigiría una función de base que haga recuento, desvinculación y borrado en
+ * una transacción con el viaje bloqueado (ver las notas de la Etapa 4 en PLAN.md).
  *
  * Si el paso 1 desvinculó gastos y el paso 2 falla, el error lo dice ("los N gastos ya quedaron sin viaje, pero
- * el viaje no se borró"), con el mismo "Reintentar" que tenía el error original.
+ * el viaje no se borró"), con el mismo "Reintentar" que tenía el error original. Las devoluciones siguen
+ * intactas: nada las tocó.
  */
-export async function eliminarViajeDesvinculandoGastos(id: string, gastosMostrados: number | null): Promise<void> {
-  if (gastosMostrados !== null) {
-    const ahora = await contarGastosDelViaje(id, writeTimeoutSignal());
-    if (ahora !== gastosMostrados) throw new UserMessageError(textoConteoCambiado(ahora), { retryable: true });
-  }
+export async function eliminarViajeDesvinculandoGastos(id: string, conteosMostrados: ConteosDelViaje | null): Promise<void> {
+  const ahora = await contarDelViaje(id, writeTimeoutSignal());
+  const cambio =
+    conteosMostrados !== null
+      ? ahora.gastos !== conteosMostrados.gastos || ahora.devoluciones !== conteosMostrados.devoluciones
+      : ahora.devoluciones > 0;
+  if (cambio) throw new UserMessageError(textoConteoCambiado(ahora), { retryable: true });
 
   const desvinculados = await desvincularGastosDelViaje(id);
   try {

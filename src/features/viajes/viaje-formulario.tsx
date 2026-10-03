@@ -389,9 +389,9 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false }: ViajeFo
         <div className="border-t border-border pt-6">
           <EliminarViaje
             viajeId={viaje.id}
-            onConfirm={async (gastosMostrados) => {
+            onConfirm={async (conteosMostrados) => {
               try {
-                await eliminar.mutateAsync({ tenantId, id: viaje.id, gastosMostrados });
+                await eliminar.mutateAsync({ tenantId, id: viaje.id, conteosMostrados });
               } catch (failure) {
                 // 0 filas: el viaje ya no estaba. Para un borrado es lo mismo que éxito: se sigue a la lista.
                 if (!(failure instanceof RecordNotFoundError)) throw failure;

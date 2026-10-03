@@ -47,6 +47,8 @@ import {
 import { ELIMINAR_VIAJE_CONTEXT, GUARDAR_VIAJE_CONTEXT } from '@/features/viajes/constants';
 import { buildActualizarArgs, buildCrearArgs } from '@/features/viajes/viaje-save';
 import {
+  contarDelViaje,
+  contarDevolucionesDelViaje,
   contarGastosDelViaje,
   desvincularGastosDelViaje,
   eliminarViaje,
@@ -127,6 +129,25 @@ describe('eliminarViaje', () => {
 /** "tabla.primera operación" de cada pedido, en orden: p. ej. ['gastos.update', 'viajes.delete']. */
 const secuencia = () => h.calls.map((c) => `${c.target}.${ops(c)[0]}`);
 
+const RED = () => fail('', 'TypeError: Failed to fetch', 0);
+const conteoDe = (n: number) => ({ data: null, count: n, error: null, status: 200 });
+const esConteoGastos = (call: Call) => call.target === 'gastos' && !ops(call).includes('update');
+const esConteoDevoluciones = (call: Call) => call.target === 'devoluciones';
+/**
+ * Responde los DOS conteos (el recuento que SIEMPRE precede a la desvinculación) con los números dados, el UPDATE de los
+ * gastos con tantas filas como gastos, y el DELETE del viaje con `borrar` (por defecto, borró 1 fila).
+ */
+const conteos =
+  (gastos: number, devoluciones: number, borrar: (call: Call) => unknown = () => ok([{ id: VIAJE_ID }])) =>
+  (call: Call) => {
+    if (esConteoGastos(call)) return conteoDe(gastos);
+    if (esConteoDevoluciones(call)) return conteoDe(devoluciones);
+    if (call.target === 'gastos') return ok(Array.from({ length: gastos }, (_, i) => ({ id: `g-${i}` })));
+    return borrar(call);
+  };
+/** Lo que hacen los pedidos de un borrado completo, en orden: el recuento (gastos y devoluciones), el UPDATE y el DELETE. */
+const BORRADO_COMPLETO = ['gastos.select', 'devoluciones.select', 'gastos.update', 'viajes.delete'];
+
 describe('borrar un viaje: desvincular los gastos y borrar, SIEMPRE en dos pasos', () => {
   it('desvincularGastosDelViaje: UPDATE gastos SET viaje_id = null WHERE viaje_id = <id>, con timeout de escritura y sin otras columnas; devuelve cuántos desvinculó', async () => {
     h.state.responder = () => ok([{ id: 'g-1' }, { id: 'g-2' }]);
@@ -141,46 +162,45 @@ describe('borrar un viaje: desvincular los gastos y borrar, SIEMPRE en dos pasos
   });
 
   it('eliminarViajeDesvinculandoGastos: primero el UPDATE de los gastos y DESPUÉS el DELETE del viaje (en ese orden)', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([]) : ok([{ id: VIAJE_ID }]));
+    h.state.responder = conteos(0, 0);
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).resolves.toBeUndefined();
-    expect(secuencia()).toEqual(['gastos.update', 'viajes.delete']);
-    expect(op(h.calls[0]!, 'eq')[0]!.args).toEqual(['viaje_id', VIAJE_ID]);
-    expect(op(h.calls[1]!, 'eq')[0]!.args).toEqual(['id', VIAJE_ID]);
+    expect(secuencia()).toEqual(BORRADO_COMPLETO);
+    expect(op(h.calls[2]!, 'eq')[0]!.args).toEqual(['viaje_id', VIAJE_ID]);
+    expect(op(h.calls[3]!, 'eq')[0]!.args).toEqual(['id', VIAJE_ID]);
   });
 
   it('si el paso 1 falla, NO se intenta borrar el viaje y el error se propaga', async () => {
-    h.state.responder = () => fail('', 'TypeError: Failed to fetch', 0);
+    h.state.responder = (call) => (esConteoGastos(call) || esConteoDevoluciones(call) ? conteoDe(0) : RED());
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).rejects.toBeDefined();
-    expect(secuencia()).toEqual(['gastos.update']);
+    expect(secuencia()).toEqual(['gastos.select', 'devoluciones.select', 'gastos.update']);
   });
 
   it('si se corta entre los pasos (el UPDATE salió y el DELETE no), reintentar repite los dos y completa el borrado', async () => {
     let intento = 0;
-    h.state.responder = (call) => {
-      if (call.target === 'gastos') return ok([]); // idempotente: la segunda vez no encuentra nada que desvincular
+    // idempotente: la segunda vez no encuentra nada que desvincular
+    h.state.responder = conteos(0, 0, () => {
       intento += 1;
-      return intento === 1 ? fail('', 'TypeError: Failed to fetch', 0) : ok([{ id: VIAJE_ID }]);
-    };
+      return intento === 1 ? RED() : ok([{ id: VIAJE_ID }]);
+    });
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).rejects.toBeDefined();
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).resolves.toBeUndefined();
-    expect(secuencia()).toEqual(['gastos.update', 'viajes.delete', 'gastos.update', 'viajes.delete']);
+    expect(secuencia()).toEqual([...BORRADO_COMPLETO, ...BORRADO_COMPLETO]);
   });
 
   it('un viaje que ya no existe (0 filas en el DELETE) sigue dando RecordNotFoundError, después de desvincular', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([]) : ok([]));
+    h.state.responder = conteos(0, 0, () => ok([]));
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).rejects.toBeInstanceOf(RecordNotFoundError);
-    expect(secuencia()).toEqual(['gastos.update', 'viajes.delete']);
+    expect(secuencia()).toEqual(BORRADO_COMPLETO);
   });
 
   it('carrera: el DELETE da 23503 (alguien vinculó un gasto entre los pasos); el reintento desvincula de nuevo y borra', async () => {
     let intento = 0;
-    h.state.responder = (call) => {
-      if (call.target === 'gastos') return ok([]);
+    h.state.responder = conteos(0, 0, () => {
       intento += 1;
       return intento === 1
         ? fail('23503', 'update or delete on table "viajes" violates foreign key constraint "gastos_viaje_fk" on table "gastos"', 409)
         : ok([{ id: VIAJE_ID }]);
-    };
+    });
     const error = await eliminarViajeDesvinculandoGastos(VIAJE_ID, null).then(
       () => null,
       (e: unknown) => e,
@@ -188,61 +208,134 @@ describe('borrar un viaje: desvincular los gastos y borrar, SIEMPRE en dos pasos
     expect(classifyDataError(error)).toBe('foreign-key');
     expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT)).toContain('Se vinculó un gasto');
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).resolves.toBeUndefined();
-    expect(secuencia()).toEqual(['gastos.update', 'viajes.delete', 'gastos.update', 'viajes.delete']);
+    expect(secuencia()).toEqual([...BORRADO_COMPLETO, ...BORRADO_COMPLETO]);
   });
 });
 
 describe('borrar un viaje: lo que se desvincula es lo que se mostró, y un corte entre pasos se explica', () => {
-  const RED = () => fail('', 'TypeError: Failed to fetch', 0);
-  const conteoDe = (n: number) => ({ data: null, count: n, error: null, status: 200 });
-  const esConteo = (call: Call) => call.target === 'gastos' && !ops(call).includes('update');
   const capturar = (p: Promise<unknown>) =>
     p.then(
       () => null,
       (e: unknown) => e,
     );
 
-  it('con la cantidad mostrada: vuelve a contar ANTES de desvincular (con timeout de escritura) y, si coincide, desvincula y borra', async () => {
-    h.state.responder = (call) =>
-      esConteo(call) ? conteoDe(3) : call.target === 'gastos' ? ok([{ id: 'a' }, { id: 'b' }, { id: 'c' }]) : ok([{ id: VIAJE_ID }]);
-    await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, 3)).resolves.toBeUndefined();
-    expect(secuencia()).toEqual(['gastos.select', 'gastos.update', 'viajes.delete']);
-    expect(op(h.calls[0]!, 'select')[0]!.args).toEqual(['id', { count: 'exact', head: true }]);
-    expect(op(h.calls[0]!, 'abortSignal')[0]!.args[0]).toBeInstanceOf(AbortSignal);
-  });
-
-  it('si la cantidad cambió (más o menos gastos), NO toca nada: error con el número nuevo, reintentable', async () => {
-    for (const [mostrados, ahora, texto] of [
-      [3, 5, 'Ahora el viaje tiene 5 gastos vinculados. Revisa y vuelve a confirmar.'],
-      [0, 1, 'Ahora el viaje tiene 1 gasto vinculado. Revisa y vuelve a confirmar.'],
-      [2, 0, 'El viaje ya no tiene gastos vinculados. Revisa y vuelve a confirmar.'],
-    ] as const) {
-      h.calls.length = 0;
-      h.state.responder = (call) => (esConteo(call) ? conteoDe(ahora) : ok([]));
-      const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, mostrados));
-      expect(error, `${mostrados} -> ${ahora}`).toBeInstanceOf(UserMessageError);
-      expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT)).toBe(texto);
-      expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT)).toBe(true);
-      expect(secuencia()).toEqual(['gastos.select']); // ni UPDATE ni DELETE
+  it('con los conteos mostrados: vuelve a contar AMBOS (gastos y devoluciones, con timeout de escritura) ANTES de desvincular y, si coinciden, desvincula y borra', async () => {
+    h.state.responder = conteos(3, 2);
+    await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 3, devoluciones: 2 })).resolves.toBeUndefined();
+    expect(secuencia()).toEqual(['gastos.select', 'devoluciones.select', 'gastos.update', 'viajes.delete']);
+    for (const call of h.calls.slice(0, 2)) {
+      expect(op(call, 'select')[0]!.args).toEqual(['id', { count: 'exact', head: true }]);
+      expect(op(call, 'eq')[0]!.args).toEqual(['viaje_id', VIAJE_ID]);
+      expect(op(call, 'abortSignal')[0]!.args[0]).toBeInstanceOf(AbortSignal);
     }
   });
 
-  it('sin cantidad mostrada (el conteo de la confirmación falló) no recuenta: va directo a los dos pasos', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([]) : ok([{ id: VIAJE_ID }]));
-    await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).resolves.toBeUndefined();
-    expect(secuencia()).toEqual(['gastos.update', 'viajes.delete']);
+  it('las devoluciones NO tienen paso propio: se borran en cascada con el viaje (ni un UPDATE ni un DELETE sobre devoluciones)', async () => {
+    h.state.responder = conteos(0, 4);
+    await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 0, devoluciones: 4 })).resolves.toBeUndefined();
+    const escrituras = h.calls.filter((c) => c.target === 'devoluciones' && (ops(c).includes('update') || ops(c).includes('delete') || ops(c).includes('insert')));
+    expect(escrituras).toEqual([]);
+    expect(secuencia()).toEqual(['gastos.select', 'devoluciones.select', 'gastos.update', 'viajes.delete']);
   });
 
-  it('si el recuento falla (sin señal), no toca nada y el error es el de la red, reintentable', async () => {
-    h.state.responder = (call) => (esConteo(call) ? RED() : ok([]));
-    const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, 2));
+  it('si CUALQUIERA de los dos números cambió (solo gastos, solo devoluciones o ambos), NO toca nada: error con los números de AHORA, reintentable', async () => {
+    const REVISA = 'Revisa y vuelve a confirmar.';
+    for (const [mostrados, ahora, texto] of [
+      // solo cambian los gastos
+      [{ gastos: 3, devoluciones: 2 }, { gastos: 5, devoluciones: 2 }, `Ahora el viaje tiene 5 gastos y 2 devoluciones. ${REVISA}`],
+      [{ gastos: 3, devoluciones: 2 }, { gastos: 0, devoluciones: 2 }, `Ahora el viaje tiene 2 devoluciones. ${REVISA}`],
+      // solo cambian las devoluciones
+      [{ gastos: 3, devoluciones: 2 }, { gastos: 3, devoluciones: 4 }, `Ahora el viaje tiene 3 gastos y 4 devoluciones. ${REVISA}`],
+      [{ gastos: 3, devoluciones: 2 }, { gastos: 3, devoluciones: 0 }, `Ahora el viaje tiene 3 gastos. ${REVISA}`],
+      [{ gastos: 0, devoluciones: 0 }, { gastos: 0, devoluciones: 1 }, `Ahora el viaje tiene 1 devolución. ${REVISA}`],
+      // cambian los dos
+      [{ gastos: 3, devoluciones: 2 }, { gastos: 1, devoluciones: 1 }, `Ahora el viaje tiene 1 gasto y 1 devolución. ${REVISA}`],
+      [{ gastos: 3, devoluciones: 2 }, { gastos: 0, devoluciones: 0 }, `Ahora el viaje no tiene gastos ni devoluciones vinculados. ${REVISA}`],
+      // lo que sube en uno y baja en el otro (la suma no cambia) también cuenta
+      [{ gastos: 2, devoluciones: 3 }, { gastos: 3, devoluciones: 2 }, `Ahora el viaje tiene 3 gastos y 2 devoluciones. ${REVISA}`],
+    ] as const) {
+      h.calls.length = 0;
+      h.state.responder = conteos(ahora.gastos, ahora.devoluciones);
+      const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, mostrados));
+      const nombre = `${mostrados.gastos}/${mostrados.devoluciones} -> ${ahora.gastos}/${ahora.devoluciones}`;
+      expect(error, nombre).toBeInstanceOf(UserMessageError);
+      expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT), nombre).toBe(texto);
+      expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT), nombre).toBe(true);
+      expect(secuencia(), nombre).toEqual(['gastos.select', 'devoluciones.select']); // ni UPDATE ni DELETE
+    }
+  });
+
+  it('los mismos números NO son un cambio; los mismos números intercambiados entre gastos y devoluciones SÍ', async () => {
+    h.state.responder = conteos(2, 3);
+    await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 2, devoluciones: 3 })).resolves.toBeUndefined();
+    h.calls.length = 0;
+    h.state.responder = conteos(3, 2);
+    await expect(capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 2, devoluciones: 3 }))).resolves.toBeInstanceOf(UserMessageError);
+  });
+
+  // Hallazgo MEDIO de la auditoría de Devoluciones: si el conteo de la confirmación fallaba (mala señal), el borrado
+  // seguía por el camino "genérico" y SALTEABA el recuento: las devoluciones se perdían sin que el usuario viera
+  // cuántas eran. Ahora el recuento corre SIEMPRE.
+  it('sin conteos mostrados (el conteo de la confirmación falló) igual RECUENTA antes de tocar nada; sin devoluciones sigue con los dos pasos', async () => {
+    h.state.responder = conteos(2, 0);
+    await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).resolves.toBeUndefined();
+    expect(secuencia()).toEqual(BORRADO_COMPLETO); // desvincular gastos no destruye nada: se puede seguir
+  });
+
+  it('sin conteos mostrados y con DEVOLUCIONES: NO desvincula ni borra, y avisa con los números de ahora (el usuario no vio cuántas eran)', async () => {
+    const REVISA = 'Revisa y vuelve a confirmar.';
+    for (const [gastos, devoluciones, texto] of [
+      [0, 3, `Ahora el viaje tiene 3 devoluciones. ${REVISA}`],
+      [2, 3, `Ahora el viaje tiene 2 gastos y 3 devoluciones. ${REVISA}`],
+      [1, 1, `Ahora el viaje tiene 1 gasto y 1 devolución. ${REVISA}`],
+    ] as const) {
+      h.calls.length = 0;
+      h.state.responder = conteos(gastos, devoluciones);
+      const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
+      expect(error, `${gastos}/${devoluciones}`).toBeInstanceOf(UserMessageError);
+      expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT), `${gastos}/${devoluciones}`).toBe(texto);
+      expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT), `${gastos}/${devoluciones}`).toBe(true);
+      expect(secuencia(), `${gastos}/${devoluciones}`).toEqual(['gastos.select', 'devoluciones.select']); // ni UPDATE ni DELETE
+    }
+  });
+
+  it('sin conteos mostrados y el recuento también falla (sin señal): no toca nada y el error es el de la red, reintentable', async () => {
+    h.state.responder = (call) => (esConteoGastos(call) ? RED() : esConteoDevoluciones(call) ? conteoDe(0) : ok([]));
+    const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
     expect(classifyDataError(error)).toBe('network');
     expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT)).toBe(true);
-    expect(secuencia()).toEqual(['gastos.select']);
+    expect(secuencia()).not.toContain('gastos.update');
+    expect(secuencia()).not.toContain('viajes.delete');
+  });
+
+  it('si el recuento de GASTOS falla (sin señal), no toca nada y el error es el de la red, reintentable', async () => {
+    h.state.responder = (call) => (esConteoGastos(call) ? RED() : esConteoDevoluciones(call) ? conteoDe(2) : ok([]));
+    const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 2, devoluciones: 2 }));
+    expect(classifyDataError(error)).toBe('network');
+    expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT)).toBe(true);
+    expect(secuencia()).not.toContain('gastos.update');
+    expect(secuencia()).not.toContain('viajes.delete');
+  });
+
+  it('si el recuento de DEVOLUCIONES falla (sin señal), tampoco toca nada: no se desvincula ni se borra con un número a medias', async () => {
+    h.state.responder = (call) => (esConteoDevoluciones(call) ? RED() : esConteoGastos(call) ? conteoDe(2) : ok([]));
+    const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 2, devoluciones: 2 }));
+    expect(classifyDataError(error)).toBe('network');
+    expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT)).toBe(true);
+    expect(secuencia()).not.toContain('gastos.update');
+    expect(secuencia()).not.toContain('viajes.delete');
+  });
+
+  it('un recuento con una respuesta rara (sin número) tampoco toca nada', async () => {
+    h.state.responder = (call) => (esConteoDevoluciones(call) ? ok(null) : esConteoGastos(call) ? conteoDe(2) : ok([]));
+    const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 2, devoluciones: 2 }));
+    expect(error).toBeInstanceOf(DataRequestError);
+    expect(secuencia()).not.toContain('gastos.update');
+    expect(secuencia()).not.toContain('viajes.delete');
   });
 
   it('corte DESPUÉS de desvincular: el error dice cuántos gastos quedaron sin viaje y que el viaje no se borró, más el motivo; conserva el "Reintentar" del error original', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([{ id: 'a' }, { id: 'b' }, { id: 'c' }]) : RED());
+    h.state.responder = conteos(3, 0, () => RED());
     const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
     expect(error).toBeInstanceOf(UserMessageError);
     const mensaje = mapDataError(error, ELIMINAR_VIAJE_CONTEXT);
@@ -253,13 +346,23 @@ describe('borrar un viaje: lo que se desvincula es lo que se mostró, y un corte
   });
 
   it('corte después de desvincular UN gasto: en singular', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([{ id: 'a' }]) : RED());
+    h.state.responder = conteos(1, 0, () => RED());
     const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
     expect(mapDataError(error).startsWith('El gasto ya quedó sin viaje, pero el viaje no se borró. ')).toBe(true);
   });
 
+  it('el corte después de desvincular NO toca las devoluciones: siguen intactas (ninguna escritura sobre ellas) y el aviso no las menciona', async () => {
+    h.state.responder = (call) =>
+      esConteoGastos(call) ? conteoDe(2) : call.target === 'gastos' ? ok([{ id: 'a' }, { id: 'b' }]) : esConteoDevoluciones(call) ? conteoDe(3) : RED();
+    const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, { gastos: 2, devoluciones: 3 }));
+    expect(error).toBeInstanceOf(UserMessageError);
+    expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT)).toContain('Los 2 gastos ya quedaron sin viaje');
+    expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT)).not.toContain('devolucion');
+    expect(h.calls.filter((c) => c.target === 'devoluciones' && !ops(c).includes('select'))).toEqual([]);
+  });
+
   it('si el DELETE falla por algo que no se arregla reintentando (permiso), el aviso lo dice y NO ofrece reintentar', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([{ id: 'a' }, { id: 'b' }]) : fail('42501', 'permiso', 403));
+    h.state.responder = conteos(2, 0, () => fail('42501', 'permiso', 403));
     const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
     expect(mapDataError(error)).toContain('Los 2 gastos ya quedaron sin viaje');
     expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT)).toBe(false);
@@ -268,8 +371,7 @@ describe('borrar un viaje: lo que se desvincula es lo que se mostró, y un corte
   it('carrera después de desvincular (23503 o 23001): el aviso suma el mensaje del borrado y sigue siendo reintentable', async () => {
     for (const code of ['23503', '23001']) {
       h.calls.length = 0;
-      h.state.responder = (call) =>
-        call.target === 'gastos' ? ok([{ id: 'a' }, { id: 'b' }]) : fail(code, 'violates foreign key constraint "gastos_viaje_fk"', 409);
+      h.state.responder = conteos(2, 0, () => fail(code, 'violates foreign key constraint "gastos_viaje_fk"', 409));
       const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
       const mensaje = mapDataError(error, ELIMINAR_VIAJE_CONTEXT);
       expect(mensaje, code).toContain('Los 2 gastos ya quedaron sin viaje');
@@ -280,12 +382,12 @@ describe('borrar un viaje: lo que se desvincula es lo que se mostró, y un corte
   });
 
   it('el viaje ya no existía (0 filas) después de desvincular gastos: sigue siendo RecordNotFoundError (para un borrado, éxito)', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([{ id: 'a' }]) : ok([]));
+    h.state.responder = conteos(1, 0, () => ok([]));
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).rejects.toBeInstanceOf(RecordNotFoundError);
   });
 
   it('si no había nada que desvincular, el error del DELETE pasa tal cual (sin el aviso de gastos)', async () => {
-    h.state.responder = (call) => (call.target === 'gastos' ? ok([]) : RED());
+    h.state.responder = conteos(0, 0, () => RED());
     const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
     expect(error).toBeInstanceOf(DataRequestError);
     expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT)).not.toContain('quedaron sin viaje');
@@ -319,6 +421,63 @@ describe('contarGastosDelViaje', () => {
       h.state.responder = () => ({ data: null, count: rara, error: null, status: 200 });
       await expect(contarGastosDelViaje(VIAJE_ID, signal()), String(rara)).rejects.toBeInstanceOf(DataRequestError);
     }
+  });
+});
+
+describe('contarDevolucionesDelViaje', () => {
+  const signal = () => new AbortController().signal;
+
+  it('select("id", { count: "exact", head: true }) sobre DEVOLUCIONES filtrado por viaje_id; devuelve el número', async () => {
+    h.state.responder = () => ({ data: null, count: 4, error: null, status: 200 });
+    await expect(contarDevolucionesDelViaje(VIAJE_ID, signal())).resolves.toBe(4);
+    const [call] = h.calls;
+    expect(call!.target).toBe('devoluciones');
+    expect(ops(call!)).toEqual(['select', 'eq', 'abortSignal']);
+    expect(op(call!, 'select')[0]!.args).toEqual(['id', { count: 'exact', head: true }]);
+    expect(op(call!, 'eq')[0]!.args).toEqual(['viaje_id', VIAJE_ID]);
+    expect(op(call!, 'abortSignal')[0]!.args[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it('0 es un conteo válido', async () => {
+    h.state.responder = () => ({ data: null, count: 0, error: null, status: 200 });
+    await expect(contarDevolucionesDelViaje(VIAJE_ID, signal())).resolves.toBe(0);
+  });
+
+  it('un error de la base se propaga como DataRequestError (con su code y status)', async () => {
+    h.state.responder = () => fail('', 'TypeError: Failed to fetch', 0);
+    await expect(contarDevolucionesDelViaje(VIAJE_ID, signal())).rejects.toBeInstanceOf(DataRequestError);
+  });
+
+  it('una respuesta sin número (null, negativo, decimal, texto) es un error, no un 0 inventado', async () => {
+    for (const rara of [null, undefined, -1, 1.5, '3']) {
+      h.state.responder = () => ({ data: null, count: rara, error: null, status: 200 });
+      await expect(contarDevolucionesDelViaje(VIAJE_ID, signal()), String(rara)).rejects.toBeInstanceOf(DataRequestError);
+    }
+  });
+});
+
+describe('contarDelViaje: los dos conteos juntos', () => {
+  const signal = () => new AbortController().signal;
+  const conteoDe = (n: number) => ({ data: null, count: n, error: null, status: 200 });
+
+  it('devuelve { gastos, devoluciones }, cada número de su tabla', async () => {
+    h.state.responder = (call) => conteoDe(call.target === 'gastos' ? 3 : 2);
+    await expect(contarDelViaje(VIAJE_ID, signal())).resolves.toEqual({ gastos: 3, devoluciones: 2 });
+    expect(h.calls.map((c) => c.target).sort()).toEqual(['devoluciones', 'gastos']);
+  });
+
+  it('usa la MISMA señal en los dos pedidos', async () => {
+    h.state.responder = () => conteoDe(0);
+    const s = signal();
+    await contarDelViaje(VIAJE_ID, s);
+    for (const call of h.calls) expect(op(call, 'abortSignal')[0]!.args[0]).toBe(s);
+  });
+
+  it('si falla cualquiera de los dos, falla todo (nunca un número a medias)', async () => {
+    h.state.responder = (call) => (call.target === 'gastos' ? conteoDe(3) : fail('', 'TypeError: Failed to fetch', 0));
+    await expect(contarDelViaje(VIAJE_ID, signal())).rejects.toBeInstanceOf(DataRequestError);
+    h.state.responder = (call) => (call.target === 'devoluciones' ? conteoDe(3) : fail('', 'TypeError: Failed to fetch', 0));
+    await expect(contarDelViaje(VIAJE_ID, signal())).rejects.toBeInstanceOf(DataRequestError);
   });
 });
 
@@ -357,7 +516,7 @@ describe('lecturas de viajes para gastos y el detalle', () => {
     const [call] = h.calls;
     expect(call!.target).toBe('viajes');
     const select = op(call!, 'select')[0]!.args[0] as string;
-    expect(select).toContain('entregas(id, incidencias, created_at, clientes(nombre))');
+    expect(select).toContain('entregas(id, cliente_id, incidencias, created_at, clientes(nombre))'); // con el cliente_id: el formulario de devoluciones ofrece primero los clientes del viaje
     for (const columna of ['km_inicial', 'km_final', 'km_recorridos', 'ingreso', 'observaciones']) expect(select).toContain(columna);
     expect(select).not.toContain('client_ref');
     expect(select).not.toContain('camion_id');

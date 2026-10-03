@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { useTenantId } from '@/features/member/use-tenant-id';
 import {
-  contarGastosDelViaje,
+  contarDelViaje,
   fetchViaje,
   fetchViajeOpcion,
   fetchViajesDelRango,
@@ -98,14 +98,16 @@ export function useViajeVista(id: string | null) {
 }
 
 /**
- * Cuántos gastos tiene un viaje, para la confirmación de borrarlo. Solo se pide con `enabled` (cuando se abre la
- * confirmación) y SIEMPRE fresco (sin caché ni reuso): el número que se muestra tiene que ser el de ahora.
+ * Cuántos gastos y cuántas devoluciones tiene un viaje, para la confirmación de borrarlo (los dos conteos en una
+ * misma consulta: si cualquiera falla, falla el conjunto y la confirmación cae en su texto genérico). Solo se pide
+ * con `enabled` (cuando se abre la confirmación) y SIEMPRE fresco (sin caché ni reuso): los números que se muestran
+ * tienen que ser los de ahora.
  */
-export function useGastosDelViajeCount(viajeId: string, enabled: boolean) {
+export function useConteosDelViaje(viajeId: string, enabled: boolean) {
   const tenantId = useTenantId();
   return useQuery({
-    queryKey: viajesKeys.cantidadGastos(tenantId, viajeId),
-    queryFn: ({ signal }) => contarGastosDelViaje(viajeId, signal),
+    queryKey: viajesKeys.conteos(tenantId, viajeId),
+    queryFn: ({ signal }) => contarDelViaje(viajeId, signal),
     enabled,
     staleTime: 0,
     gcTime: 0,

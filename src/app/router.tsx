@@ -38,6 +38,9 @@ const ViajeFormPage = lazy(() =>
 const ViajeDetallePage = lazy(() =>
   import('@/features/viajes/viaje-detalle-page').then((m) => ({ default: m.ViajeDetallePage })),
 );
+const DevolucionFormPage = lazy(() =>
+  import('@/features/devoluciones/devolucion-form-page').then((m) => ({ default: m.DevolucionFormPage })),
+);
 const GastosPage = lazy(() => import('@/features/gastos/gastos-page').then((m) => ({ default: m.GastosPage })));
 const GastoFormPage = lazy(() =>
   import('@/features/gastos/gasto-form-page').then((m) => ({ default: m.GastoFormPage })),
@@ -111,6 +114,10 @@ export function AppRouter() {
           <Route path="viajes/nuevo" element={<ViajeFormPage modo="nuevo" />} />
           <Route path="viajes/:id" element={<ViajeDetallePage />} />
           <Route path="viajes/:id/editar" element={<ViajeFormPage modo="editar" />} />
+          {/* Las devoluciones se ven y se cargan SOLO desde el detalle de un viaje: rutas anidadas bajo el viaje (el viaje va en
+              la URL). No chocan con las de arriba: react-router rankea por segmentos y estas tienen 4 y 5 (`nueva` es literal). */}
+          <Route path="viajes/:viajeId/devoluciones/nueva" element={<DevolucionFormPage modo="nuevo" />} />
+          <Route path="viajes/:viajeId/devoluciones/:id/editar" element={<DevolucionFormPage modo="editar" />} />
           <Route path="gastos" element={<GastosPage />} />
           <Route path="gastos/nuevo" element={<GastoFormPage modo="nuevo" />} />
           <Route path="gastos/:id/editar" element={<GastoFormPage modo="editar" />} />

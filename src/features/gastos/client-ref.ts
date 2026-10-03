@@ -27,6 +27,10 @@ export function generateClientRef(): string {
  * ¿Este error es "ya existe un gasto con este client_ref"? Es 23505 (unique_violation) Y el
  * constraint es el del client_ref. Cualquier OTRO 23505 (otro índice único) es un error normal.
  *
+ * `constraint` es el nombre del índice a buscar; por defecto el de gastos. Devoluciones usa el mismo patrón con
+ * su propio índice (`devoluciones_transportista_client_ref_uidx`, migración 008) y lo pasa acá: así no se
+ * duplica la lógica de leer el error.
+ *
  * Qué forma tiene el error: PostgREST responde `{ code: '23505', message:
  * 'duplicate key value violates unique constraint "<constraint>"', details,
  * hint }`; `unwrap()` lo convierte en un `DataRequestError` con `code`,
@@ -34,11 +38,11 @@ export function generateClientRef(): string {
  * en `details`, pero el NOMBRE del constraint va en `message`. Se busca en los tres
  * textos por si alguna versión lo mueve de lugar.
  */
-export function isClientRefDuplicate(error: unknown): boolean {
+export function isClientRefDuplicate(error: unknown, constraint: string = CLIENT_REF_CONSTRAINT): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const record = error as Record<string, unknown>;
   if (record.code !== '23505') return false;
   return [record.message, record.details, record.hint].some(
-    (text) => typeof text === 'string' && text.includes(CLIENT_REF_CONSTRAINT),
+    (text) => typeof text === 'string' && text.includes(constraint),
   );
 }

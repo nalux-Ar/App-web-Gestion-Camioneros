@@ -8,6 +8,9 @@ import { FixedActionBar } from '@/components/shared/fixed-action-bar';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { LIMITE_ALCANZADO_MESSAGE, SIN_DEVOLUCIONES_MESSAGE } from '@/features/devoluciones/constants';
+import { DevolucionItem } from '@/features/devoluciones/devolucion-item';
+import { useDevolucionesDelViaje } from '@/features/devoluciones/use-devoluciones';
 import type { Categoria } from '@/features/gastos/categorias';
 import { GastoItem } from '@/features/gastos/gasto-item';
 import { LIST_LIMIT as GASTOS_LIST_LIMIT } from '@/features/gastos/constants';
@@ -19,7 +22,7 @@ import { formatNumber } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { isUuid } from '@/lib/uuid';
 import { useViajeVista } from './use-viajes';
-import { DETALLE_AVISO_MENSAJES, estadoDesdeViaje, leerAvisoDetalle } from './viaje-navegacion';
+import { DETALLE_AVISO_MENSAJES, estadoDesdeViaje, leerAvisoDetalle, rutaNuevaDevolucion } from './viaje-navegacion';
 import { ViajeNoEncontrado } from './viaje-no-encontrado';
 import type { ViajeVista } from './viajes-api';
 import { sanitizeVolver } from './viajes-filters';
@@ -44,8 +47,9 @@ function textoCantidadGastos(cantidad: number, truncado: boolean): string {
 
 /**
  * Detalle de un viaje (`/viajes/:id`), de SOLO LECTURA: datos del viaje, sus entregas con el nombre del cliente y sus
- * incidencias, y los gastos vinculados con su total. NO calcula un "resultado" (ingreso menos gastos): eso queda para el
- * Resumen. Desde acá se carga un gasto de este viaje (acción principal) o se edita el viaje.
+ * incidencias, sus devoluciones y los gastos vinculados con su total. NO calcula un "resultado" (ingreso menos gastos):
+ * eso queda para el Resumen. Desde acá se carga un gasto de este viaje (acción principal), se carga una devolución
+ * (acción secundaria; las devoluciones se ven y se cargan SOLO desde acá) o se edita el viaje.
  *
  * Qué NO hace: navegar a algo que venga del estado o de la URL. El `volver` (el mes de la lista) se sanea con
  * `sanitizeVolver`, el aviso es una lista blanca y a los formularios se les pasa un dato validado
@@ -63,6 +67,7 @@ export function ViajeDetallePage() {
 
   const viajeQuery = useViajeVista(id);
   const gastosQuery = useGastosDelViaje(id);
+  const devolucionesQuery = useDevolucionesDelViaje(id);
   const categoriasQuery = useCategorias();
   const categorias = categoriasQuery.data;
   const categoriasPorId = useMemo(() => new Map((categorias ?? []).map((categoria) => [categoria.id, categoria])), [categorias]);
@@ -111,6 +116,7 @@ export function ViajeDetallePage() {
       <>
         <DatosDelViaje viaje={viaje} volver={volver} />
         <EntregasDelViaje viaje={viaje} />
+        <DevolucionesDelViaje viajeId={viaje.id} volver={volver} devolucionesQuery={devolucionesQuery} />
         <GastosDelViaje
           viajeId={viaje.id}
           volver={volver}
@@ -243,6 +249,74 @@ function EntregasDelViaje({ viaje }: { viaje: ViajeVista }) {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+interface DevolucionesDelViajeProps {
+  viajeId: string;
+  volver: string;
+  devolucionesQuery: ReturnType<typeof useDevolucionesDelViaje>;
+}
+
+/**
+ * Las devoluciones del viaje (de la más nueva a la más vieja), entre las entregas y los gastos. Cada una enlaza a su
+ * edición. El botón "Cargar devolución" es SECUNDARIO (la acción primaria de la pantalla sigue siendo cargar un gasto) y
+ * lleva a `/viajes/<id>/devoluciones/nueva` con el mes de la lista como único dato en el state.
+ */
+function DevolucionesDelViaje({ viajeId, volver, devolucionesQuery }: DevolucionesDelViajeProps) {
+  const items = devolucionesQuery.data?.items ?? [];
+  const truncado = devolucionesQuery.data?.truncado ?? false;
+
+  // Si falla (red, servidor) se avisa con "Reintentar"; si ya había una lista cargada se la sigue mostrando debajo.
+  const errorLista = devolucionesQuery.isError ? (
+    <InlineError
+      message={mapDataError(devolucionesQuery.error)}
+      onRetry={() => void devolucionesQuery.refetch()}
+      retrying={devolucionesQuery.isFetching}
+    />
+  ) : null;
+
+  let contenido;
+  if (devolucionesQuery.data === undefined) {
+    contenido = errorLista ?? <ListSkeleton rows={2} />;
+  } else if (items.length === 0) {
+    contenido = (
+      <>
+        {errorLista}
+        <p className="text-muted-foreground">{SIN_DEVOLUCIONES_MESSAGE}</p>
+      </>
+    );
+  } else {
+    contenido = (
+      <>
+        {errorLista}
+        {truncado ? (
+          <Alert>
+            <Info aria-hidden="true" />
+            <AlertDescription>{LIMITE_ALCANZADO_MESSAGE}</AlertDescription>
+          </Alert>
+        ) : null}
+        <ul className="space-y-2">
+          {items.map((devolucion) => (
+            <DevolucionItem key={devolucion.id} devolucion={devolucion} viajeId={viajeId} volver={volver} />
+          ))}
+        </ul>
+      </>
+    );
+  }
+
+  return (
+    <section aria-labelledby="viaje-devoluciones-titulo" className="space-y-3">
+      <h2 id="viaje-devoluciones-titulo" className="text-lg font-semibold">
+        {items.length > 0 ? `Devoluciones (${items.length}${truncado ? '+' : ''})` : 'Devoluciones'}
+      </h2>
+      {contenido}
+      <Button asChild variant="outline" className="w-full sm:w-auto">
+        <Link to={rutaNuevaDevolucion(viajeId)} state={{ volver }}>
+          <Plus aria-hidden="true" /> Cargar devolución
+        </Link>
+      </Button>
     </section>
   );
 }
