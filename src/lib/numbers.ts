@@ -391,3 +391,26 @@ export function fromDbNumber(value: number | string | null | undefined): number 
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Enteros en la escala de la columna (para sumar y comparar sin coma flotante)
+// ---------------------------------------------------------------------------
+
+/**
+ * El valor en unidades enteras de la escala de la columna: dinero → centavos, km → décimas de km,
+ * litros → mililitros. 0,1 + 0,2 da 0,30000000000000004 en coma flotante; 1 + 2 da 3. Para totales
+ * y comparaciones (p.ej. "km final menor que el inicial") se pasa a entero, se opera y recién al
+ * final se vuelve con `fromScaledInt`.
+ *
+ * Los valores de la base ya tienen a lo sumo `scale` decimales, así que `Math.round` solo corrige el
+ * ruido binario (1,1 × 10 = 11.000000000000002).
+ */
+export function toScaledInt(value: number, kind: NumberKind): number {
+  return Math.round(value * 10 ** NUMBER_KINDS[kind].scale);
+}
+
+/** Inverso de `toScaledInt`: 12345 centavos → 123,45. */
+export function fromScaledInt(units: number, kind: NumberKind): number {
+  const result = units / 10 ** NUMBER_KINDS[kind].scale;
+  return result === 0 ? 0 : result; // normaliza -0
+}

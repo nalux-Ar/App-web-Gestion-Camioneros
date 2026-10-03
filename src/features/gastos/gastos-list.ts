@@ -1,3 +1,4 @@
+import { acotarLista as acotar, type ListaAcotada } from '@/lib/lista-acotada';
 import { fromDbNumber } from '@/lib/numbers';
 import { LIST_LIMIT } from './constants';
 
@@ -13,13 +14,10 @@ export function sumMontos(rows: ReadonlyArray<{ monto: number | string }>): numb
   return cents / 100;
 }
 
-export interface ListaAcotada<T> {
-  items: T[];
-  /** true si había más gastos que el tope: la lista y el total son parciales. */
-  truncado: boolean;
-}
+// El tipo y el recorte genérico viven en `src/lib/lista-acotada.ts` (Viajes los usa también).
+export type { ListaAcotada };
 
 /** La consulta pide `LIST_LIMIT + 1`: si vino uno de más, había más que mostrar. */
 export function acotarLista<T>(rows: readonly T[], limit: number = LIST_LIMIT): ListaAcotada<T> {
-  return rows.length > limit ? { items: rows.slice(0, limit), truncado: true } : { items: [...rows], truncado: false };
+  return acotar(rows, limit);
 }

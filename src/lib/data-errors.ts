@@ -45,7 +45,7 @@ export interface DataErrorContext {
   foreignKey?: string;
   /** Violación de único (23505). */
   unique?: string;
-  /** No encontrado (PGRST116 o 0 filas). */
+  /** No encontrado (PGRST116, P0002 de las funciones de la base, o 0 filas). */
   notFound?: string;
   /** Sin permiso (42501). */
   permission?: string;
@@ -139,6 +139,9 @@ function classifyByCode(code: string): DataErrorKind | null {
 
   if (code === '23503') return 'foreign-key';
   if (code === '23505') return 'unique';
+  // P0002 (no_data_found) lo levantan las funciones de la base cuando el registro (o una de sus entregas) no
+  // existe o cambió: `actualizar_viaje_con_entregas`. Reintentar con los mismos datos da lo mismo.
+  if (code === 'P0002') return 'not-found';
   if (code === '42501') return 'permission'; // RLS o trigger de la base
   if (code === '28000' || code === '28P01') return 'session'; // autorización inválida
   const sqlClass = code.slice(0, 2);

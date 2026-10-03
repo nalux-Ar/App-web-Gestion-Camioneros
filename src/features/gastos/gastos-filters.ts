@@ -1,4 +1,12 @@
-import { compareMonths, currentMonth, monthRange, type MonthRange, type YearMonth } from '@/lib/dates';
+import {
+  compareMonths,
+  currentMonth,
+  formatMesParam,
+  monthRange,
+  parseMesParam,
+  type MonthRange,
+  type YearMonth,
+} from '@/lib/dates';
 import { isUuid } from '@/lib/uuid';
 import { MIN_YEAR } from './constants';
 
@@ -22,23 +30,10 @@ export interface GastosFiltro {
   categoriaId: string | null;
 }
 
-const MES_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
-
-/** 'YYYY-MM' → mes, o null si no es un mes válido entre enero de 2000 y el mes actual
- *  (el futuro no tiene gastos: no se puede cargar un gasto con fecha futura). */
-export function parseMesParam(raw: string | null | undefined, now: Date = new Date()): YearMonth | null {
-  if (typeof raw !== 'string') return null;
-  const match = MES_PATTERN.exec(raw);
-  if (!match) return null;
-  const mes: YearMonth = { year: Number(match[1]), month: Number(match[2]) };
-  if (mes.year < MIN_YEAR) return null;
-  if (compareMonths(mes, currentMonth(now)) > 0) return null;
-  return mes;
-}
-
-export function formatMesParam(mes: YearMonth): string {
-  return `${String(mes.year).padStart(4, '0')}-${String(mes.month).padStart(2, '0')}`;
-}
+// `parseMesParam` ('YYYY-MM' → mes válido entre enero de 2000 y el mes actual, o null) y `formatMesParam`
+// viven en `src/lib/dates.ts`: Viajes valida `?mes=` con las mismas reglas. Se re-exportan para no
+// cambiar los imports de Gastos.
+export { formatMesParam, parseMesParam };
 
 /** uuid válido, o null (ausente o inválido). */
 export function parseCategoriaParam(raw: string | null | undefined): string | null {

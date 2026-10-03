@@ -1,4 +1,4 @@
-import { validateRequiredDate } from '@/lib/dates';
+import { validateFechaDeRegistro } from '@/lib/dates';
 import type { MetodoPago, NewRow } from '@/lib/db';
 import {
   maxValueFor,
@@ -10,8 +10,9 @@ import {
   validateOptionalNumber,
   validateRequiredNumber,
 } from '@/lib/numbers';
+import { charLength } from '@/lib/text';
 import { isCombustible, isGastosVarios, type Categoria } from './categorias';
-import { METODO_PAGO_ORDER, MAX_DESCRIPCION, MIN_FECHA } from './constants';
+import { METODO_PAGO_ORDER, MAX_DESCRIPCION } from './constants';
 
 /**
  * Lógica PURA del formulario de gastos (sin React ni Supabase): validación,
@@ -135,18 +136,6 @@ export function previewPrecioPorLitro(montoText: string, litrosText: string): nu
 // ---------------------------------------------------------------------------
 
 /**
- * Largo como cuenta Postgres (`length()`): en caracteres, no en unidades UTF-16 (un emoji es 1, no 2).
- *
- * Con `cap` no recorre un texto gigante (un pegado de megabytes en cada tecla): como cada carácter ocupa
- * a lo sumo 2 unidades UTF-16, si `text.length > 2 * cap` ya pasa de `cap` caracteres y devuelve `cap + 1`
- * sin contar. El resultado nunca supera `cap + 1`.
- */
-export function charLength(text: string, cap: number = Number.POSITIVE_INFINITY): number {
-  if (text.length > 2 * cap) return cap + 1;
-  return Math.min(Array.from(text).length, cap + 1);
-}
-
-/**
  * Columnas de `gastos` que escribe el formulario, TODAS explícitas (las de
  * combustible van en `null` si la categoría no es Combustible: al EDITAR eso
  * limpia lo que hubiera quedado de antes). No incluye `client_ref` (solo se
@@ -213,9 +202,9 @@ export function validateGastoForm(values: GastoFormValues, context: ValidarGasto
   const monto = validateRequiredNumber(values.monto, 'dinero');
   if (!monto.ok) errors.monto = monto.message;
 
-  // Con cota inferior (MIN_FECHA): sin ella, un año de 2 dígitos tipeado en escritorio ("26" → 0026) pasaba y
-  // el gasto quedaba guardado pero fuera del alcance de la lista (que no llega antes de ese año).
-  const fecha = validateRequiredDate(values.fecha, { min: MIN_FECHA, max: context.today });
+  // Con cota inferior (ver `validateFechaDeRegistro`): sin ella, un año de 2 dígitos tipeado en escritorio
+  // ("26" → 0026) pasaba y el gasto quedaba guardado pero fuera del alcance de la lista.
+  const fecha = validateFechaDeRegistro(values.fecha, context.today);
   if (!fecha.ok) errors.fecha = fecha.message;
 
   const descripcion = values.descripcion.trim();

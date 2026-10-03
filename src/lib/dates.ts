@@ -213,3 +213,45 @@ export function validateOptionalDate(value: string, rules: DateRules = {}): Opti
   if (value.trim() === '') return { ok: true, value: null };
   return validateRequiredDate(value, rules);
 }
+
+// ---------------------------------------------------------------------------
+// Fecha de un registro (gastos, viajes) y mes en la URL
+// ---------------------------------------------------------------------------
+
+/**
+ * Primer año que aceptan las pantallas de Gastos y Viajes: es lo más viejo que el selector de mes y
+ * `?mes=` pueden alcanzar. La fecha de un registro NO puede ser anterior (`MIN_FECHA`): si no, se
+ * guardaría pero quedaría inalcanzable en la lista. En escritorio, Chrome deja tipear el año con
+ * 2 dígitos ("26" → 0026-10-01), y la base lo acepta como fecha válida.
+ */
+export const MIN_YEAR = 2000;
+
+/** Fecha mínima de un registro, 'YYYY-MM-DD', derivada de `MIN_YEAR`. */
+export const MIN_FECHA = `${String(MIN_YEAR).padStart(4, '0')}-01-01`;
+
+/**
+ * Fecha obligatoria de un registro de la lista de un mes (gasto, viaje): existe en el calendario, no es
+ * anterior a `MIN_FECHA` ni posterior a `today` (hoy en hora local, 'YYYY-MM-DD').
+ */
+export function validateFechaDeRegistro(value: string, today: string): DateValidation {
+  return validateRequiredDate(value, { min: MIN_FECHA, max: today });
+}
+
+const MES_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+/** 'YYYY-MM' → mes, o null si no es un mes válido entre enero de 2000 y el mes actual
+ *  (el futuro no tiene registros: no se puede cargar uno con fecha futura). */
+export function parseMesParam(raw: string | null | undefined, now: Date = new Date()): YearMonth | null {
+  if (typeof raw !== 'string') return null;
+  const match = MES_PATTERN.exec(raw);
+  if (!match) return null;
+  const mes: YearMonth = { year: Number(match[1]), month: Number(match[2]) };
+  if (mes.year < MIN_YEAR) return null;
+  if (compareMonths(mes, currentMonth(now)) > 0) return null;
+  return mes;
+}
+
+/** Mes → 'YYYY-MM' (el formato de `?mes=`). */
+export function formatMesParam(mes: YearMonth): string {
+  return `${String(mes.year).padStart(4, '0')}-${String(mes.month).padStart(2, '0')}`;
+}

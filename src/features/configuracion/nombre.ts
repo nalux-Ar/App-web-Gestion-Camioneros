@@ -1,4 +1,5 @@
 import type { DataErrorContext } from '@/lib/data-errors';
+import { charLength } from '@/lib/text';
 
 /**
  * Lógica PURA de la tarjeta "Nombre" de Configuración (sin React ni Supabase;
@@ -31,21 +32,6 @@ export const GUARDAR_NOMBRE_CONTEXT: DataErrorContext = {
 };
 
 export type NombreValidation = { ok: true; value: string } | { ok: false; message: string };
-
-/**
- * Largo como cuenta Postgres (`length()`): en caracteres (code points), no en
- * unidades UTF-16 (un emoji es 1, no 2). Mismo criterio que `charLength` de
- * features/gastos/gasto-form.ts; se repite acá (3 líneas) para no acoplar
- * Configuración al formulario de Gastos.
- *
- * Con `cap` no recorre un texto gigante (un pegado de megabytes): cada carácter
- * ocupa a lo sumo 2 unidades UTF-16, así que si `text.length > 2 * cap` ya pasa
- * de `cap` caracteres y devuelve `cap + 1` sin contar. Nunca supera `cap + 1`.
- */
-function charLength(text: string, cap: number): number {
-  if (text.length > 2 * cap) return cap + 1;
-  return Math.min(Array.from(text).length, cap + 1);
-}
 
 /**
  * Recorta los espacios y exige de 1 a `MAX_NOMBRE` caracteres. Devuelve el

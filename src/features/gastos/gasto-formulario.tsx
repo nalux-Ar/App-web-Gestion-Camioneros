@@ -12,6 +12,7 @@ import { useTenantId } from '@/features/member/use-tenant-id';
 import { RecordNotFoundError } from '@/lib/data-errors';
 import { todayLocal } from '@/lib/dates';
 import { formatNumber } from '@/lib/numbers';
+import { charLength } from '@/lib/text';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
 import { categoriasParaElegir, nombreParaMostrar, type Categoria } from './categorias';
 import { generateClientRef } from './client-ref';
@@ -27,7 +28,6 @@ import {
 } from './constants';
 import {
   DESCRIPCION_OBLIGATORIA_MESSAGE,
-  charLength,
   emptyGastoValues,
   esCombustibleElegida,
   esGastosVariosElegida,

@@ -21,16 +21,10 @@ export const COMBUSTIBLE_CATEGORIA_ID = '549e5f96-e2b5-4b00-a2a7-1fce891e3d51';
  */
 export const GASTOS_VARIOS_CATEGORIA_ID = '573c7482-ac79-47f7-9767-1f8162ff2027';
 
-/**
- * Primer año que acepta la pantalla de Gastos: es lo más viejo que el selector de mes y `?mes=` pueden
- * alcanzar (gastos-filters.ts). La fecha de un gasto NO puede ser anterior (`MIN_FECHA`): si no, el gasto
- * se guardaría pero quedaría inalcanzable en la lista. En escritorio, Chrome deja tipear el año con 2 dígitos
- * ("26" → 0026-10-01), y la base lo acepta como fecha válida.
- */
-export const MIN_YEAR = 2000;
-
-/** Fecha mínima de un gasto, 'YYYY-MM-DD', derivada de `MIN_YEAR`. */
-export const MIN_FECHA = `${String(MIN_YEAR).padStart(4, '0')}-01-01`;
+// `MIN_YEAR` (primer año que acepta la pantalla: lo más viejo que alcanzan el selector de mes y `?mes=`) y
+// `MIN_FECHA` (fecha mínima de un gasto) viven en `src/lib/dates.ts`: Viajes usa la misma cota. Se
+// re-exportan acá para no cambiar los imports de Gastos.
+export { MIN_YEAR, MIN_FECHA } from '@/lib/dates';
 
 /** Tope de gastos que trae la lista de un mes. Se pide uno más para saber si se alcanzó. */
 export const LIST_LIMIT = 500;
