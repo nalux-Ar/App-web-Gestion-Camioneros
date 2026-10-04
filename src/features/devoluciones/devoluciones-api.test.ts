@@ -12,7 +12,7 @@ const h = vi.hoisted(() => {
     const call = { target, ops: [] as Array<{ m: string; args: unknown[] }> };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const b: any = {};
-    for (const m of ['select', 'update', 'insert', 'delete', 'eq', 'abortSignal', 'order', 'limit', 'maybeSingle', 'single']) {
+    for (const m of ['select', 'update', 'insert', 'delete', 'eq', 'gte', 'lt', 'abortSignal', 'order', 'limit', 'maybeSingle', 'single']) {
       b[m] = (...args: unknown[]) => {
         call.ops.push({ m, args });
         return b;
@@ -51,6 +51,7 @@ import {
   devolucionWriteIO,
   eliminarDevolucion,
   fetchDevolucion,
+  fetchDevolucionesDelMes,
   fetchDevolucionesDelViaje,
 } from '@/features/devoluciones/devoluciones-api';
 import { devolucionesKeys } from '@/features/devoluciones/devoluciones-keys';
@@ -123,6 +124,85 @@ describe('fetchDevolucionesDelViaje', () => {
   it('un error de la base se propaga como DataRequestError (no queda cacheado como éxito)', async () => {
     h.state.responder = () => fail('', 'TypeError: Failed to fetch', 0);
     await expect(fetchDevolucionesDelViaje(VIAJE, signal())).rejects.toBeInstanceOf(DataRequestError);
+  });
+});
+
+describe('fetchDevolucionesDelMes', () => {
+  const DESDE = '2026-09-01';
+  const HASTA = '2026-10-01';
+
+  it('pide las del mes con el cliente y el viaje embebidos (viajes!inner), con la señal de TanStack', async () => {
+    h.state.responder = () => ok([]);
+    const s = signal();
+    await fetchDevolucionesDelMes({ desde: DESDE, hasta: HASTA, signal: s });
+    expect(h.calls).toHaveLength(1);
+    const [call] = h.calls;
+    expect(call!.target).toBe('devoluciones');
+    expect(op(call!, 'select')[0]!.args).toEqual([
+      'id, motivo, descripcion, cliente_id, viaje_id, created_at, clientes(nombre), viajes!inner(fecha, origen, destino)',
+    ]);
+    expect(op(call!, 'abortSignal')[0]!.args[0]).toBe(s);
+    // Lectura: nunca escrituras ni maybeSingle.
+    for (const m of ['insert', 'update', 'delete', 'maybeSingle', 'eq']) expect(ops(call!)).not.toContain(m);
+  });
+
+  it('el mes es el de la fecha del VIAJE: filtra por viajes.fecha, desde inclusive y hasta exclusivo (nunca por una fecha propia de la devolución)', async () => {
+    h.state.responder = () => ok([]);
+    await fetchDevolucionesDelMes({ desde: DESDE, hasta: HASTA, signal: signal() });
+    const [call] = h.calls;
+    expect(op(call!, 'gte').map((o) => o.args)).toEqual([['viajes.fecha', DESDE]]);
+    expect(op(call!, 'lt').map((o) => o.args)).toEqual([['viajes.fecha', HASTA]]);
+    // No hay otro filtro por fecha ni por columnas de la devolución.
+    expect(ops(call!).filter((m) => m === 'gte' || m === 'lt')).toHaveLength(2);
+  });
+
+  it('el rango del mes cruza el año en diciembre (hasta = 1 de enero)', async () => {
+    h.state.responder = () => ok([]);
+    await fetchDevolucionesDelMes({ desde: '2026-12-01', hasta: '2027-01-01', signal: signal() });
+    expect(op(h.calls[0]!, 'gte')[0]!.args).toEqual(['viajes.fecha', '2026-12-01']);
+    expect(op(h.calls[0]!, 'lt')[0]!.args).toEqual(['viajes.fecha', '2027-01-01']);
+  });
+
+  it('orden en la base: fecha del viaje desc (por la columna del viaje embebido, NO con referencedTable), luego created_at desc y id desc', async () => {
+    h.state.responder = () => ok([]);
+    await fetchDevolucionesDelMes({ desde: DESDE, hasta: HASTA, signal: signal() });
+    const orden = op(h.calls[0]!, 'order').map((o) => o.args);
+    expect(orden).toEqual([
+      ['viajes(fecha)', { ascending: false }],
+      ['created_at', { ascending: false }],
+      ['id', { ascending: false }],
+    ]);
+    // `referencedTable` ordenaría solo las filas embebidas (una por devolución), no las devoluciones.
+    for (const [, opciones] of orden) expect(opciones).not.toHaveProperty('referencedTable');
+  });
+
+  it('pide 201 (el tope + 1) para saber si hubo más', async () => {
+    h.state.responder = () => ok([]);
+    await fetchDevolucionesDelMes({ desde: DESDE, hasta: HASTA, signal: signal() });
+    expect(op(h.calls[0]!, 'limit')[0]!.args).toEqual([LIST_LIMIT + 1]);
+    expect(op(h.calls[0]!, 'limit')[0]!.args).toEqual([201]);
+  });
+
+  it('con 200 o menos no está truncada y conserva el orden en que llegó', async () => {
+    h.state.responder = () => ok(Array.from({ length: 200 }, (_, i) => ({ id: `d-${i}` })));
+    const r = await fetchDevolucionesDelMes({ desde: DESDE, hasta: HASTA, signal: signal() });
+    expect(r.items).toHaveLength(200);
+    expect(r.items.map((d) => d.id).slice(0, 3)).toEqual(['d-0', 'd-1', 'd-2']);
+    expect(r.truncado).toBe(false);
+  });
+
+  it('con 201 se queda con las primeras 200 (las más recientes: el orden es de la base) y avisa que hay más', async () => {
+    h.state.responder = () => ok(Array.from({ length: 201 }, (_, i) => ({ id: `d-${i}` })));
+    const r = await fetchDevolucionesDelMes({ desde: DESDE, hasta: HASTA, signal: signal() });
+    expect(r.items).toHaveLength(200);
+    expect(r.items[0]!.id).toBe('d-0');
+    expect(r.items[199]!.id).toBe('d-199');
+    expect(r.truncado).toBe(true);
+  });
+
+  it('un error de la base se propaga como DataRequestError (no queda cacheado como éxito)', async () => {
+    h.state.responder = () => fail('', 'TypeError: Failed to fetch', 0);
+    await expect(fetchDevolucionesDelMes({ desde: DESDE, hasta: HASTA, signal: signal() })).rejects.toBeInstanceOf(DataRequestError);
   });
 });
 
@@ -353,7 +433,23 @@ describe('keys: todas empiezan con el tenant y las listas cuelgan de un prefijo 
     expect(devolucionesKeys.all('t')).toEqual(['tenant', 't', 'devoluciones']);
     expect(devolucionesKeys.delosViajes('t')).toEqual(['tenant', 't', 'devoluciones', 'viaje']);
     expect(devolucionesKeys.delViaje('t', VIAJE)).toEqual(['tenant', 't', 'devoluciones', 'viaje', VIAJE]);
+    expect(devolucionesKeys.delosMeses('t')).toEqual(['tenant', 't', 'devoluciones', 'mes']);
+    expect(devolucionesKeys.delMes('t', '2026-09-01', '2026-10-01')).toEqual(['tenant', 't', 'devoluciones', 'mes', '2026-09-01', '2026-10-01']);
     expect(devolucionesKeys.detail('t', DEV, VIAJE)).toEqual(['tenant', 't', 'devoluciones', 'detalle', VIAJE, DEV]);
+  });
+
+  it('la lista de un mes cuelga de su propio prefijo (delosMeses la cubre) y de `all`, y NO del de las listas por viaje ni del detalle', () => {
+    const empiezaCon = (key: readonly unknown[], prefijo: readonly unknown[]) => prefijo.every((parte, i) => key[i] === parte);
+    const delMes = devolucionesKeys.delMes('t', '2026-09-01', '2026-10-01');
+    expect(empiezaCon(delMes, devolucionesKeys.delosMeses('t'))).toBe(true);
+    expect(empiezaCon(delMes, devolucionesKeys.all('t'))).toBe(true);
+    expect(empiezaCon(delMes, devolucionesKeys.delosViajes('t'))).toBe(false);
+    expect(empiezaCon(devolucionesKeys.delViaje('t', VIAJE), devolucionesKeys.delosMeses('t'))).toBe(false);
+    expect(empiezaCon(devolucionesKeys.detail('t', DEV, VIAJE), devolucionesKeys.delosMeses('t'))).toBe(false);
+  });
+
+  it('la lista de un mes de un tenant no cuelga de la de otro', () => {
+    expect(devolucionesKeys.delMes('t1', '2026-09-01', '2026-10-01')).not.toEqual(devolucionesKeys.delMes('t2', '2026-09-01', '2026-10-01'));
   });
 
   it('la lista de un viaje cuelga del prefijo de las listas (invalidar delosViajes la cubre) y el detalle NO', () => {

@@ -307,6 +307,50 @@ describe('lista de viajes: consulta y mes', () => {
   });
 });
 
+describe('lista de viajes: la pestaña Viajes (la de por defecto) no cambia', () => {
+  const pestana = (texto: string) =>
+    [...document.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Viajes y devoluciones"] a')].find((a) => a.textContent === texto)!;
+
+  it('NO pide devoluciones: la consulta de devoluciones solo se hace con la pestaña Devoluciones activa', async () => {
+    await mount();
+    expect(h.calls.filter((c) => c.target === 'devoluciones')).toHaveLength(0);
+    expect(listaCalls()).toHaveLength(1);
+  });
+
+  it('un ?vista= inválido es la pestaña Viajes y tampoco pide devoluciones', async () => {
+    await mount('/viajes?vista=otra&mes=2025-08');
+    expect(h.calls.filter((c) => c.target === 'devoluciones')).toHaveLength(0);
+    expect(items()).toHaveLength(4);
+    expect(pestana('Viajes').getAttribute('aria-current')).toBe('page');
+  });
+
+  it('muestra las dos pestañas, con Viajes como la actual, y el h1 sigue siendo "Viajes"', async () => {
+    await mount();
+    expect(document.querySelector('h1')!.textContent).toBe('Viajes');
+    expect(pestana('Viajes').getAttribute('aria-current')).toBe('page');
+    expect(pestana('Devoluciones').hasAttribute('aria-current')).toBe(false);
+    expect(pestana('Devoluciones').getAttribute('href')).toBe('/viajes?vista=devoluciones');
+  });
+
+  it('las pestañas conservan el mes', async () => {
+    await mount('/viajes?mes=2025-08');
+    expect(pestana('Viajes').getAttribute('href')).toBe('/viajes?mes=2025-08');
+    expect(pestana('Devoluciones').getAttribute('href')).toBe('/viajes?vista=devoluciones&mes=2025-08');
+  });
+
+  it('los enlaces de las filas siguen sin pestaña en el volver: la pestaña por defecto no se escribe', async () => {
+    await mount('/viajes?vista=viajes&mes=2025-08');
+    await click(items()[0]);
+    expect(document.getElementById('destino-detalle')!.dataset.volver).toBe('?mes=2025-08');
+  });
+
+  it('no aparece nada de la pestaña Devoluciones (ni su resumen)', async () => {
+    await mount();
+    expect(document.querySelector('section[aria-labelledby="devoluciones-resumen-titulo"]')).toBeNull();
+    expect(bodyText()).not.toContain('No hay devoluciones');
+  });
+});
+
 describe('lista de viajes: estados', () => {
   it('sin viajes: estado vacío con el mes y un enlace a "Nuevo viaje"; sin resumen', async () => {
     lista = () => ok([]);

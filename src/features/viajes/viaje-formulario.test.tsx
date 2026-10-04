@@ -775,6 +775,16 @@ describe('formulario de viaje: la lista de clientes no carga', () => {
 // Guardado (alta)
 // ---------------------------------------------------------------------------
 describe('formulario de viaje: guardar (alta)', () => {
+  it('guardar un viaje nuevo también marca viejas las listas de devoluciones por mes (la pestaña Devoluciones de /viajes)', async () => {
+    const delMes = devolucionesKeys.delMes('tenant-a', '2025-06-01', '2025-07-01');
+    await mount();
+    queryClient.setQueryData(delMes, { items: [], truncado: false });
+    await llenarLoMinimo();
+    await guardar();
+    expect(crearCalls()).toHaveLength(1);
+    expect(queryClient.getQueryState(delMes)?.isInvalidated).toBe(true);
+  });
+
   it('llama a crear_viaje_con_entregas con los argumentos exactos (recortados, null explícito, sin camión) y vuelve a la lista con "guardado"', async () => {
     await mount();
     await typeById('viaje-origen', '  Rosario ');
@@ -1263,6 +1273,23 @@ describe('formulario de viaje: editar', () => {
     route.actualizar = () => ok(null);
     await guardar();
     expect(queryClient.getQueryState(listaDeGastos)?.isInvalidated).toBe(true);
+  });
+
+  it('guardar una edición (con éxito o no) marca viejas las listas de devoluciones POR MES: la devolución es del mes de la fecha de su viaje, y esa fecha pudo cambiar', async () => {
+    const delMes = devolucionesKeys.delMes('tenant-a', '2025-06-01', '2025-07-01');
+    const otroMes = devolucionesKeys.delMes('tenant-a', '2025-07-01', '2025-08-01');
+    route.detalle = () => ok(detalleViaje());
+    route.actualizar = () => sinRed();
+    await mount(`/viajes/${VIAJE_ID}/editar`);
+    for (const key of [delMes, otroMes]) queryClient.setQueryData(key, { items: [], truncado: false });
+    await guardar();
+    expect(bodyText()).toContain('No hay conexión');
+    for (const key of [delMes, otroMes]) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+
+    for (const key of [delMes, otroMes]) queryClient.setQueryData(key, { items: [], truncado: false });
+    route.actualizar = () => ok(null);
+    await guardar();
+    for (const key of [delMes, otroMes]) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
   });
 
   it('un viaje sin camión se guarda con p_camion_id = null', async () => {
@@ -2103,6 +2130,7 @@ describe('formulario de viaje: eliminar un viaje con devoluciones', () => {
   const clavesDeDevoluciones = () => ({
     'devoluciones del viaje': devolucionesKeys.delViaje('tenant-a', VIAJE_ID),
     'detalle de una devolución': devolucionesKeys.detail('tenant-a', 'f0000000-0000-4000-8000-000000000001', VIAJE_ID),
+    'devoluciones de un mes (pestaña Devoluciones de /viajes)': devolucionesKeys.delMes('tenant-a', '2025-06-01', '2025-07-01'),
   });
 
   it('tras borrar: se invalidan las keys de devoluciones del viaje', async () => {

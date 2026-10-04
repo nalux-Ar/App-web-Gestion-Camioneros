@@ -197,7 +197,8 @@ function DetalleProbe() {
 /** La lista de viajes de mentira. */
 function ListaProbe() {
   const location = useLocation();
-  return <div id="lista-de-viajes" data-search={location.search} />;
+  const state = (location.state as { aviso?: string } | null) ?? {};
+  return <div id="lista-de-viajes" data-search={location.search} data-aviso={state.aviso ?? ''} data-state={JSON.stringify(location.state ?? null)} />;
 }
 
 let root: Root;
@@ -871,6 +872,18 @@ describe('formulario de devolución (alta): guardar', () => {
     }
   });
 
+  it('el alta marca vieja la lista POR MES de la pestaña Devoluciones (también la de otros meses: puede ser de cualquier viaje)', async () => {
+    await mount();
+    const claves = [
+      devolucionesKeys.delMes('tenant-a', '2025-06-01', '2025-07-01'),
+      devolucionesKeys.delMes('tenant-a', '2025-05-01', '2025-06-01'),
+    ];
+    for (const clave of claves) queryClient.setQueryData(clave, { items: [], truncado: false });
+    await llenarLoMinimo();
+    await guardar();
+    for (const clave of claves) expect(queryClient.getQueryState(clave)?.isInvalidated).toBe(true);
+  });
+
   it('tras guardar, guardar y navegar, el INSERT se hizo una sola vez aunque se toque de nuevo', async () => {
     await mount();
     await llenarLoMinimo();
@@ -1156,6 +1169,16 @@ describe('formulario de devolución: editar', () => {
     expect(queryClient.getQueryState(claveLista)?.isInvalidated).toBe(true);
   });
 
+  it('guardar (aunque falle) marca viejas también las listas POR MES (la pestaña Devoluciones de /viajes): si no, al volver a ella se vería la de antes', async () => {
+    route.actualizar = () => sinRed();
+    await mount(EDITAR);
+    const claveMes = devolucionesKeys.delMes('tenant-a', '2025-06-01', '2025-07-01');
+    queryClient.setQueryData(claveMes, { items: [], truncado: false });
+    await guardar();
+    expect(bodyText()).toContain('No hay conexión');
+    expect(queryClient.getQueryState(claveMes)?.isInvalidated).toBe(true);
+  });
+
   it('aunque algo fuerce un refresco de la devolución y falle, el formulario ya cargado no se desmonta (el error solo reemplaza al formulario si NO hay datos)', async () => {
     await mount(EDITAR);
     await typeText(textarea(), 'Lo que escribí');
@@ -1329,6 +1352,16 @@ describe('formulario de devolución: eliminar', () => {
     expect(buttonByText('Eliminar devolución')).toBeTruthy();
   });
 
+  it('borrar marca viejas las listas POR MES de la pestaña Devoluciones', async () => {
+    await mount(EDITAR);
+    const claveMes = devolucionesKeys.delMes('tenant-a', '2025-06-01', '2025-07-01');
+    queryClient.setQueryData(claveMes, { items: [], truncado: false });
+    await click(buttonByText('Eliminar devolución'));
+    await click(buttonByText('Sí, eliminar'));
+    await settle(4);
+    expect(queryClient.getQueryState(claveMes)?.isInvalidated).toBe(true);
+  });
+
   it('borrar marca viejas las listas de devoluciones de los viajes', async () => {
     await mount(EDITAR);
     const claveLista = devolucionesKeys.delViaje('tenant-a', VIAJE);
@@ -1337,6 +1370,177 @@ describe('formulario de devolución: eliminar', () => {
     await click(buttonByText('Sí, eliminar'));
     await settle(4);
     expect(queryClient.getQueryState(claveLista)?.isInvalidated).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Origen: la edición abierta desde la pestaña Devoluciones de /viajes
+// ---------------------------------------------------------------------------
+describe('edición abierta desde la lista de Devoluciones (marca de origen en el state)', () => {
+  const DESDE_LISTA = { volver: '?vista=devoluciones&mes=2025-06', origen: 'lista-devoluciones' };
+  const LISTA = '/viajes?vista=devoluciones&mes=2025-06';
+  const enlaceDeVolver = () => links().find((a) => ['Devoluciones', 'Viaje', 'Viajes'].includes(a.textContent?.trim() ?? ''))!;
+  /** Desmonta y limpia, para montar otra pantalla dentro de la misma prueba. */
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+    h.calls.length = 0;
+  }
+
+  beforeEach(() => {
+    route.detalle = detalleDeLaDevolucion;
+  });
+
+  it('el enlace de volver dice "Devoluciones" y lleva a la lista (misma pestaña y mismo mes)', async () => {
+    await mount({ pathname: EDITAR, state: DESDE_LISTA });
+    expect(enlaceDeVolver().textContent?.trim()).toBe('Devoluciones');
+    expect(enlaceDeVolver().getAttribute('href')).toBe(LISTA);
+  });
+
+  it('guardar vuelve a la lista de Devoluciones (misma pestaña y mismo mes) con "devolucion-guardada", y NO al detalle del viaje', async () => {
+    await mount({ pathname: EDITAR, state: DESDE_LISTA });
+    await guardar();
+    expect(updates()).toHaveLength(1);
+    expect(byId('detalle-del-viaje')).toBeNull();
+    const lista = byId('lista-de-viajes')!;
+    expect(lista.dataset.search).toBe('?vista=devoluciones&mes=2025-06');
+    expect(lista.dataset.aviso).toBe('devolucion-guardada');
+  });
+
+  it('el state hacia la lista lleva SOLO el aviso: ni el origen ni el volver ni nada más', async () => {
+    await mount({ pathname: EDITAR, state: { ...DESDE_LISTA, ruta: '//evil.com', desdeViaje: '/gastos' } });
+    await guardar();
+    expect(JSON.parse(byId('lista-de-viajes')!.dataset.state!)).toEqual({ aviso: 'devolucion-guardada' });
+  });
+
+  it('eliminar vuelve a la lista de Devoluciones con "devolucion-eliminada"', async () => {
+    await mount({ pathname: EDITAR, state: DESDE_LISTA });
+    await click(buttonByText('Eliminar devolución'));
+    await click(buttonByText('Sí, eliminar'));
+    await settle(4);
+    expect(deletes()).toHaveLength(1);
+    expect(byId('detalle-del-viaje')).toBeNull();
+    expect(byId('lista-de-viajes')!.dataset.search).toBe('?vista=devoluciones&mes=2025-06');
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('devolucion-eliminada');
+  });
+
+  it('con el mes actual el volver lleva solo la pestaña', async () => {
+    await mount({ pathname: EDITAR, state: { volver: '?vista=devoluciones', origen: 'lista-devoluciones' } });
+    await guardar();
+    expect(byId('lista-de-viajes')!.dataset.search).toBe('?vista=devoluciones');
+  });
+
+  it('la pestaña la fija el código, no el volver: con origen válido y un volver SIN pestaña (o con otra) también va a Devoluciones', async () => {
+    for (const volver of ['?mes=2025-06', '?vista=viajes&mes=2025-06', '?vista=basura&mes=2025-06']) {
+      await mount({ pathname: EDITAR, state: { volver, origen: 'lista-devoluciones' } });
+      await guardar();
+      expect(byId('lista-de-viajes')!.dataset.search, volver).toBe('?vista=devoluciones&mes=2025-06');
+      await desmontar();
+    }
+  });
+
+  it('un volver raro se sanea y nunca cambia el destino: siempre /viajes, pestaña Devoluciones, mes actual', async () => {
+    for (const raro of ['//evil.com', 'https://evil.com', '?mes=<script>', '?mes=2999-01', { mes: '2025-06' }, 42]) {
+      await mount({ pathname: EDITAR, state: { volver: raro, origen: 'lista-devoluciones' } });
+      expect(enlaceDeVolver().getAttribute('href'), JSON.stringify(raro)).toBe('/viajes?vista=devoluciones');
+      await guardar();
+      expect(byId('lista-de-viajes')!.dataset.search, JSON.stringify(raro)).toBe('?vista=devoluciones');
+      await desmontar();
+    }
+  });
+
+  it('SIN la marca de origen, aunque el volver traiga la pestaña Devoluciones (se abrió desde el detalle del viaje), vuelve al DETALLE como hoy', async () => {
+    await mount({ pathname: EDITAR, state: { volver: '?vista=devoluciones&mes=2025-06' } });
+    expect(enlaceDeVolver().textContent?.trim()).toBe('Viaje');
+    expect(enlaceDeVolver().getAttribute('href')).toBe(`/viajes/${VIAJE}`);
+    await guardar();
+    expect(byId('lista-de-viajes')).toBeNull();
+    const detalle = byId('detalle-del-viaje')!;
+    expect(detalle.dataset.path).toBe(`/viajes/${VIAJE}`);
+    expect(detalle.dataset.aviso).toBe('devolucion-guardada');
+    expect(detalle.dataset.volver).toBe('?vista=devoluciones&mes=2025-06'); // el detalle conserva la pestaña para su "Viajes"
+  });
+
+  it('SIN la marca de origen, eliminar también vuelve al detalle', async () => {
+    await mount({ pathname: EDITAR, state: { volver: '?vista=devoluciones&mes=2025-06' } });
+    await click(buttonByText('Eliminar devolución'));
+    await click(buttonByText('Sí, eliminar'));
+    await settle(4);
+    expect(byId('lista-de-viajes')).toBeNull();
+    expect(byId('detalle-del-viaje')!.dataset.aviso).toBe('devolucion-eliminada');
+  });
+
+  it('un origen que no es EXACTAMENTE el literal de la lista blanca se ignora: la edición vuelve al detalle', async () => {
+    for (const raro of ['Lista-Devoluciones', ' lista-devoluciones', 'lista-devoluciones/../x', '/viajes?vista=devoluciones', '//evil.com', 'https://evil.com', 'detalle', '', 'toString', 1, true, null, {}, ['lista-devoluciones']]) {
+      await mount({ pathname: EDITAR, state: { volver: '?vista=devoluciones&mes=2025-06', origen: raro } });
+      expect(enlaceDeVolver().textContent?.trim(), JSON.stringify(raro)).toBe('Viaje');
+      await guardar();
+      expect(byId('lista-de-viajes'), JSON.stringify(raro)).toBeNull();
+      expect(byId('detalle-del-viaje')!.dataset.path, JSON.stringify(raro)).toBe(`/viajes/${VIAJE}`);
+      await desmontar();
+    }
+  });
+
+  it('el origen solo cuenta al EDITAR: en el alta se ignora y vuelve al detalle', async () => {
+    await mount({ pathname: NUEVA, state: DESDE_LISTA });
+    expect(enlaceDeVolver().textContent?.trim()).toBe('Viaje');
+    await llenarLoMinimo();
+    await guardar();
+    expect(inserts()).toHaveLength(1);
+    expect(byId('lista-de-viajes')).toBeNull();
+    expect(byId('detalle-del-viaje')!.dataset.aviso).toBe('devolucion-guardada');
+  });
+
+  it('un guardado que falla no navega y conserva lo tipeado; el reintento vuelve a la lista', async () => {
+    let intento = 0;
+    route.actualizar = () => {
+      intento += 1;
+      return intento === 1 ? sinRed() : ok([{ id: DEV_ID }]);
+    };
+    await mount({ pathname: EDITAR, state: DESDE_LISTA });
+    await typeText(textarea(), 'Cambiada');
+    await guardar();
+    expect(bodyText()).toContain('No hay conexión');
+    expect(byId('lista-de-viajes')).toBeNull();
+    expect(textarea().value).toBe('Cambiada');
+    await click(buttonByText('Reintentar'));
+    await settle(4);
+    expect(byId('lista-de-viajes')!.dataset.aviso).toBe('devolucion-guardada');
+  });
+
+  it('"Devolución no encontrada": el botón vuelve a la lista de Devoluciones (y sin origen sigue siendo "Volver al viaje")', async () => {
+    route.detalle = () => ok(null);
+    await mount({ pathname: EDITAR, state: DESDE_LISTA });
+    expect(bodyText()).toContain('Devolución no encontrada');
+    const volver = links().find((a) => a.textContent?.includes('Volver a Devoluciones'))!;
+    expect(volver.getAttribute('href')).toBe(LISTA);
+    expect(links().some((a) => a.textContent?.includes('Volver al viaje'))).toBe(false);
+    await click(volver);
+    expect(byId('lista-de-viajes')!.dataset.search).toBe('?vista=devoluciones&mes=2025-06');
+    await desmontar();
+
+    await mount({ pathname: EDITAR, state: { volver: '?vista=devoluciones&mes=2025-06' } });
+    expect(links().some((a) => a.textContent?.includes('Volver a Devoluciones'))).toBe(false);
+    expect(links().find((a) => a.textContent?.includes('Volver al viaje'))!.getAttribute('href')).toBe(`/viajes/${VIAJE}`);
+  });
+
+  it('el UPDATE sin filas (ya no existe) desde la lista también ofrece volver a la lista', async () => {
+    route.actualizar = () => ok([]);
+    await mount({ pathname: EDITAR, state: DESDE_LISTA });
+    await guardar();
+    expect(bodyText()).toContain('Devolución no encontrada');
+    expect(links().find((a) => a.textContent?.includes('Volver a Devoluciones'))!.getAttribute('href')).toBe(LISTA);
+  });
+
+  it('"Viaje no encontrado" (viaje de la URL inválido): el enlace conserva la pestaña y el mes', async () => {
+    await mount({ pathname: `/viajes/no-es-un-uuid/devoluciones/${DEV_ID}/editar`, state: DESDE_LISTA });
+    expect(bodyText()).toContain('Viaje no encontrado');
+    expect(links().find((a) => a.textContent?.includes('Volver a Viajes'))!.getAttribute('href')).toBe('/viajes?vista=devoluciones&mes=2025-06');
+    // Y el enlace de arriba también vuelve a la lista de Devoluciones.
+    expect(enlaceDeVolver().getAttribute('href')).toBe(LISTA);
   });
 });
 

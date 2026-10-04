@@ -10,7 +10,7 @@ import type { ClienteOpcion } from '@/features/clientes/cliente-nombre';
 import { CLIENTES_LIMIT } from '@/features/clientes/clientes-api';
 import { generateClientRef } from '@/features/gastos/client-ref';
 import { useTenantId } from '@/features/member/use-tenant-id';
-import { rutaDelViaje, type DetalleAviso } from '@/features/viajes/viaje-navegacion';
+import { destinoTrasDevolucion, type OrigenDevolucion } from '@/features/viajes/viaje-navegacion';
 import { RecordNotFoundError } from '@/lib/data-errors';
 import { charLength } from '@/lib/text';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
@@ -62,6 +62,11 @@ interface DevolucionFormularioProps {
   idsClientesDelViaje: ReadonlyArray<string>;
   /** `search` de la lista de viajes ('' o '?mes=...'), ya saneado: el detalle del viaje lo necesita para su enlace "Viajes". */
   volver: string;
+  /**
+   * De dónde se abrió la edición, ya validado (`leerOrigenDevolucion`): desde la lista de Devoluciones, guardar o borrar
+   * vuelve a esa lista (misma pestaña y mismo mes); con `null`, al detalle del viaje, como siempre.
+   */
+  origen: OrigenDevolucion | null;
 }
 
 /**
@@ -88,6 +93,7 @@ export function DevolucionFormulario({
   clientesTruncado,
   idsClientesDelViaje,
   volver,
+  origen,
 }: DevolucionFormularioProps) {
   const navigate = useNavigate();
   const tenantId = useTenantId();
@@ -203,14 +209,13 @@ export function DevolucionFormulario({
       sentRef.current.clear();
       setClientRef(generateClientRef());
     }
-    // Al viaje: la ruta se arma acá con un uuid ya validado (el de la URL), y el `volver` ya está saneado.
-    navigate(rutaDelViaje(viajeId), {
-      replace: true,
-      state: { aviso: 'devolucion-guardada' satisfies DetalleAviso, volver },
-    });
+    // Al viaje, o a la lista de Devoluciones si se abrió desde ella: la ruta se arma en el código con un uuid ya validado (el
+    // de la URL) y el `volver` ya saneado, nunca con algo que venga del estado.
+    const destino = destinoTrasDevolucion({ viajeId, volver, origen, aviso: 'devolucion-guardada' });
+    navigate(destino.to, { replace: true, state: destino.state });
   }
 
-  if (gone) return <DevolucionNoEncontrada viajeId={viajeId} volver={volver} />;
+  if (gone) return <DevolucionNoEncontrada viajeId={viajeId} volver={volver} origen={origen} />;
 
   return (
     <div className="space-y-8">
@@ -273,10 +278,8 @@ export function DevolucionFormulario({
               // 0 filas borradas = ya no estaba: para un borrado es lo mismo que éxito.
               await eliminar.mutateAsync({ tenantId, id: devolucion.id });
               if (!mountedRef.current) return; // se fue de la pantalla mientras borraba
-              navigate(rutaDelViaje(viajeId), {
-                replace: true,
-                state: { aviso: 'devolucion-eliminada' satisfies DetalleAviso, volver },
-              });
+              const destino = destinoTrasDevolucion({ viajeId, volver, origen, aviso: 'devolucion-eliminada' });
+              navigate(destino.to, { replace: true, state: destino.state });
             }}
           />
         </div>

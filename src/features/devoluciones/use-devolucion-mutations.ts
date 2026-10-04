@@ -20,17 +20,19 @@ import { devolucionesKeys } from './devoluciones-keys';
  *    mientras tanto cambie el usuario (la caché se vacía al cambiar de usuario; invalidar la key de otro tenant no
  *    toca nada ajeno).
  *  - Se invalida en `onSettled` (no solo si salió bien): con un timeout la escritura pudo haberse aplicado igual
- *    (respuesta perdida). Se invalidan las LISTAS de devoluciones de los viajes (`devolucionesKeys.delosViajes`), NO
- *    el detalle de edición: ese lo observa la pantalla de edición y, si el refresco fallaba por mala señal, era el
- *    origen del hallazgo de la auditoría de Viajes. No se espera la invalidación (`void`).
+ *    (respuesta perdida). Se invalidan las LISTAS de devoluciones, las de los viajes (`devolucionesKeys.delosViajes`) y
+ *    las de los meses (`devolucionesKeys.delosMeses`, la pestaña Devoluciones de `/viajes`: si no, al volver a ella se
+ *    vería la lista de antes), NO el detalle de edición: ese lo observa la pantalla de edición y, si el refresco fallaba
+ *    por mala señal, era el origen del hallazgo de la auditoría de Viajes. No se espera la invalidación (`void`).
  *  - Si guardar falla porque ya no existe una de las dos cosas a las que apunta (23503, se distingue por el nombre del
  *    constraint): el cliente → se vuelve a pedir la lista de clientes (si no, el cliente borrado seguiría en el
  *    selector y el error se repetiría); el viaje → se marcan viejas las listas de viajes.
  */
 
-/** Marca viejas las listas de devoluciones de los viajes. */
+/** Marca viejas las listas de devoluciones: las de cada viaje y las de cada mes (la pestaña Devoluciones de `/viajes`). */
 function invalidarDevoluciones(queryClient: QueryClient, tenantId: string) {
   void queryClient.invalidateQueries({ queryKey: devolucionesKeys.delosViajes(tenantId) });
+  void queryClient.invalidateQueries({ queryKey: devolucionesKeys.delosMeses(tenantId) });
 }
 
 /** Tras guardar (bien o mal): las listas y, según el error, la de clientes o la de viajes. */

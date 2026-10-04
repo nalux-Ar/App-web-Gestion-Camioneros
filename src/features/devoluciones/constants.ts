@@ -20,7 +20,10 @@ export const MAX_DESCRIPCION = 2000;
 /** Desde cuántos caracteres se muestra el contador de la descripción (igual que en Gastos). */
 export const DESCRIPCION_COUNTER_FROM = 1800;
 
-/** Tope de devoluciones que muestra el detalle de un viaje. Se pide una más (`LIST_LIMIT + 1`) para saber si se alcanzó. */
+/**
+ * Tope de devoluciones que muestra el detalle de un viaje y la lista de un mes (pestaña Devoluciones de `/viajes`).
+ * Se pide una más (`LIST_LIMIT + 1`) para saber si se alcanzó.
+ */
 export const LIST_LIMIT = 200;
 
 // Nombres de los constraints de la base que el front reconoce SOLO para elegir un mensaje o decidir un flujo
@@ -70,3 +73,7 @@ export const GRUPO_CLIENTES = 'Clientes';
 /** Textos de la sección "Devoluciones" del detalle de un viaje. */
 export const SIN_DEVOLUCIONES_MESSAGE = 'Este viaje no tiene devoluciones.';
 export const LIMITE_ALCANZADO_MESSAGE = `Hay más de ${LIST_LIMIT} devoluciones en este viaje. Se muestran las ${LIST_LIMIT} más recientes.`;
+
+/** Textos de la pestaña Devoluciones de `/viajes` (la lista de un mes). */
+export const LIMITE_MES_ALCANZADO_MESSAGE = `Hay más de ${LIST_LIMIT} devoluciones en este mes. Se muestran las ${LIST_LIMIT} más recientes y el resumen solo suma esas.`;
+export const SIN_DEVOLUCIONES_EN_EL_MES_DESCRIPTION = 'Las devoluciones se cargan desde el detalle de un viaje.';

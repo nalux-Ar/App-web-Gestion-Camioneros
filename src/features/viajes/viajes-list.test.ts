@@ -198,10 +198,10 @@ describe('filtro por mes en la URL', () => {
   });
 
   it('el mes actual no se escribe en la URL; los demás sí (YYYY-MM)', () => {
-    expect(filtroToParams({ mes: { year: 2026, month: 10 } }, NOW).toString()).toBe('');
-    expect(filtroToSearch({ mes: { year: 2026, month: 10 } }, NOW)).toBe('');
-    expect(filtroToSearch({ mes: { year: 2026, month: 8 } }, NOW)).toBe('?mes=2026-08');
-    expect(filtroToSearch({ mes: { year: 2025, month: 12 } }, NOW)).toBe('?mes=2025-12');
+    expect(filtroToParams({ mes: { year: 2026, month: 10 }, vista: 'viajes' }, NOW).toString()).toBe('');
+    expect(filtroToSearch({ mes: { year: 2026, month: 10 }, vista: 'viajes' }, NOW)).toBe('');
+    expect(filtroToSearch({ mes: { year: 2026, month: 8 }, vista: 'viajes' }, NOW)).toBe('?mes=2026-08');
+    expect(filtroToSearch({ mes: { year: 2025, month: 12 }, vista: 'viajes' }, NOW)).toBe('?mes=2025-12');
   });
 
   it('volver: solo acepta lo que la propia pantalla podría haber escrito; todo lo demás se descarta', () => {

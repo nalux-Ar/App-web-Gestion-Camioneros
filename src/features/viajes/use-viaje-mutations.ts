@@ -33,10 +33,15 @@ import { viajesKeys } from './viajes-keys';
  *    el error se repetiría hasta recargar la página.
  */
 
-/** Marca viejas las listas de viajes (y los viajes recientes del selector) y las pantallas de solo lectura. */
+/**
+ * Marca viejas las listas de viajes (y los viajes recientes del selector), las pantallas de solo lectura y las listas de
+ * devoluciones por mes: una devolución no tiene fecha propia, es del mes de la fecha de su viaje, así que guardar un viaje
+ * (que puede cambiarle la fecha) puede moverla de mes, y la pestaña Devoluciones también muestra el recorrido del viaje.
+ */
 function invalidarViajes(queryClient: QueryClient, tenantId: string) {
   void queryClient.invalidateQueries({ queryKey: viajesKeys.lists(tenantId) });
   void queryClient.invalidateQueries({ queryKey: viajesKeys.vistas(tenantId) });
+  void queryClient.invalidateQueries({ queryKey: devolucionesKeys.delosMeses(tenantId) });
 }
 
 /** Tras un guardado (bien o mal): marca vieja la lista de viajes y, si el error es de referencia, la de clientes. */

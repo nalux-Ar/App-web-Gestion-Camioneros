@@ -459,6 +459,18 @@ describe('detalle de un viaje: las devoluciones', () => {
     expect(stateOf(destino)).toEqual({ volver: '?mes=2025-06' });
   });
 
+  it('si el detalle se abrió desde la pestaña Devoluciones, la edición sigue SIN marca de origen (solo el volver con la pestaña): al guardar vuelve al detalle', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?vista=devoluciones&mes=2025-06' } });
+    await click(devolucionItems()[0]!);
+    expect(stateOf(byId('destino-editar-devolucion')!)).toEqual({ volver: '?vista=devoluciones&mes=2025-06' });
+  });
+
+  it('el enlace "Viajes" del detalle vuelve a la pestaña de la que se vino (pestaña y mes en el volver)', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?vista=devoluciones&mes=2025-06' } });
+    const viajes = [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Viajes')!;
+    expect(viajes.getAttribute('href')).toBe('/viajes?vista=devoluciones&mes=2025-06');
+  });
+
   it('el texto de la devolución se muestra como texto (sin interpretar HTML)', async () => {
     route.devoluciones = () =>
       ok([devolucion(D_1, { descripcion: '<img src=x onerror=alert(1)><script>alert(1)</script>', clientes: { nombre: '<b>Cliente</b>' } })]);

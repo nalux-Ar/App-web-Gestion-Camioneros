@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { useTenantId } from '@/features/member/use-tenant-id';
-import { fetchDevolucion, fetchDevolucionesDelViaje } from './devoluciones-api';
+import { rangoDelFiltro, type ViajesFiltro } from '@/features/viajes/viajes-filters';
+import { fetchDevolucion, fetchDevolucionesDelMes, fetchDevolucionesDelViaje } from './devoluciones-api';
 import { devolucionesKeys } from './devoluciones-keys';
 
 /**
@@ -22,6 +23,20 @@ export function useDevolucionesDelViaje(viajeId: string | null) {
       viajeId === null ? Promise.resolve({ items: [], truncado: false }) : fetchDevolucionesDelViaje(viajeId, signal),
     enabled: viajeId !== null,
     gcTime: 0,
+  });
+}
+
+/**
+ * Las devoluciones del mes del filtro (la pestaña Devoluciones de `/viajes`), con el cliente y el viaje embebidos. El mes
+ * es el de la fecha del viaje. Mismos defaults que `useViajesDelMes` (caché de la lista, que las mutaciones marcan vieja
+ * con `devolucionesKeys.delosMeses`). Solo la pide el componente de esa pestaña: con la pestaña Viajes no se consulta nada.
+ */
+export function useDevolucionesDelMes(filtro: Pick<ViajesFiltro, 'mes'>) {
+  const tenantId = useTenantId();
+  const { desde, hasta } = rangoDelFiltro(filtro);
+  return useQuery({
+    queryKey: devolucionesKeys.delMes(tenantId, desde, hasta),
+    queryFn: ({ signal }) => fetchDevolucionesDelMes({ desde, hasta, signal }),
   });
 }
 

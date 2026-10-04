@@ -6,7 +6,12 @@ import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { useClientes } from '@/features/clientes/use-clientes';
 import { useViajeVista } from '@/features/viajes/use-viajes';
-import { rutaDelViaje } from '@/features/viajes/viaje-navegacion';
+import {
+  ORIGEN_LISTA_DEVOLUCIONES,
+  leerOrigenDevolucion,
+  rutaDelViaje,
+  rutaListaDevoluciones,
+} from '@/features/viajes/viaje-navegacion';
 import { ViajeNoEncontrado } from '@/features/viajes/viaje-no-encontrado';
 import { sanitizeVolver } from '@/features/viajes/viajes-filters';
 import { mapDataError } from '@/lib/data-errors';
@@ -31,7 +36,13 @@ interface DevolucionFormPageProps {
  *
  * Qué NO hace: armar rutas con texto de la URL o del estado. El viaje y la devolución de la URL se validan con `isUuid`
  * (si no son uuid no se consulta nada); el "volver" (el mes de la lista de viajes, de `location.state`) se sanea con
- * `sanitizeVolver`; y la ruta de vuelta se arma acá: siempre `/viajes/<viajeId>`, con un uuid validado.
+ * `sanitizeVolver`; y la ruta de vuelta se arma acá: `/viajes/<viajeId>` (con un uuid validado) o, si la edición se abrió
+ * desde la pestaña Devoluciones de `/viajes`, esa lista.
+ *
+ * Origen: lo que decide a dónde se vuelve es una marca explícita en el `state` (`leerOrigenDevolucion`, una lista blanca de un
+ * solo literal que solo pone la fila de esa lista), NO la pestaña que traiga el `volver`: la edición también se abre desde el
+ * detalle del viaje, que a su vez pudo abrirse desde esa pestaña, y ahí se vuelve al detalle, como siempre. Solo se
+ * considera al EDITAR: es lo único que abre esa fila.
  *
  * Editar: la devolución se pide por id Y por viaje. Si no existe, es de otro viaje o de otro transportista, la pantalla
  * es la misma: "Devolución no encontrada" (la base no distingue los casos y el mensaje tampoco).
@@ -41,6 +52,8 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
   const params = useParams();
   const location = useLocation();
   const volver = sanitizeVolver((location.state as { volver?: unknown } | null)?.volver);
+  const origen = modo === 'editar' ? leerOrigenDevolucion(location.state) : null;
+  const desdeLista = origen === ORIGEN_LISTA_DEVOLUCIONES;
 
   // Un id que no es uuid no se consulta: no existe. El del viaje, también.
   const viajeId = isUuid(params.viajeId) ? params.viajeId.toLowerCase() : null;
@@ -63,7 +76,7 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
   if (viajeId === null) {
     contenido = <ViajeNoEncontrado volver={volver} />;
   } else if (devolucionIdInvalido) {
-    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} />;
+    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} origen={origen} />;
   } else if (clientes.isError && clientes.data === undefined) {
     // Los errores de carga solo ocupan la pantalla si NO hay datos: un refresco fallido (típico al volver la señal) con
     // el formulario ya abierto no lo desmonta, porque se llevaría lo que el usuario tipeó.
@@ -89,7 +102,7 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
   } else if (clientes.isPending || viaje.isPending || (modo === 'editar' && devolucion.isPending)) {
     contenido = <ListSkeleton rows={4} />;
   } else if (modo === 'editar' && devolucion.data === null) {
-    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} />;
+    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} origen={origen} />;
   } else if (viaje.data === null) {
     // El viaje no existe (o es de otro transportista: la base no distingue): no hay a qué cargarle una devolución.
     contenido = <ViajeNoEncontrado volver={volver} />;
@@ -105,6 +118,7 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
         clientesTruncado={clientes.data?.truncado ?? false}
         idsClientesDelViaje={idsClientesDelViaje}
         volver={volver}
+        origen={origen}
       />
     );
   } else {
@@ -118,19 +132,28 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
         clientesTruncado={clientes.data?.truncado ?? false}
         idsClientesDelViaje={idsClientesDelViaje}
         volver={volver}
+        origen={origen}
       />
     );
   }
+
+  // El enlace de volver: a la lista de Devoluciones si la edición se abrió desde ella; si no, al detalle del viaje (o, sin
+  // un viaje válido en la URL, a la lista de viajes).
+  const enlaceVolver = desdeLista
+    ? { to: rutaListaDevoluciones(volver), state: undefined, texto: 'Devoluciones' }
+    : viajeId !== null
+      ? { to: rutaDelViaje(viajeId), state: { volver }, texto: 'Viaje' }
+      : { to: `/viajes${volver}`, state: undefined, texto: 'Viajes' };
 
   return (
     <div className="space-y-5">
       <div className="space-y-1">
         <Link
-          to={viajeId !== null ? rutaDelViaje(viajeId) : `/viajes${volver}`}
-          state={viajeId !== null ? { volver } : undefined}
+          to={enlaceVolver.to}
+          state={enlaceVolver.state}
           className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <ChevronLeft className="size-5" aria-hidden="true" /> {viajeId !== null ? 'Viaje' : 'Viajes'}
+          <ChevronLeft className="size-5" aria-hidden="true" /> {enlaceVolver.texto}
         </Link>
         <h1 className="text-2xl font-semibold">{titulo}</h1>
       </div>

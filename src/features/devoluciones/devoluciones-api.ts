@@ -59,6 +59,61 @@ export async function fetchDevolucionesDelViaje(viajeId: string, signal: AbortSi
   return acotarLista(rows, LIST_LIMIT);
 }
 
+/**
+ * Lo que muestra una fila de la lista de un mes: lo mismo que la del detalle del viaje + el `viaje_id` (para armar los
+ * enlaces) y el viaje embebido (`viajes!inner(fecha, origen, destino)`, por la FK compuesta `devoluciones_viaje_fk`). El
+ * `!inner` hace dos cosas: PostgREST descarta las devoluciones sin viaje que cumpla el filtro (el del mes) y el viaje
+ * llega siempre como un objeto, nunca `null`. El cliente va como en `LIST_COLUMNS` (`devoluciones_cliente_fk`).
+ */
+const MES_COLUMNS =
+  'id, motivo, descripcion, cliente_id, viaje_id, created_at, clientes(nombre), viajes!inner(fecha, origen, destino)' as const;
+
+export interface DevolucionDelMes {
+  id: string;
+  motivo: MotivoDevolucion;
+  descripcion: string | null;
+  cliente_id: string;
+  viaje_id: string;
+  created_at: string;
+  clientes: { nombre: string } | null;
+  /** El viaje de la devolución: su fecha es la de la devolución (no tiene fecha propia). */
+  viajes: { fecha: string; origen: string; destino: string };
+}
+
+export interface FetchDevolucionesDelMesArgs {
+  /** 'YYYY-MM-DD' inclusive. */
+  desde: string;
+  /** 'YYYY-MM-DD' EXCLUSIVO (primer día del mes siguiente). */
+  hasta: string;
+  signal: AbortSignal;
+}
+
+/**
+ * Las devoluciones de un mes, más nueva primero, con tope: se piden `LIST_LIMIT + 1` y, si vino una de más, la lista es
+ * parcial. El mes es el de la fecha del VIAJE (la devolución no tiene fecha propia): el rango filtra por `viajes.fecha`.
+ *
+ * Orden: fecha del viaje desc, luego `created_at` desc, luego `id` desc (estable). Se ordena EN LA BASE por la columna del
+ * viaje embebido (`order=viajes(fecha).desc,created_at.desc,id.desc`, relación a-uno de PostgREST ≥ 11): así el tope corta
+ * lo más reciente de verdad y no hace falta reordenar en el cliente. Ojo: `.order('fecha', { referencedTable: 'viajes' })`
+ * ordenaría solo las filas embebidas (una por devolución), no las devoluciones; por eso la columna va con la forma
+ * `viajes(fecha)` y SIN `referencedTable`.
+ */
+export async function fetchDevolucionesDelMes({ desde, hasta, signal }: FetchDevolucionesDelMesArgs): Promise<ListaAcotada<DevolucionDelMes>> {
+  const rows: DevolucionDelMes[] = unwrap(
+    await supabase
+      .from('devoluciones')
+      .select(MES_COLUMNS)
+      .gte('viajes.fecha', desde)
+      .lt('viajes.fecha', hasta)
+      .order('viajes(fecha)', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(LIST_LIMIT + 1) // una de más: así se sabe si se alcanzó el tope
+      .abortSignal(signal),
+  );
+  return acotarLista(rows, LIST_LIMIT);
+}
+
 /** Columnas del formulario de edición (no incluye `client_ref`: no se usa al editar). */
 const DETAIL_COLUMNS = 'id, viaje_id, cliente_id, motivo, descripcion' as const;
 
