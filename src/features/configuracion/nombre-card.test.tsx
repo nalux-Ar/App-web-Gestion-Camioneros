@@ -248,9 +248,11 @@ describe('tarjeta Nombre: estructura y accesibilidad', () => {
 
   it('el código nuevo no trae colores hardcodeados (solo tokens)', async () => {
     const fs = await import('node:fs');
-    const dir = 'C:/Users/Stilo/OneDrive/Documentos/App web CAMIONEROS/app-transportistas/src/features/configuracion/';
+    const path = await import('node:path');
+    // Relativo a este archivo (no una ruta absoluta): las pruebas corren igual en cualquier máquina.
+    const dir = import.meta.dirname;
     for (const f of ['nombre-card.tsx', 'nombre.ts', 'nombre-api.ts', 'use-actualizar-nombre.ts']) {
-      const src = fs.readFileSync(dir + f, 'utf8');
+      const src = fs.readFileSync(path.join(dir, f), 'utf8');
       expect(src, f).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
       expect(src, f).not.toMatch(/\b(?:bg|text|border|ring)-(?:red|green|blue|gray|slate|zinc|amber|black|white)-?\d*/);
       expect(src, f).not.toMatch(/\bvos\b|\btenés\b|\bpodés\b|\bescribí\b|\btocá\b|\bguardá\b/i);
