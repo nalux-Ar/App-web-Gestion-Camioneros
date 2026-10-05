@@ -5,16 +5,18 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 17 cubren además las migraciones 005 a 008, el vínculo
--- gasto <-> viaje de la Etapa 3 (que no tiene migración propia) y las
--- devoluciones de la Etapa 4 (la 008 agrega su client_ref).
+-- secciones 11 a 18 cubren además las migraciones 005 a 009, el vínculo
+-- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
+-- devoluciones de la Etapa 4 (la 008 agrega su client_ref) y los clientes
+-- de la Etapa 5a (la 009 agrega su client_ref).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
 -- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql, 003_rls.sql,
 -- 005_gastos_combustible.sql, 006_gastos_client_ref.sql,
--- 007_viajes_client_ref_y_funciones.sql y 008_devoluciones_client_ref.sql
--- (las secciones 11 a 17 usan sus columnas y funciones; la 16 no necesita
+-- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql y
+-- 009_clientes_client_ref.sql
+-- (las secciones 11 a 18 usan sus columnas y funciones; la 16 no necesita
 -- ninguna migración propia; la 004 no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
@@ -39,7 +41,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 17 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 18 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -4406,6 +4408,713 @@ begin
       and v_db_desc = 'B reedita X' and v_db_tid = (public._test_get('tenant_b_id'))::uuid,
     format('X=%s Y=%s W=%s duplicados=%s | D1: desc=%s tenant=%s | DW: desc=%s | DB: desc=%s tenant=%s',
       v_x, v_y, v_w, v_dups, v_d1_desc, v_d1_tid, v_dw_desc, v_db_desc, v_db_tid));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 18) Clientes: CRUD, aislamiento y client_ref (migración 009)
+-- ---------------------------------------------------------------------
+-- Requiere 009_clientes_client_ref.sql aplicada. La Etapa 5a no usa
+-- funciones de base: el front guarda cada cliente (la pantalla de alta y el
+-- "+ Nuevo cliente" al vuelo desde el viaje) con un INSERT directo con
+-- client_ref (si falla con 23505 en clientes_transportista_client_ref_uidx,
+-- el cliente ya estaba guardado), lo edita con UPDATE (nombre, teléfono,
+-- email y dirección; por id, o por client_ref si el usuario cambió datos
+-- entre intentos), lo borra con DELETE y lo lista con SELECT. Esta sección
+-- prueba eso y que RLS, las FK compuestas y los triggers de 002 y 009 lo
+-- sostienen entre tenants.
+-- Lo que ya cubren otras secciones no se repite: el aislamiento básico por
+-- id (1.5, 1.12, 1.18 y 1.24), el INSERT de una entrega o una devolución de
+-- B apuntando a un cliente de A (3.2 y 3.4), el oráculo por PK al insertar
+-- un cliente con el id de otro tenant (3.9), que anon no lee clientes (8.1)
+-- y que un usuario sin tenant no los ve (8.10). El RESTRICT de
+-- devoluciones_cliente_fk ya está en 17.18; acá se repite junto al de
+-- entregas_cliente_fk, mirando además el nombre del constraint.
+--
+-- Datos propios (se crean acá; de las secciones anteriores solo se usan los
+-- tenants y usuarios del setup y el helper _test_sqlstate de la sección 13):
+--   A: un viaje V (para la entrega y la devolución de los casos de RESTRICT)
+--      y un cliente CCH sin client_ref (lo edita y lo borra el chofer). Los
+--      demás clientes los crea cada caso.
+--   B: nada previo (sus clientes los crea cada caso).
+-- Referencias: X (la usan A y B, cada uno la suya), Y (la usa A; B la manda
+-- forzando el transportista_id de A), W (solo A), N (un valor nuevo con el
+-- que se intenta reescribir un client_ref) y CH (la usa el chofer).
+--
+-- SQLSTATE de ON DELETE RESTRICT: en PostgreSQL 17 (la versión de Supabase
+-- hoy) un DELETE que viola un RESTRICT da 23503 (foreign_key_violation); en
+-- PostgreSQL 18 (p.ej. PGlite 0.5.x) da 23001 (restrict_violation). Los casos
+-- de esta sección que dependen de eso (18.12 y 18.13) aceptan los dos
+-- códigos y, para no confundirlo con otro error de FK, exigen además el
+-- nombre del constraint: el archivo corre igual en las dos versiones sin
+-- parchear nada.
+
+select public._test_set('s18_ref_x',  'ffffffff-0000-4000-8000-000000001801');
+select public._test_set('s18_ref_y',  'ffffffff-0000-4000-8000-000000001802');
+select public._test_set('s18_ref_w',  'ffffffff-0000-4000-8000-000000001803');
+select public._test_set('s18_ref_n',  'ffffffff-0000-4000-8000-000000001804');
+select public._test_set('s18_ref_ch', 'ffffffff-0000-4000-8000-000000001805');
+
+-- Datos propios de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_v uuid; v_cch uuid;
+begin
+  insert into public.viajes (origen, destino) values ('Origen S18', 'Destino S18') returning id into v_v;
+  perform public._test_set('s18_v', v_v::text);
+  insert into public.clientes (nombre) values ('Cliente CCH para el chofer (sección 18)') returning id into v_cch;
+  perform public._test_set('s18_cch', v_cch::text);
+exception when others then
+  perform public._test_set('s18_error_setup_a', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: los datos de la sección quedaron como se describe arriba.
+do $$
+declare
+  c_caso constant text := '18.0 setup: A creó sin excepciones el viaje V y el cliente CCH de la sección, los dos en su tenant';
+  v_ta uuid := (public._test_get('tenant_a_id'))::uuid;
+  v_viaje int; v_cch int;
+begin
+  select count(*) into v_viaje from public.viajes
+   where transportista_id = v_ta and id = (public._test_get('s18_v'))::uuid;
+  select count(*) into v_cch from public.clientes
+   where transportista_id = v_ta and id = (public._test_get('s18_cch'))::uuid;
+  perform public._test_chk(c_caso,
+    public._test_get('s18_error_setup_a') is null and v_viaje = 1 and v_cch = 1,
+    format('error_a=%s viaje=%s cliente CCH=%s', public._test_get('s18_error_setup_a'), v_viaje, v_cch));
+end
+$$;
+
+-- Como postgres: las piezas de la migración 009.
+do $$
+declare
+  c_caso constant text := '18.1 Migración 009: clientes.client_ref existe, es uuid, admite NULL, no tiene default y tiene comentario';
+  v_tipo text; v_notnull boolean; v_default boolean; v_comentario text;
+begin
+  select a.atttypid::regtype::text, a.attnotnull, a.atthasdef, col_description(a.attrelid, a.attnum)
+    into v_tipo, v_notnull, v_default, v_comentario
+    from pg_attribute a
+   where a.attrelid = 'public.clientes'::regclass and a.attname = 'client_ref' and not a.attisdropped;
+  perform public._test_chk(c_caso,
+    v_tipo = 'uuid' and v_notnull is false and v_default is false and v_comentario is not null,
+    format('tipo=%s not_null=%s default=%s comentario=%s', v_tipo, v_notnull, v_default, v_comentario is not null));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.2 Migración 009: clientes_transportista_client_ref_uidx es un índice ÚNICO y PARCIAL (where client_ref is not null) sobre (transportista_id, client_ref), en ese orden y sin otras columnas ni expresiones';
+  v_unico boolean; v_valido boolean; v_pred text; v_nkeys int; v_expr boolean; v_cols text[];
+begin
+  select i.indisunique, i.indisvalid, pg_get_expr(i.indpred, i.indrelid), i.indnkeyatts, i.indexprs is not null,
+         (select array_agg(a.attname::text order by k.ord)
+            from unnest(i.indkey::int2[]) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+    into v_unico, v_valido, v_pred, v_nkeys, v_expr, v_cols
+    from pg_index i
+    join pg_class c on c.oid = i.indexrelid
+   where i.indrelid = 'public.clientes'::regclass and c.relname = 'clientes_transportista_client_ref_uidx';
+  perform public._test_chk(c_caso,
+    v_unico and v_valido and v_pred = '(client_ref IS NOT NULL)' and v_nkeys = 2 and v_expr is false
+      and v_cols = array['transportista_id', 'client_ref']::text[],
+    format('unico=%s valido=%s predicado=%s columnas=%s (de clave: %s) expresiones=%s', v_unico, v_valido, v_pred, v_cols, v_nkeys, v_expr));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.3 Migración 009: fn_bloquear_cambio_client_ref_cliente es SECURITY INVOKER con search_path fijo y sin EXECUTE para anon, authenticated ni public; trg_25_bloquear_cambio_client_ref es BEFORE UPDATE FOR EACH ROW sobre clientes y está habilitado; los BEFORE UPDATE de la tabla disparan en el orden trg_20 -> trg_25 -> trg_30';
+  v_fn oid; v_invoker boolean; v_path boolean; v_anon boolean; v_auth boolean; v_public boolean;
+  v_trg int; v_orden text[];
+begin
+  select p.oid, not p.prosecdef, coalesce(p.proconfig::text like '%search_path=public%', false),
+         has_function_privilege('anon', p.oid, 'execute'),
+         has_function_privilege('authenticated', p.oid, 'execute'),
+         has_function_privilege('public', p.oid, 'execute')
+    into v_fn, v_invoker, v_path, v_anon, v_auth, v_public
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace and p.proname = 'fn_bloquear_cambio_client_ref_cliente';
+
+  -- tgtype: 1 = FOR EACH ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE, 16 = UPDATE, 32 = TRUNCATE.
+  select count(*) into v_trg
+    from pg_trigger t
+   where t.tgrelid = 'public.clientes'::regclass
+     and t.tgname = 'trg_25_bloquear_cambio_client_ref'
+     and t.tgfoid = v_fn
+     and not t.tgisinternal and t.tgenabled = 'O'
+     and (t.tgtype & 1) = 1 and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16
+     and (t.tgtype & (4 | 8 | 32)) = 0;
+
+  select array_agg(t.tgname::text order by t.tgname) into v_orden
+    from pg_trigger t
+   where t.tgrelid = 'public.clientes'::regclass and not t.tgisinternal
+     and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16;
+
+  perform public._test_chk(c_caso,
+    v_fn is not null and v_invoker and v_path and v_anon is false and v_auth is false and v_public is false
+      and v_trg = 1
+      and v_orden = array['trg_20_bloquear_cambio_transportista_id', 'trg_25_bloquear_cambio_client_ref', 'trg_30_set_updated_at']::text[],
+    format('funcion=%s invoker=%s search_path=%s EXECUTE anon=%s authenticated=%s public=%s | trigger 25 ok=%s | BEFORE UPDATE en orden: %s',
+      v_fn is not null, v_invoker, v_path, v_anon, v_auth, v_public, v_trg = 1, v_orden));
+end
+$$;
+
+-- A: alta con client_ref, edición, client_ref inmutable y borrado.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '18.4 A da de alta clientes con nombre, teléfono, email, dirección y client_ref (X, Y, W): quedan en su tenant, con el client_ref intacto (el primero, con todos sus datos)';
+  v_id uuid; v_tid uuid; v_ref uuid; v_nombre text; v_tel text; v_mail text; v_dir text;
+  v_id_y uuid; v_tid_y uuid; v_ref_y uuid; v_id_w uuid; v_tid_w uuid; v_ref_w uuid;
+begin
+  insert into public.clientes (nombre, contacto_telefono, contacto_email, direccion, client_ref)
+    values ('Cliente X de A (sección 18)', '0341-111', 'x@test.elan', 'Calle X 1', (public._test_get('s18_ref_x'))::uuid)
+    returning id, transportista_id, client_ref, nombre, contacto_telefono, contacto_email, direccion
+      into v_id, v_tid, v_ref, v_nombre, v_tel, v_mail, v_dir;
+  perform public._test_set('s18_cx', v_id::text);
+
+  insert into public.clientes (nombre, client_ref)
+    values ('Cliente Y de A (sección 18)', (public._test_get('s18_ref_y'))::uuid)
+    returning id, transportista_id, client_ref into v_id_y, v_tid_y, v_ref_y;
+  perform public._test_set('s18_cy', v_id_y::text);
+
+  insert into public.clientes (nombre, client_ref)
+    values ('Cliente W de A (sección 18)', (public._test_get('s18_ref_w'))::uuid)
+    returning id, transportista_id, client_ref into v_id_w, v_tid_w, v_ref_w;
+  perform public._test_set('s18_cw', v_id_w::text);
+
+  perform public._test_chk(c_caso,
+    v_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_y = (public._test_get('tenant_a_id'))::uuid
+      and v_tid_w = (public._test_get('tenant_a_id'))::uuid
+      and v_ref = (public._test_get('s18_ref_x'))::uuid
+      and v_ref_y = (public._test_get('s18_ref_y'))::uuid
+      and v_ref_w = (public._test_get('s18_ref_w'))::uuid
+      and v_nombre = 'Cliente X de A (sección 18)' and v_tel = '0341-111'
+      and v_mail = 'x@test.elan' and v_dir = 'Calle X 1',
+    format('tenants=%s/%s/%s refs=%s/%s/%s nombre=%s tel=%s mail=%s dir=%s',
+      v_tid, v_tid_y, v_tid_w, v_ref, v_ref_y, v_ref_w, v_nombre, v_tel, v_mail, v_dir));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.5 Reintento (INSERT directo) con el mismo client_ref falla con 23505 en el índice clientes_transportista_client_ref_uidx, sin DETAIL con los valores de la clave, y sigue habiendo 1 fila';
+  v_state text; v_msg text; v_constraint text; v_detail text; v_n int;
+begin
+  insert into public.clientes (nombre, contacto_telefono, contacto_email, direccion, client_ref)
+    values ('Cliente X de A (sección 18)', '0341-111', 'x@test.elan', 'Calle X 1', (public._test_get('s18_ref_x'))::uuid);
+  perform public._test_chk(c_caso, false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text,
+                          v_constraint = constraint_name, v_detail = pg_exception_detail;
+  -- Bloque propio: sin la columna (009 sin aplicar) el caso falla en vez de cortar el script.
+  begin
+    select count(*) into v_n from public.clientes where client_ref = (public._test_get('s18_ref_x'))::uuid;
+  exception when others then
+    v_n := null;
+  end;
+  perform public._test_chk(c_caso,
+    v_state = '23505' and v_constraint = 'clientes_transportista_client_ref_uidx'
+      and v_msg like '%clientes_transportista_client_ref_uidx%' and nullif(v_detail, '') is null and v_n = 1,
+    format('sqlstate=%s constraint=%s detail=%s filas=%s :: %s', v_state, v_constraint, coalesce(v_detail, '(sin detalle)'), v_n, v_msg));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.6 Varios clientes con client_ref NULL conviven en el mismo tenant (omitido u omitido, o NULL explícito): el índice parcial los ignora';
+  v_antes int; v_despues int; v_id uuid;
+begin
+  select count(*) into v_antes from public.clientes where client_ref is null;
+  insert into public.clientes (nombre) values ('Cliente sin ref 1 (sección 18)') returning id into v_id;
+  perform public._test_set('s18_cnull', v_id::text);
+  insert into public.clientes (nombre) values ('Cliente sin ref 2 (sección 18)');
+  insert into public.clientes (nombre, client_ref) values ('Cliente sin ref 3 (sección 18)', null);
+  select count(*) into v_despues from public.clientes where client_ref is null;
+  perform public._test_chk(c_caso, v_despues = v_antes + 3, format('antes=%s despues=%s', v_antes, v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.7 UPDATE que cambia client_ref (valor -> otro valor) falla con 42501 y la fila queda exactamente igual';
+  v_antes jsonb; v_despues jsonb; v_res text;
+begin
+  select to_jsonb(c) into v_antes from public.clientes c where c.id = (public._test_get('s18_cx'))::uuid;
+  v_res := public._test_sqlstate(format(
+    'update public.clientes set client_ref = %L::uuid where id = %L::uuid',
+    public._test_get('s18_ref_n'), public._test_get('s18_cx')));
+  select to_jsonb(c) into v_despues from public.clientes c where c.id = (public._test_get('s18_cx'))::uuid;
+  perform public._test_chk(c_caso,
+    v_res like '42501|%No se puede cambiar el client_ref de un cliente%' and v_antes is not null and v_antes = v_despues,
+    format('resultado=%s | fila igual=%s', v_res, v_antes = v_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.8 UPDATE que borra el client_ref (valor -> NULL) falla con 42501 y la fila queda exactamente igual';
+  v_antes jsonb; v_despues jsonb; v_res text;
+begin
+  select to_jsonb(c) into v_antes from public.clientes c where c.id = (public._test_get('s18_cx'))::uuid;
+  v_res := public._test_sqlstate(format(
+    'update public.clientes set client_ref = null where id = %L::uuid', public._test_get('s18_cx')));
+  select to_jsonb(c) into v_despues from public.clientes c where c.id = (public._test_get('s18_cx'))::uuid;
+  perform public._test_chk(c_caso,
+    v_res like '42501|%No se puede cambiar el client_ref de un cliente%' and v_antes is not null and v_antes = v_despues,
+    format('resultado=%s | fila igual=%s', v_res, v_antes = v_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.9 UPDATE que asigna client_ref a un cliente que no tenía (NULL -> valor) falla con 42501 y la fila queda exactamente igual';
+  v_antes jsonb; v_despues jsonb; v_res text;
+begin
+  select to_jsonb(c) into v_antes from public.clientes c where c.id = (public._test_get('s18_cnull'))::uuid;
+  v_res := public._test_sqlstate(format(
+    'update public.clientes set client_ref = %L::uuid where id = %L::uuid',
+    public._test_get('s18_ref_n'), public._test_get('s18_cnull')));
+  select to_jsonb(c) into v_despues from public.clientes c where c.id = (public._test_get('s18_cnull'))::uuid;
+  perform public._test_chk(c_caso,
+    v_res like '42501|%No se puede cambiar el client_ref de un cliente%'
+      and v_antes is not null and v_antes = v_despues and (v_despues ->> 'client_ref') is null,
+    format('resultado=%s | fila igual=%s', v_res, v_antes = v_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.10 A edita nombre, teléfono, email y dirección con UPDATE (sin mencionar el client_ref, reenviando el MISMO valor, vaciando un dato de contacto, o reenviando NULL en un cliente que no lo tenía): se aplican los cambios y no cambian ni el tenant, ni el client_ref, ni el id';
+  v_r1 int; v_r2 int; v_r3 int;
+  v_id uuid; v_tid uuid; v_ref uuid; v_nombre text; v_tel text; v_mail text; v_dir text;
+  v_ref_null uuid; v_dir_null text;
+begin
+  update public.clientes
+     set nombre = 'Cliente X editado (sección 18)', contacto_telefono = '0341-222',
+         contacto_email = 'x2@test.elan', direccion = 'Calle X 2'
+   where id = (public._test_get('s18_cx'))::uuid;
+  get diagnostics v_r1 = row_count;
+  -- Reenviar el mismo client_ref (como haría un formulario que manda todo) tampoco molesta; vaciar el email también vale.
+  update public.clientes set contacto_email = null, client_ref = (public._test_get('s18_ref_x'))::uuid
+   where id = (public._test_get('s18_cx'))::uuid;
+  get diagnostics v_r2 = row_count;
+  update public.clientes set direccion = 'Dirección del cliente sin ref', client_ref = null
+   where id = (public._test_get('s18_cnull'))::uuid;
+  get diagnostics v_r3 = row_count;
+  select id, transportista_id, client_ref, nombre, contacto_telefono, contacto_email, direccion
+    into v_id, v_tid, v_ref, v_nombre, v_tel, v_mail, v_dir
+    from public.clientes where id = (public._test_get('s18_cx'))::uuid;
+  select client_ref, direccion into v_ref_null, v_dir_null
+    from public.clientes where id = (public._test_get('s18_cnull'))::uuid;
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_r2 = 1 and v_r3 = 1
+      and v_id = (public._test_get('s18_cx'))::uuid and v_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_ref = (public._test_get('s18_ref_x'))::uuid
+      and v_nombre = 'Cliente X editado (sección 18)' and v_tel = '0341-222' and v_mail is null and v_dir = 'Calle X 2'
+      and v_ref_null is null and v_dir_null = 'Dirección del cliente sin ref',
+    format('filas=%s/%s/%s | X: tenant=%s ref=%s nombre=%s tel=%s mail=%s dir=%s | sin ref: ref=%s dir=%s',
+      v_r1, v_r2, v_r3, v_tid, v_ref, v_nombre, v_tel, v_mail, v_dir, v_ref_null, v_dir_null));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.11 UPDATE ... WHERE client_ref = W del dueño (A) -el reintento con datos cambiados- afecta 1 fila y cambia solo lo pedido';
+  v_rows int; v_nombre text; v_tel text; v_ref uuid; v_tid uuid;
+begin
+  update public.clientes set nombre = 'Cliente W editado por A (sección 18)', contacto_telefono = '0341-333'
+   where client_ref = (public._test_get('s18_ref_w'))::uuid;
+  get diagnostics v_rows = row_count;
+  select nombre, contacto_telefono, client_ref, transportista_id into v_nombre, v_tel, v_ref, v_tid
+    from public.clientes where id = (public._test_get('s18_cw'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_nombre = 'Cliente W editado por A (sección 18)' and v_tel = '0341-333'
+      and v_ref = (public._test_get('s18_ref_w'))::uuid and v_tid = (public._test_get('tenant_a_id'))::uuid,
+    format('filas=%s nombre=%s tel=%s ref=%s tenant=%s', v_rows, v_nombre, v_tel, v_ref, v_tid));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- ON DELETE RESTRICT de entregas_cliente_fk y devoluciones_cliente_fk (código distinto en PG17 y PG18: ver la nota de la sección).
+do $$
+declare
+  c_caso constant text := '18.12 Un cliente con una entrega no se puede borrar (ON DELETE RESTRICT de entregas_cliente_fk: 23503 en PostgreSQL 17, 23001 en PostgreSQL 18, y el error nombra entregas_cliente_fk): el cliente y la entrega siguen, y sin la entrega el cliente sí se borra';
+  v_cli uuid; v_ent uuid; v_state text; v_msg text; v_cons text;
+  v_cli_existe boolean; v_ent_existe boolean; v_r1 int; v_r2 int;
+begin
+  insert into public.clientes (nombre) values ('Cliente con entrega (sección 18)') returning id into v_cli;
+  insert into public.entregas (viaje_id, cliente_id)
+    values ((public._test_get('s18_v'))::uuid, v_cli) returning id into v_ent;
+  begin
+    delete from public.clientes where id = v_cli;
+    perform public._test_chk(c_caso, false, 'no lanzó excepción: el cliente se borró teniendo una entrega');
+    return;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text, v_cons = constraint_name;
+  end;
+  select exists(select 1 from public.clientes where id = v_cli) into v_cli_existe;
+  select exists(select 1 from public.entregas where id = v_ent) into v_ent_existe;
+  -- Control positivo: sin la entrega, el único freno desaparece y el cliente se borra.
+  delete from public.entregas where id = v_ent;
+  get diagnostics v_r1 = row_count;
+  delete from public.clientes where id = v_cli;
+  get diagnostics v_r2 = row_count;
+  perform public._test_chk(c_caso,
+    v_state in ('23503', '23001') and v_cons = 'entregas_cliente_fk' and v_msg like '%entregas_cliente_fk%'
+      and v_cli_existe and v_ent_existe and v_r1 = 1 and v_r2 = 1,
+    format('sqlstate=%s constraint=%s cliente_existe=%s entrega_existe=%s | tras borrar la entrega: filas=%s, cliente borrado=%s :: %s',
+      v_state, v_cons, v_cli_existe, v_ent_existe, v_r1, v_r2, v_msg));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.13 Un cliente con una devolución (y sin entregas) no se puede borrar (ON DELETE RESTRICT de devoluciones_cliente_fk: 23503 en PostgreSQL 17, 23001 en PostgreSQL 18, y el error nombra devoluciones_cliente_fk): el cliente y la devolución siguen, y sin la devolución el cliente sí se borra';
+  v_cli uuid; v_dev uuid; v_state text; v_msg text; v_cons text;
+  v_sin_entregas boolean; v_cli_existe boolean; v_dev_existe boolean; v_r1 int; v_r2 int;
+begin
+  insert into public.clientes (nombre) values ('Cliente con devolución (sección 18)') returning id into v_cli;
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion)
+    values ((public._test_get('s18_v'))::uuid, v_cli, 'otro', 'devolución del RESTRICT (sección 18)') returning id into v_dev;
+  select not exists(select 1 from public.entregas where cliente_id = v_cli) into v_sin_entregas;
+  begin
+    delete from public.clientes where id = v_cli;
+    perform public._test_chk(c_caso, false, 'no lanzó excepción: el cliente se borró teniendo una devolución');
+    return;
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text, v_cons = constraint_name;
+  end;
+  select exists(select 1 from public.clientes where id = v_cli) into v_cli_existe;
+  select exists(select 1 from public.devoluciones where id = v_dev) into v_dev_existe;
+  delete from public.devoluciones where id = v_dev;
+  get diagnostics v_r1 = row_count;
+  delete from public.clientes where id = v_cli;
+  get diagnostics v_r2 = row_count;
+  perform public._test_chk(c_caso,
+    v_sin_entregas and v_state in ('23503', '23001') and v_cons = 'devoluciones_cliente_fk'
+      and v_msg like '%devoluciones_cliente_fk%'
+      and v_cli_existe and v_dev_existe and v_r1 = 1 and v_r2 = 1,
+    format('sin entregas=%s sqlstate=%s constraint=%s cliente_existe=%s devolucion_existe=%s | tras borrar la devolución: filas=%s, cliente borrado=%s :: %s',
+      v_sin_entregas, v_state, v_cons, v_cli_existe, v_dev_existe, v_r1, v_r2, v_msg));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.14 A borra un cliente propio sin entregas ni devoluciones (con client_ref): afecta 1 fila, desaparece, y no se borra ningún otro cliente del tenant';
+  v_id uuid; v_antes int; v_despues int; v_rows int; v_existe boolean; v_otros int;
+begin
+  insert into public.clientes (nombre, client_ref) values ('Cliente para borrar (sección 18)', gen_random_uuid())
+    returning id into v_id;
+  select count(*) into v_antes from public.clientes;   -- incluye el recién creado
+  delete from public.clientes where id = v_id;
+  get diagnostics v_rows = row_count;
+  select exists(select 1 from public.clientes where id = v_id) into v_existe;
+  select count(*) into v_despues from public.clientes;
+  select count(*) into v_otros from public.clientes
+   where id in ((public._test_get('s18_cx'))::uuid, (public._test_get('s18_cy'))::uuid,
+                (public._test_get('s18_cw'))::uuid, (public._test_get('s18_cnull'))::uuid,
+                (public._test_get('s18_cch'))::uuid);
+  perform public._test_chk(c_caso,
+    v_rows = 1 and not v_existe and v_despues = v_antes - 1 and v_otros = 5,
+    format('filas=%s existe=%s total %s -> %s clientes de la sección que siguen=%s', v_rows, v_existe, v_antes, v_despues, v_otros));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B: mismo client_ref que A, sin oráculo, y no puede tocar nada de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '18.15 B da de alta un cliente con el MISMO client_ref X que ya usó A: funciona, queda en su tenant y B ve una sola fila con ese client_ref (la suya)';
+  v_id uuid; v_tid uuid; v_ref uuid; v_n int; v_tid_vista uuid; v_nombre text;
+begin
+  insert into public.clientes (nombre, client_ref)
+    values ('Cliente X de B (sección 18)', (public._test_get('s18_ref_x'))::uuid)
+    returning id, transportista_id, client_ref into v_id, v_tid, v_ref;
+  perform public._test_set('s18_cbx', v_id::text);
+  select count(*), min(transportista_id::text)::uuid, min(nombre) into v_n, v_tid_vista, v_nombre
+    from public.clientes where client_ref = (public._test_get('s18_ref_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_tid = (public._test_get('tenant_b_id'))::uuid and v_ref = (public._test_get('s18_ref_x'))::uuid
+      and v_n = 1 and v_tid_vista = (public._test_get('tenant_b_id'))::uuid and v_nombre = 'Cliente X de B (sección 18)',
+    format('tenant=%s filas vistas=%s vista_de=%s nombre=%s', v_tid, v_n, v_tid_vista, v_nombre));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.16 Un segundo INSERT de B con ese mismo client_ref X falla con 23505 en clientes_transportista_client_ref_uidx (contra su propia fila), sin DETAIL, y B sigue con 1 sola fila';
+  v_state text; v_msg text; v_constraint text; v_detail text; v_n int;
+begin
+  insert into public.clientes (nombre, client_ref)
+    values ('Reintento de B (sección 18)', (public._test_get('s18_ref_x'))::uuid);
+  perform public._test_chk(c_caso, false, 'no lanzó excepción');
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text,
+                          v_constraint = constraint_name, v_detail = pg_exception_detail;
+  begin
+    select count(*) into v_n from public.clientes where client_ref = (public._test_get('s18_ref_x'))::uuid;
+  exception when others then
+    v_n := null;
+  end;
+  perform public._test_chk(c_caso,
+    v_state = '23505' and v_constraint = 'clientes_transportista_client_ref_uidx'
+      and nullif(v_detail, '') is null and v_n = 1,
+    format('sqlstate=%s constraint=%s detail=%s filas=%s :: %s', v_state, v_constraint, coalesce(v_detail, '(sin detalle)'), v_n, v_msg));
+end
+$$;
+
+-- Sin oráculo de existencia: B manda el transportista_id de A y un client_ref que A ya usó (Y).
+-- Si el índice se evaluara contra el tenant de A, daría 23505 y B sabría que Y existe en A.
+do $$
+declare
+  c_caso constant text := '18.17 B forzando el transportista_id de A + un client_ref que A ya usó (Y): sin error (sin oráculo) y el cliente queda en B';
+  v_tid uuid;
+begin
+  insert into public.clientes (transportista_id, nombre, client_ref)
+    values ((public._test_get('tenant_a_id'))::uuid, 'B forzando el tenant de A (sección 18)', (public._test_get('s18_ref_y'))::uuid)
+    returning transportista_id into v_tid;
+  perform public._test_chk(c_caso, v_tid = (public._test_get('tenant_b_id'))::uuid, 'quedó en ' || v_tid);
+exception
+  when unique_violation then
+    perform public._test_chk(c_caso, false, 'B recibió 23505: hay oráculo de existencia :: ' || sqlerrm);
+  when others then
+    perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.18 B no ve ningún cliente de A: ni por id, ni por un client_ref que solo usó A, y todo lo que ve es de su tenant (y ve los suyos)';
+  v_ajenos int; v_por_id int; v_por_ref int; v_propios int;
+begin
+  select count(*) into v_ajenos from public.clientes where transportista_id <> (public._test_get('tenant_b_id'))::uuid;
+  select count(*) into v_por_id from public.clientes
+   where id in ((public._test_get('s18_cx'))::uuid, (public._test_get('s18_cy'))::uuid,
+                (public._test_get('s18_cw'))::uuid, (public._test_get('s18_cnull'))::uuid,
+                (public._test_get('s18_cch'))::uuid);
+  select count(*) into v_por_ref from public.clientes where client_ref = (public._test_get('s18_ref_w'))::uuid;
+  select count(*) into v_propios from public.clientes where transportista_id = (public._test_get('tenant_b_id'))::uuid;
+  perform public._test_chk(c_caso,
+    v_ajenos = 0 and v_por_id = 0 and v_por_ref = 0 and v_propios >= 2,
+    format('de otros tenants=%s | por id de A=%s | por client_ref W=%s | propios=%s', v_ajenos, v_por_id, v_por_ref, v_propios));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.19 UPDATE y DELETE de B sobre clientes de A afectan 0 filas y sin error: por id, por client_ref, borrando su client_ref y "mudándolos" al tenant de B';
+  cx uuid := (public._test_get('s18_cx'))::uuid;
+  w uuid := (public._test_get('s18_ref_w'))::uuid;
+  v_r1 int; v_r2 int; v_r3 int; v_r4 int; v_r5 int; v_r6 int;
+begin
+  update public.clientes set nombre = 'Hackeado por B' where id = cx;
+  get diagnostics v_r1 = row_count;
+  update public.clientes set nombre = 'Hackeado por B' where client_ref = w;
+  get diagnostics v_r2 = row_count;
+  -- RLS descarta la fila antes de que corra el trigger de client_ref: 0 filas y sin error (no es un oráculo).
+  update public.clientes set client_ref = null where id = cx;
+  get diagnostics v_r3 = row_count;
+  update public.clientes set transportista_id = (public._test_get('tenant_b_id'))::uuid where id = cx;
+  get diagnostics v_r4 = row_count;
+  delete from public.clientes where id = cx;
+  get diagnostics v_r5 = row_count;
+  delete from public.clientes where client_ref = w;
+  get diagnostics v_r6 = row_count;
+  perform public._test_chk(c_caso,
+    v_r1 = 0 and v_r2 = 0 and v_r3 = 0 and v_r4 = 0 and v_r5 = 0 and v_r6 = 0,
+    format('UPDATE por id=%s, por client_ref=%s, client_ref a NULL=%s, mudar de tenant=%s | DELETE por id=%s, por client_ref=%s',
+      v_r1, v_r2, v_r3, v_r4, v_r5, v_r6));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.20 UPDATE ... WHERE client_ref = X (el reintento con datos cambiados) de B afecta 1 sola fila: la de B (A tiene su propia fila con X y no se toca)';
+  v_rows int; v_n int; v_nombre text; v_tid uuid;
+begin
+  update public.clientes set nombre = 'B reedita X (sección 18)'
+   where client_ref = (public._test_get('s18_ref_x'))::uuid;
+  get diagnostics v_rows = row_count;
+  select count(*), min(nombre), min(transportista_id::text)::uuid into v_n, v_nombre, v_tid
+    from public.clientes where client_ref = (public._test_get('s18_ref_x'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_n = 1 and v_nombre = 'B reedita X (sección 18)' and v_tid = (public._test_get('tenant_b_id'))::uuid,
+    format('filas=%s vistas=%s nombre=%s tenant=%s', v_rows, v_n, v_nombre, v_tid));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- El chofer de A: la policy clientes_tenant_isolation (003) es por tenant, no por rol.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '18.21 El chofer de A (rol chofer) también crea (con client_ref), edita y borra clientes de A, incluido uno que creó el admin (la policy es por tenant, no por rol), y no puede tocar los de B';
+  cch uuid := (public._test_get('s18_cch'))::uuid;
+  cbx uuid := (public._test_get('s18_cbx'))::uuid;
+  v_rol public.rol_miembro; v_ve int; v_id uuid; v_tid uuid; v_ref uuid; v_r_edit int; v_r_edit_admin int; v_nombre_admin text;
+  v_r_del int; v_r_del_admin int; v_cch_existe boolean; v_r_b_upd int; v_r_b_del int;
+begin
+  select rol into v_rol from public.miembros where user_id = (public._test_get('uid_a_chofer'))::uuid;
+  select count(*) into v_ve from public.clientes where id = cch;
+
+  insert into public.clientes (nombre, client_ref)
+    values ('Cliente creado por el chofer (sección 18)', (public._test_get('s18_ref_ch'))::uuid)
+    returning id, transportista_id, client_ref into v_id, v_tid, v_ref;
+  update public.clientes set nombre = 'Editado por el chofer (sección 18)', contacto_telefono = '0341-444' where id = v_id;
+  get diagnostics v_r_edit = row_count;
+  update public.clientes set nombre = 'Editado por el chofer (lo creó el admin)' where id = cch;
+  get diagnostics v_r_edit_admin = row_count;
+  select nombre into v_nombre_admin from public.clientes where id = cch;
+
+  delete from public.clientes where id = v_id;
+  get diagnostics v_r_del = row_count;
+  delete from public.clientes where id = cch;
+  get diagnostics v_r_del_admin = row_count;
+  select exists(select 1 from public.clientes where id = cch) into v_cch_existe;
+
+  update public.clientes set nombre = 'Hackeado por el chofer de A' where id = cbx;
+  get diagnostics v_r_b_upd = row_count;
+  delete from public.clientes where id = cbx;
+  get diagnostics v_r_b_del = row_count;
+
+  perform public._test_chk(c_caso,
+    v_rol = 'chofer' and v_ve = 1 and v_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_ref = (public._test_get('s18_ref_ch'))::uuid
+      and v_r_edit = 1 and v_r_edit_admin = 1 and v_nombre_admin = 'Editado por el chofer (lo creó el admin)'
+      and v_r_del = 1 and v_r_del_admin = 1 and not v_cch_existe and v_r_b_upd = 0 and v_r_b_del = 0,
+    format('rol=%s ve el del admin=%s | tenant del creado=%s ref=%s | editar: propio=%s, del admin=%s | borrar: propio=%s, del admin=%s (existe=%s) | sobre el de B: UPDATE=%s DELETE=%s',
+      v_rol, v_ve, v_tid, v_ref, v_r_edit, v_r_edit_admin, v_r_del, v_r_del_admin, v_cch_existe, v_r_b_upd, v_r_b_del));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Un usuario autenticado sin tenant.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '18.22 Un usuario sin tenant no ve clientes ni puede crearlos (42501): ni solo con el nombre, ni mandando el transportista_id de A, ni con un client_ref que A ya usó (no da 23505: sin oráculo)';
+  v_n int; v_a text; v_b text; v_c text;
+begin
+  select count(*) into v_n from public.clientes;
+  v_a := public._test_sqlstate($q$insert into public.clientes (nombre) values ('Cliente sin tenant')$q$);
+  v_b := public._test_sqlstate(format(
+    $q$insert into public.clientes (transportista_id, nombre) values (%L::uuid, 'Cliente sin tenant')$q$,
+    public._test_get('tenant_a_id')));
+  v_c := public._test_sqlstate(format(
+    $q$insert into public.clientes (nombre, client_ref) values ('Cliente sin tenant', %L::uuid)$q$,
+    public._test_get('s18_ref_w')));
+  perform public._test_chk(c_caso,
+    v_n = 0 and v_a like '42501|%' and v_b like '42501|%' and v_c like '42501|%',
+    format('vio %s | insert: %s | con el tenant de A: %s | con el client_ref W: %s', v_n, v_a, v_b, v_c));
+end
+$$;
+
+reset role;
+
+-- Como postgres: integridad general tras todo lo anterior.
+do $$
+declare
+  c_caso constant text := '18.23 Como postgres, tras los intentos de B: X e Y existen una vez por tenant, W solo en A, el client_ref del chofer ya no está (lo borró), no hay duplicados por (tenant, client_ref), y cada cliente conserva su propia edición (los de A la de A, el de B la de B)';
+  v_x int; v_y int; v_w int; v_ch int; v_dups int;
+  v_cx_nombre text; v_cx_tid uuid; v_cx_ref uuid; v_cw_nombre text; v_cw_ref uuid; v_cbx_nombre text; v_cbx_tid uuid;
+begin
+  select count(*) into v_x from public.clientes where client_ref = (public._test_get('s18_ref_x'))::uuid;
+  select count(*) into v_y from public.clientes where client_ref = (public._test_get('s18_ref_y'))::uuid;
+  select count(*) into v_w from public.clientes where client_ref = (public._test_get('s18_ref_w'))::uuid;
+  select count(*) into v_ch from public.clientes where client_ref = (public._test_get('s18_ref_ch'))::uuid;
+  select count(*) into v_dups from (
+    select transportista_id, client_ref from public.clientes
+     where client_ref is not null group by 1, 2 having count(*) > 1
+  ) d;
+  select nombre, transportista_id, client_ref into v_cx_nombre, v_cx_tid, v_cx_ref
+    from public.clientes where id = (public._test_get('s18_cx'))::uuid;
+  select nombre, client_ref into v_cw_nombre, v_cw_ref
+    from public.clientes where id = (public._test_get('s18_cw'))::uuid;
+  select nombre, transportista_id into v_cbx_nombre, v_cbx_tid
+    from public.clientes where id = (public._test_get('s18_cbx'))::uuid;
+  perform public._test_chk(c_caso,
+    v_x = 2 and v_y = 2 and v_w = 1 and v_ch = 0 and v_dups = 0
+      and v_cx_nombre = 'Cliente X editado (sección 18)' and v_cx_tid = (public._test_get('tenant_a_id'))::uuid
+      and v_cx_ref = (public._test_get('s18_ref_x'))::uuid
+      and v_cw_nombre = 'Cliente W editado por A (sección 18)' and v_cw_ref = (public._test_get('s18_ref_w'))::uuid
+      and v_cbx_nombre = 'B reedita X (sección 18)' and v_cbx_tid = (public._test_get('tenant_b_id'))::uuid,
+    format('X=%s Y=%s W=%s CH=%s duplicados=%s | CX: nombre=%s tenant=%s | CW: nombre=%s | CBX: nombre=%s tenant=%s',
+      v_x, v_y, v_w, v_ch, v_dups, v_cx_nombre, v_cx_tid, v_cw_nombre, v_cbx_nombre, v_cbx_tid));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '18.24 Como postgres: ninguna entrega ni devolución de toda la base apunta a un cliente de otro tenant ni a uno inexistente (y hay entregas y devoluciones, para que el chequeo no sea vacío)';
+  v_ent_cruzadas int; v_ent_huerfanas int; v_dev_cruzadas int; v_dev_huerfanas int; v_ent int; v_dev int;
+begin
+  -- Se une solo por id (sin el tenant) a propósito: así un cruce entre tenants no se esconde detrás de la FK compuesta.
+  select count(*) into v_ent_cruzadas
+    from public.entregas e join public.clientes c on c.id = e.cliente_id
+   where c.transportista_id <> e.transportista_id;
+  select count(*) into v_ent_huerfanas
+    from public.entregas e where not exists (select 1 from public.clientes c where c.id = e.cliente_id);
+  select count(*) into v_dev_cruzadas
+    from public.devoluciones d join public.clientes c on c.id = d.cliente_id
+   where c.transportista_id <> d.transportista_id;
+  select count(*) into v_dev_huerfanas
+    from public.devoluciones d where not exists (select 1 from public.clientes c where c.id = d.cliente_id);
+  select count(*) into v_ent from public.entregas;
+  select count(*) into v_dev from public.devoluciones;
+  perform public._test_chk(c_caso,
+    v_ent_cruzadas = 0 and v_ent_huerfanas = 0 and v_dev_cruzadas = 0 and v_dev_huerfanas = 0 and v_ent > 0 and v_dev > 0,
+    format('entregas: cruzadas=%s huerfanas=%s (de %s) | devoluciones: cruzadas=%s huerfanas=%s (de %s)',
+      v_ent_cruzadas, v_ent_huerfanas, v_ent, v_dev_cruzadas, v_dev_huerfanas, v_dev));
 end
 $$;
 

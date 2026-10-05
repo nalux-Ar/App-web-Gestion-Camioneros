@@ -1,5 +1,5 @@
 // Generado con el MCP de Supabase (generate_typescript_types) sobre el
-// proyecto de Supabase del repo, después de las migraciones 001–007.
+// proyecto de Supabase del repo, después de las migraciones 001–009.
 // No editar a mano: regenerar cuando cambie el esquema.
 
 export type Json =
@@ -96,6 +96,7 @@ export type Database = {
       }
       clientes: {
         Row: {
+          client_ref: string | null
           contacto_email: string | null
           contacto_telefono: string | null
           created_at: string
@@ -106,6 +107,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          client_ref?: string | null
           contacto_email?: string | null
           contacto_telefono?: string | null
           created_at?: string
@@ -116,6 +118,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          client_ref?: string | null
           contacto_email?: string | null
           contacto_telefono?: string | null
           created_at?: string
