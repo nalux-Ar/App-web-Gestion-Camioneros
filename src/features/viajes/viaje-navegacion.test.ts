@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   DETALLE_AVISO_MENSAJES,
   LISTA_AVISO_MENSAJES,
+  ORIGEN_CLIENTE,
   ORIGEN_LISTA_DEVOLUCIONES,
   destinoTrasDevolucion,
   estadoDesdeViaje,
+  estadoEditarDesdeCliente,
   estadoEditarDesdeLista,
   leerAvisoDetalle,
   leerAvisoLista,
@@ -157,7 +159,7 @@ describe('leerAvisoLista (lista blanca de avisos de la lista de /viajes)', () =>
   });
 });
 
-describe('origen de la edición de una devolución (lista blanca de un literal)', () => {
+describe('origen de la edición de una devolución (lista blanca de dos literales: la lista de Devoluciones y un cliente)', () => {
   it('el literal es "lista-devoluciones"', () => {
     expect(ORIGEN_LISTA_DEVOLUCIONES).toBe('lista-devoluciones');
   });
@@ -253,6 +255,119 @@ describe('destinoTrasDevolucion (a dónde se vuelve tras guardar o borrar)', () 
     for (const origen of [null, 'lista-devoluciones'] as const) {
       const { to } = destinoTrasDevolucion({ viajeId: ID, volver: '//evil.com', origen, aviso: 'devolucion-guardada' });
       expect(to).toMatch(/^\/viajes(\?vista=devoluciones)?(\/[0-9a-f-]{36})?$/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "Volver al cliente": el detalle de un viaje abierto desde el detalle de un cliente
+// ---------------------------------------------------------------------------
+const CLIENTE = 'a0000000-0000-4000-8000-000000000001';
+
+describe('el cliente viaja con el viaje (DesdeViaje.cliente)', () => {
+  it('estadoDesdeViaje con cliente agrega desdeCliente y volverCliente; sin cliente, queda exactamente como antes', () => {
+    expect(estadoDesdeViaje(ID, '?mes=2025-08', { id: CLIENTE, volver: '?q=almacen' })).toEqual({
+      desdeViaje: ID,
+      volverViaje: '?mes=2025-08',
+      desdeCliente: CLIENTE,
+      volverCliente: '?q=almacen',
+    });
+    expect(Object.keys(estadoDesdeViaje(ID, ''))).toEqual(['desdeViaje', 'volverViaje']);
+    expect(Object.keys(estadoDesdeViaje(ID, '', null))).toEqual(['desdeViaje', 'volverViaje']);
+  });
+
+  it('leerDesdeViaje lee de vuelta el cliente (validado y en minúsculas, con la búsqueda saneada)', () => {
+    expect(leerDesdeViaje(estadoDesdeViaje(ID, '', { id: CLIENTE, volver: '?q=a' }))).toEqual({
+      id: ID,
+      volver: '',
+      cliente: { id: CLIENTE, volver: '?q=a' },
+    });
+    expect(leerDesdeViaje({ desdeViaje: ID, desdeCliente: CLIENTE.toUpperCase(), volverCliente: '?q=a&x=//evil.com' })!.cliente).toEqual({
+      id: CLIENTE,
+      volver: '?q=a',
+    });
+  });
+
+  it('un cliente que no es un uuid se ignora: el viaje sigue valiendo, sin cliente (y sin la clave)', () => {
+    for (const raro of ['/clientes', '//evil.com', `${CLIENTE}/x`, 42, null, { id: CLIENTE }]) {
+      const leido = leerDesdeViaje({ desdeViaje: ID, desdeCliente: raro });
+      expect(leido, JSON.stringify(raro)).toEqual({ id: ID, volver: '' });
+      expect(Object.keys(leido!)).not.toContain('cliente');
+    }
+  });
+
+  it('un cliente sin viaje no alcanza: leerDesdeViaje da null', () => {
+    expect(leerDesdeViaje({ desdeCliente: CLIENTE })).toBeNull();
+  });
+});
+
+describe('origen "cliente" de la edición de una devolución (lista blanca + cliente válido)', () => {
+  it('el literal es "cliente" y el estado que arma el detalle del cliente se lee de vuelta', () => {
+    expect(ORIGEN_CLIENTE).toBe('cliente');
+    const estado = estadoEditarDesdeCliente({ id: CLIENTE, volver: '?q=bodega' });
+    expect(estado).toEqual({ origen: 'cliente', desdeCliente: CLIENTE, volverCliente: '?q=bodega' });
+    expect(leerOrigenDevolucion(estado)).toBe('cliente');
+  });
+
+  it('sin un cliente válido en el mismo state, el origen "cliente" NO cuenta', () => {
+    for (const estado of [
+      { origen: 'cliente' },
+      { origen: 'cliente', desdeCliente: '/clientes/x' },
+      { origen: 'cliente', desdeCliente: '//evil.com' },
+      { origen: 'cliente', desdeCliente: 42 },
+      { origen: 'cliente', cliente: CLIENTE },
+    ]) {
+      expect(leerOrigenDevolucion(estado), JSON.stringify(estado)).toBeNull();
+    }
+  });
+
+  it('variantes del literal no pasan, aunque traigan un cliente válido', () => {
+    for (const raro of ['Cliente', 'CLIENTE', ' cliente', 'cliente ', 'clientes', 'cliente/../x', ['cliente'], { toString: () => 'cliente' }, new String('cliente')]) {
+      expect(leerOrigenDevolucion({ origen: raro, desdeCliente: CLIENTE }), JSON.stringify(raro)).toBeNull();
+    }
+  });
+
+  it('un cliente en el state NO es una señal de origen por sí solo (sin `origen`)', () => {
+    expect(leerOrigenDevolucion({ desdeCliente: CLIENTE, volverCliente: '?q=a' })).toBeNull();
+  });
+});
+
+describe('destinoTrasDevolucion con cliente', () => {
+  const CL = { id: CLIENTE, volver: '?q=almacen' };
+
+  it('origen "cliente": al detalle de ESE cliente, con el aviso y la búsqueda de su lista', () => {
+    expect(destinoTrasDevolucion({ viajeId: ID, volver: '?mes=2025-08', origen: 'cliente', aviso: 'devolucion-guardada', cliente: CL })).toEqual({
+      to: `/clientes/${CLIENTE}`,
+      state: { aviso: 'devolucion-guardada', volver: '?q=almacen' },
+    });
+    expect(destinoTrasDevolucion({ viajeId: ID, volver: '', origen: 'cliente', aviso: 'devolucion-eliminada', cliente: CL }).to).toBe(`/clientes/${CLIENTE}`);
+  });
+
+  it('origen "cliente" sin cliente (no debería pasar: leerOrigenDevolucion lo exige): al viaje, como siempre', () => {
+    expect(destinoTrasDevolucion({ viajeId: ID, volver: '', origen: 'cliente', aviso: 'devolucion-guardada', cliente: null })).toEqual({
+      to: `/viajes/${ID}`,
+      state: { aviso: 'devolucion-guardada', volver: '' },
+    });
+  });
+
+  it('sin origen pero con cliente (la devolución se abrió desde un viaje abierto desde un cliente): al viaje, llevándole el cliente', () => {
+    expect(destinoTrasDevolucion({ viajeId: ID, volver: '?mes=2025-08', origen: null, aviso: 'devolucion-guardada', cliente: CL })).toEqual({
+      to: `/viajes/${ID}`,
+      state: { aviso: 'devolucion-guardada', volver: '?mes=2025-08', desdeCliente: CLIENTE, volverCliente: '?q=almacen' },
+    });
+  });
+
+  it('la lista de Devoluciones gana: con su origen, el cliente no se usa', () => {
+    expect(destinoTrasDevolucion({ viajeId: ID, volver: '?vista=devoluciones', origen: 'lista-devoluciones', aviso: 'devolucion-guardada', cliente: CL })).toEqual({
+      to: '/viajes?vista=devoluciones',
+      state: { aviso: 'devolucion-guardada' },
+    });
+  });
+
+  it('el destino siempre es una ruta interna armada acá', () => {
+    for (const origen of [null, 'lista-devoluciones', 'cliente'] as const) {
+      const { to } = destinoTrasDevolucion({ viajeId: ID, volver: '//evil.com', origen, aviso: 'devolucion-guardada', cliente: CL });
+      expect(to).toMatch(/^\/(viajes(\?vista=devoluciones)?(\/[0-9a-f-]{36})?|clientes\/[0-9a-f-]{36})$/);
     }
   });
 });

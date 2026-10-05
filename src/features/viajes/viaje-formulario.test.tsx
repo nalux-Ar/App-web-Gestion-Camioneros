@@ -96,6 +96,8 @@ type Handler = (call: Call) => unknown;
 const route: {
   clientes: Handler;
   insertCliente: Handler;
+  /** `select('id, nombre').eq('client_ref', ?).maybeSingle()`: el cliente que ya guardó un intento anterior. */
+  clientePorRef: Handler;
   crear: Handler;
   actualizar: Handler;
   detalle: Handler;
@@ -110,6 +112,9 @@ const route: {
   clientes: () => ok(db.clientes),
   insertCliente: () => {
     throw new Error('insertCliente sin definir');
+  },
+  clientePorRef: () => {
+    throw new Error('clientePorRef sin definir');
   },
   crear: () => ok([{ viaje_id: NUEVO_VIAJE_ID, creado: true }]),
   actualizar: () => ok(null),
@@ -129,6 +134,9 @@ function resetRoutes() {
   route.insertCliente = () => {
     throw new Error('insertCliente sin definir');
   };
+  route.clientePorRef = () => {
+    throw new Error('clientePorRef sin definir');
+  };
   route.crear = () => ok([{ viaje_id: NUEVO_VIAJE_ID, creado: true }]);
   route.actualizar = () => ok(null);
   route.detalle = () => ok(null);
@@ -142,7 +150,11 @@ function installResponder() {
   h.state.responder = (call: Call) => {
     const has = (m: string) => call.ops.some((o) => o.m === m);
     if (call.target === 'miembros' && has('maybeSingle')) return ok(MIEMBRO);
-    if (call.target === 'clientes') return has('insert') ? route.insertCliente(call) : route.clientes(call);
+    if (call.target === 'clientes') {
+      if (has('insert')) return route.insertCliente(call);
+      if (has('maybeSingle')) return route.clientePorRef(call);
+      return route.clientes(call);
+    }
     if (call.target === 'rpc:crear_viaje_con_entregas') return route.crear(call);
     if (call.target === 'rpc:actualizar_viaje_con_entregas') return route.actualizar(call);
     if (call.target === 'viajes') return has('delete') ? route.borrar(call) : route.detalle(call);
@@ -177,8 +189,15 @@ const callsTo = (target: string) => h.calls.filter((c) => c.target === target);
 const rpcArgs = (call: Call) => call.ops.find((o) => o.m === 'rpc')!.args[0] as Record<string, unknown>;
 const crearCalls = () => callsTo('rpc:crear_viaje_con_entregas');
 const actualizarCalls = () => callsTo('rpc:actualizar_viaje_con_entregas');
-const clientesListados = () => h.calls.filter((c) => c.target === 'clientes' && !c.ops.some((o) => o.m === 'insert'));
+const clientesListados = () =>
+  h.calls.filter((c) => c.target === 'clientes' && !c.ops.some((o) => o.m === 'insert' || o.m === 'maybeSingle'));
 const clientesInsertados = () => h.calls.filter((c) => c.target === 'clientes' && c.ops.some((o) => o.m === 'insert'));
+const clientesLeidosPorRef = () => h.calls.filter((c) => c.target === 'clientes' && c.ops.some((o) => o.m === 'maybeSingle'));
+/** El client_ref que mandó un INSERT de cliente. */
+const clientRefDe = (call: Call) => (call.ops.find((o) => o.m === 'insert')!.args[0] as { client_ref?: unknown }).client_ref;
+/** Un INSERT de cliente con un `client_ref` ya usado: la base lo rechaza con el 23505 de su índice único. */
+const clientRefDuplicado = () =>
+  fail('23505', 'duplicate key value violates unique constraint "clientes_transportista_client_ref_uidx"', 409);
 /** Lo que pasó con los gastos y el viaje al borrar, en orden: el conteo de la confirmación, el UPDATE que desvincula y el DELETE. */
 const secuenciaDeBorrado = () =>
   h.calls.flatMap((c) => {
@@ -720,7 +739,7 @@ describe('formulario de viaje: entregas', () => {
     await mount();
     await agregarEntrega();
     expect(selectsDeCliente()[0]!.options).toHaveLength(1);
-    expect(bodyText()).toContain('Todavía no tienes clientes: crea el primero con «Nuevo cliente».');
+    expect(bodyText()).toContain('Todavía no tienes clientes: crea el primero con «Nuevo cliente» o desde la sección Clientes.');
   });
 });
 
@@ -985,7 +1004,7 @@ describe('formulario de viaje: + Nuevo cliente', () => {
     expect(clientesInsertados()).toHaveLength(0);
   });
 
-  it('crea el cliente SOLO con el nombre (sin id ni transportista_id), lo deja seleccionado en esa fila e invalida la lista', async () => {
+  it('crea el cliente SOLO con el nombre y su client_ref (sin id ni transportista_id), lo deja seleccionado en esa fila e invalida la lista', async () => {
     route.insertCliente = (call) => {
       const nombre = (call.ops.find((o) => o.m === 'insert')!.args[0] as { nombre: string }).nombre;
       const nuevo = { id: 'a0000000-0000-4000-8000-0000000000aa', nombre };
@@ -1002,7 +1021,7 @@ describe('formulario de viaje: + Nuevo cliente', () => {
 
     expect(clientesInsertados()).toHaveLength(1);
     const insertado = clientesInsertados()[0]!;
-    expect(insertado.ops.find((o) => o.m === 'insert')!.args[0]).toEqual({ nombre: 'Distribuidora Norte' });
+    expect(insertado.ops.find((o) => o.m === 'insert')!.args[0]).toEqual({ nombre: 'Distribuidora Norte', client_ref: expect.stringMatching(UUID) });
     expect(insertado.ops.find((o) => o.m === 'select')!.args[0]).toBe('id, nombre');
     expect(insertado.ops.some((o) => o.m === 'single')).toBe(true);
     expect(insertado.ops.find((o) => o.m === 'abortSignal')!.args[0]).toBeInstanceOf(AbortSignal);
@@ -1108,12 +1127,19 @@ describe('formulario de viaje: + Nuevo cliente', () => {
     expect(byId('lista-de-viajes')).toBeNull();
   });
 
-  it('si la creación falla por red: error con "Reintentar" y lo tipeado queda; el reintento REFRESCA la lista y, si el cliente ya estaba (respuesta perdida), avisa en vez de crear otro', async () => {
+  it('si la creación falla por red: error con "Reintentar" y lo tipeado queda; el reintento manda el MISMO client_ref y, si el cliente ya estaba (respuesta perdida), lo usa sin crear otro ni avisar de duplicado', async () => {
     const perdido = { id: 'a0000000-0000-4000-8000-0000000000ee', nombre: 'Mayorista Oeste' };
-    route.insertCliente = () => {
+    let refGuardado: unknown = null;
+    route.insertCliente = (call) => {
+      if (refGuardado !== null && clientRefDe(call) === refGuardado) return clientRefDuplicado();
       // El INSERT llega a la base, pero la respuesta se pierde.
+      refGuardado = clientRefDe(call);
       db.clientes = [...db.clientes, perdido];
       return sinRed();
+    };
+    route.clientePorRef = (call) => {
+      const porRef = call.ops.find((o) => o.m === 'eq')!.args;
+      return ok(porRef[0] === 'client_ref' && porRef[1] === refGuardado ? perdido : null);
     };
     await mount();
     await agregarEntrega();
@@ -1124,23 +1150,22 @@ describe('formulario de viaje: + Nuevo cliente', () => {
     expect(clientesInsertados()).toHaveLength(1);
     expect(bodyText()).toContain('No hay conexión');
     expect(campoNombre()!.value).toBe('Mayorista Oeste'); // nada se borró
-    const listadosAntes = clientesListados().length;
 
     const reintentar = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Reintentar'));
     await click(reintentar);
     await settle(4);
 
-    // Primero refrescó la lista...
-    expect(clientesListados().length).toBeGreaterThan(listadosAntes);
-    // ...encontró al cliente que se había creado igual y NO creó un segundo.
-    expect(clientesInsertados()).toHaveLength(1);
-    expect(bodyText()).toContain('Ya tienes un cliente llamado «Mayorista Oeste».');
-    await click(buttonByText('Usar ese'));
+    // Mandó el MISMO client_ref, la base lo reconoció (23505) y se leyó el cliente guardado: no se creó un segundo.
+    const [primero, segundo] = clientesInsertados();
+    expect(clientRefDe(segundo!)).toBe(clientRefDe(primero!));
+    expect(clientesLeidosPorRef()).toHaveLength(1);
+    expect(bodyText()).not.toContain('Ya tienes un cliente llamado');
     expect(selectsDeCliente()[0]!.value).toBe(perdido.id);
-    expect(clientesInsertados()).toHaveLength(1);
+    expect(campoNombre()).toBeNull(); // el mini formulario se cerró
+    expect(db.clientes.filter((c) => c.nombre === 'Mayorista Oeste')).toHaveLength(1);
   });
 
-  it('si la creación falla por red y la base NO lo creó: el reintento refresca, no encuentra nada y recién ahí crea', async () => {
+  it('si la creación falla por red y la base NO lo creó: el reintento crea con el mismo client_ref', async () => {
     let intento = 0;
     route.insertCliente = (call) => {
       intento += 1;
@@ -1160,12 +1185,15 @@ describe('formulario de viaje: + Nuevo cliente', () => {
 
     await click([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Reintentar')));
     await settle(4);
-    expect(clientesListados().length).toBeGreaterThan(listadosAntes);
     expect(clientesInsertados()).toHaveLength(2);
+    expect(clientRefDe(clientesInsertados()[1]!)).toBe(clientRefDe(clientesInsertados()[0]!));
+    expect(clientesLeidosPorRef()).toHaveLength(0); // se creó de verdad: no hubo que leerlo
     expect(selectsDeCliente()[0]!.value).toBe('a0000000-0000-4000-8000-0000000000ff');
+    // La lista se invalida al terminar cada intento (también el fallido: pudo haberse guardado igual).
+    expect(clientesListados().length).toBeGreaterThan(listadosAntes);
   });
 
-  it('si el reintento no puede refrescar la lista (sigue sin red) NO crea nada a ciegas', async () => {
+  it('si el reintento también falla (sigue sin red): mismo client_ref, no se crea nada de más y lo tipeado queda', async () => {
     route.insertCliente = () => sinRed();
     await mount();
     await agregarEntrega();
@@ -1177,9 +1205,55 @@ describe('formulario de viaje: + Nuevo cliente', () => {
     route.clientes = () => sinRed(); // ahora tampoco se puede leer la lista
     await click([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Reintentar')));
     await settle(4);
-    expect(clientesInsertados()).toHaveLength(1); // no se creó otro
+    expect(clientesInsertados()).toHaveLength(2);
+    expect(clientRefDe(clientesInsertados()[1]!)).toBe(clientRefDe(clientesInsertados()[0]!)); // la base no duplicaría
     expect(bodyText()).toContain('No hay conexión');
     expect(campoNombre()!.value).toBe('Otro Cliente');
+  });
+
+  it('cada apertura del mini formulario usa un client_ref NUEVO (tras crear bien, el próximo cliente es otro)', async () => {
+    let n = 0;
+    route.insertCliente = (call) => {
+      n += 1;
+      const nombre = (call.ops.find((o) => o.m === 'insert')!.args[0] as { nombre: string }).nombre;
+      const nuevo = { id: `a0000000-0000-4000-8000-00000000010${n}`, nombre };
+      db.clientes = [...db.clientes, nuevo];
+      return ok(nuevo);
+    };
+    await mount();
+    await agregarEntrega();
+    await agregarEntrega();
+    await click(buttonByText('Nuevo cliente'));
+    await typeText(campoNombre(), 'Primero');
+    await crearCliente();
+    await click(buttonByText('Nuevo cliente'));
+    await typeText(campoNombre(), 'Segundo');
+    await crearCliente();
+    expect(clientesInsertados()).toHaveLength(2);
+    expect(clientRefDe(clientesInsertados()[0]!)).toMatch(UUID);
+    expect(clientRefDe(clientesInsertados()[1]!)).toMatch(UUID);
+    expect(clientRefDe(clientesInsertados()[1]!)).not.toBe(clientRefDe(clientesInsertados()[0]!));
+  });
+
+  it('si el cliente que guardó el intento anterior ya no está (lo borraron entre medio), lo dice y el próximo intento lo vuelve a crear', async () => {
+    let intento = 0;
+    route.insertCliente = (call) => {
+      intento += 1;
+      if (intento === 1) return sinRed();
+      if (intento === 2) return clientRefDuplicado();
+      const nombre = (call.ops.find((o) => o.m === 'insert')!.args[0] as { nombre: string }).nombre;
+      return ok({ id: 'a0000000-0000-4000-8000-0000000000ab', nombre });
+    };
+    route.clientePorRef = () => ok(null);
+    await mount();
+    await agregarEntrega();
+    await abrirNuevoCliente();
+    await typeText(campoNombre(), 'Efímero');
+    await crearCliente();
+    await click([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Reintentar')));
+    expect(bodyText()).toContain('El cliente que se había creado ya no está. Toca "Crear cliente" para crearlo de nuevo.');
+    await crearCliente();
+    expect(selectsDeCliente()[0]!.value).toBe('a0000000-0000-4000-8000-0000000000ab');
   });
 });
 

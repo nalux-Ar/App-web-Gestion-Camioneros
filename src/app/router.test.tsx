@@ -44,6 +44,7 @@ const ok = (data: unknown) => ({ data, error: null, status: 200 });
 
 const VIAJE = 'b0000000-0000-4000-8000-000000000001';
 const DEV = 'f0000000-0000-4000-8000-000000000001';
+const CLIENTE = 'a0000000-0000-4000-8000-000000000001';
 const MIEMBRO = {
   rol: 'admin',
   tema: 'dark',
@@ -69,7 +70,13 @@ function installResponder() {
   h.state.responder = (call: Call) => {
     const has = (m: string) => call.ops.some((o) => o.m === m);
     if (call.table === 'miembros' && has('maybeSingle')) return ok(MIEMBRO);
-    if (call.table === 'clientes') return ok([]);
+    if (call.table === 'clientes') {
+      // El detalle y la edición de un cliente lo piden por id; la lista (pantalla y selectores) es un arreglo.
+      if (has('maybeSingle')) {
+        return ok({ id: CLIENTE, nombre: 'Almacén Central', contacto_telefono: null, contacto_email: null, direccion: null });
+      }
+      return ok([]);
+    }
     if (call.table === 'categorias_gasto') return ok([]);
     if (call.table === 'gastos') return ok([]);
     if (call.table === 'viajes') {
@@ -239,5 +246,71 @@ describe('router: las rutas de devoluciones, anidadas bajo el viaje', () => {
     expect(h1()).not.toBe('Nueva devolución');
     expect(document.querySelector('input[type="radio"][value="otro"]')).toBeNull();
     expect(h.calls.filter((c) => c.table === 'devoluciones' || c.table === 'clientes' || c.table === 'viajes')).toHaveLength(0);
+  });
+});
+
+describe('router: las rutas de Clientes', () => {
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+
+  it('/clientes ya no es "próximamente": es la lista de clientes, dentro del layout de la app', async () => {
+    await mount('/clientes');
+    await until(() => h1() === 'Clientes' && document.querySelector('a[href="/clientes/nuevo"]') !== null);
+    expect(h1()).toBe('Clientes');
+    expect(document.querySelector('header')).not.toBeNull();
+    expect(document.querySelector('a[href="/clientes/nuevo"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('Próximamente');
+  });
+
+  it('/clientes/nuevo es el alta (el literal gana sobre /clientes/:id) y no consulta ningún cliente por id', async () => {
+    await mount('/clientes/nuevo');
+    await until(() => h1() === 'Nuevo cliente');
+    expect(h1()).toBe('Nuevo cliente');
+    await until(() => document.querySelector('#cliente-nombre') !== null);
+    expect(h.calls.filter((c) => c.table === 'clientes' && c.ops.some((o) => o.m === 'maybeSingle'))).toHaveLength(0);
+  });
+
+  it('/clientes/<id> es el detalle y /clientes/<id>/editar la edición', async () => {
+    await mount(`/clientes/${CLIENTE}`);
+    await until(() => h1() === 'Almacén Central');
+    expect(h1()).toBe('Almacén Central');
+    await desmontar();
+
+    await mount(`/clientes/${CLIENTE}/editar`);
+    await until(() => h1() === 'Editar cliente');
+    expect(h1()).toBe('Editar cliente');
+    await until(() => document.querySelector('#cliente-nombre') !== null);
+    expect(document.querySelector<HTMLInputElement>('#cliente-nombre')!.value).toBe('Almacén Central');
+  });
+
+  it('rutas parecidas que no existen caen en la ruta desconocida (Inicio), sin consultar clientes', async () => {
+    for (const ruta of [`/clientes/${CLIENTE}/editar/x`, `/clientes/${CLIENTE}/viajes`, '/clientes/nuevo/x', '/cliente']) {
+      h.calls.length = 0;
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola'));
+      expect(h1(), ruta).toMatch(/^Hola/);
+      expect(h.calls.filter((c) => c.table === 'clientes'), ruta).toHaveLength(0);
+      await desmontar();
+    }
+  });
+
+  it('la barra de navegación sigue igual: "Clientes" lleva a /clientes', async () => {
+    await mount('/');
+    await until(() => h1().startsWith('Hola'));
+    const enNav = [...document.querySelectorAll<HTMLAnchorElement>('nav a')].filter((a) => a.getAttribute('href') === '/clientes');
+    expect(enNav.length).toBeGreaterThan(0);
+    expect(enNav[0]!.textContent).toContain('Clientes');
+  });
+
+  it('están detrás de la sesión: sin sesión no se pide NADA', async () => {
+    await mount(`/clientes/${CLIENTE}`, false);
+    await settle(6);
+    expect(h1()).not.toBe('Almacén Central');
+    expect(h.calls.filter((c) => c.table === 'clientes')).toHaveLength(0);
   });
 });

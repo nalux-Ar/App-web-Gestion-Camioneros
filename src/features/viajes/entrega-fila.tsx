@@ -23,12 +23,11 @@ interface EntregaFilaProps {
   carga: CargaClientes;
   onChange: (key: string, cambios: Partial<Pick<EntregaFormRow, 'clienteId' | 'incidencias'>>) => void;
   onQuitar: (key: string) => void;
-  onRefrescarClientes: () => Promise<readonly ClienteOpcion[]>;
   /** Un cliente nuevo (o uno existente que se eligió): el formulario lo suma a la lista de la pantalla. */
   onClienteCreado: (cliente: ClienteOpcion) => void;
 }
 
-const CLIENTES_VACIO_HINT = 'Todavía no tienes clientes: crea el primero con «Nuevo cliente».';
+const CLIENTES_VACIO_HINT = 'Todavía no tienes clientes: crea el primero con «Nuevo cliente» o desde la sección Clientes.';
 
 /**
  * Una fila de la sección "Entregas": cliente (obligatorio), incidencias (opcional), "Quitar" y el
@@ -43,7 +42,6 @@ export const EntregaFila = memo(function EntregaFila({
   carga,
   onChange,
   onQuitar,
-  onRefrescarClientes,
   onClienteCreado,
 }: EntregaFilaProps) {
   const [abierto, setAbierto] = useState(false);
@@ -119,7 +117,6 @@ export const EntregaFila = memo(function EntregaFila({
             <NuevoClienteInline
               idPrefix={`entrega-${fila.key}-cliente-nuevo`}
               clientes={clientes}
-              onRefrescar={onRefrescarClientes}
               onSeleccionar={seleccionar}
               onCancelar={cancelar}
             />

@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { useViajeOpcion, useViajesRecientes } from '@/features/viajes/use-viajes';
 import { leerDesdeViaje, rutaDelViaje } from '@/features/viajes/viaje-navegacion';
 import { mapDataError } from '@/lib/data-errors';
@@ -118,7 +119,7 @@ export function GastoFormPage({ modo }: GastoFormPageProps) {
       <div className="space-y-1">
         <Link
           to={desdeViaje ? rutaDelViaje(desdeViaje.id) : `/gastos${volver}`}
-          state={desdeViaje ? { volver: desdeViaje.volver } : undefined}
+          state={desdeViaje ? { volver: desdeViaje.volver, ...estadoDesdeCliente(desdeViaje.cliente) } : undefined}
           className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <ChevronLeft className="size-5" aria-hidden="true" /> {desdeViaje ? 'Viaje' : 'Gastos'}

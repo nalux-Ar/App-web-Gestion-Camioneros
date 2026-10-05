@@ -62,8 +62,8 @@ export const ELIMINAR_DEVOLUCION_CONTEXT: DataErrorContext = {
   foreignKey: 'No se puede eliminar esta devolución porque está vinculada a otros datos.',
 };
 
-/** Texto cuando el transportista todavía no tiene ningún cliente (se crean al cargar una entrega en un viaje). */
-export const SIN_CLIENTES_MESSAGE = 'Todavía no tienes clientes: se crean al cargar una entrega en un viaje.';
+/** Texto cuando el transportista todavía no tiene ningún cliente (se crean en la sección Clientes o al cargar una entrega). */
+export const SIN_CLIENTES_MESSAGE = 'Todavía no tienes clientes: créalos en la sección Clientes o al cargar una entrega en un viaje.';
 
 /** Títulos de los grupos del selector de cliente. */
 export const GRUPO_CLIENTES_DEL_VIAJE = 'Clientes de este viaje';

@@ -8,6 +8,7 @@ import { SubmitBar } from '@/components/shared/submit-bar';
 import { TextareaField } from '@/components/shared/textarea-field';
 import { Input } from '@/components/ui/input';
 import { FieldShell } from '@/components/shared/field-shell';
+import { estadoDesdeCliente, type DesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { combinarClientes, type ClienteOpcion } from '@/features/clientes/cliente-nombre';
 import { useClientes } from '@/features/clientes/use-clientes';
 import { useTenantId } from '@/features/member/use-tenant-id';
@@ -57,6 +58,9 @@ interface ViajeFormularioProps {
    * detalle ya no existiría.
    */
   desdeDetalle?: boolean;
+  /** Si ese detalle se había abierto desde el detalle de un cliente (ya validado): vuelve con él, para que el detalle siga
+   *  ofreciendo "volver al cliente". */
+  desdeCliente?: DesdeCliente | null;
 }
 
 /**
@@ -73,7 +77,7 @@ interface ViajeFormularioProps {
  * de entregas (las que no se mandan, se borran): si otra pestaña cambió algo mientras esta estaba abierta,
  * este guardado lo pisa. El `camion_id` que el viaje ya tenía se pasa tal cual (si no, se borraría).
  */
-export function ViajeFormulario({ viaje, volver, desdeDetalle = false }: ViajeFormularioProps) {
+export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeCliente = null }: ViajeFormularioProps) {
   const navigate = useNavigate();
   const tenantId = useTenantId();
   const editando = viaje !== undefined;
@@ -113,13 +117,6 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false }: ViajeFo
   const cargados = clientesQuery.data?.items;
   const clientes = useMemo(() => (cargados ? combinarClientes(cargados, creados) : null), [cargados, creados]);
   const carga: CargaClientes = cargados ? 'listo' : clientesQuery.isError ? 'error' : 'cargando';
-
-  const { refetch: refetchClientes } = clientesQuery;
-  const refrescarClientes = useCallback(async (): Promise<readonly ClienteOpcion[]> => {
-    // `throwOnError`: si no hay red el error llega a quien lo pidió (el mini formulario) y NO se crea nada a ciegas.
-    const resultado = await refetchClientes({ throwOnError: true });
-    return combinarClientes(resultado.data?.items ?? [], creados);
-  }, [refetchClientes, creados]);
 
   const registrarCliente = useCallback((cliente: ClienteOpcion) => {
     setCreados((previos) => (previos.some((previo) => previo.id === cliente.id) ? previos : [...previos, cliente]));
@@ -231,7 +228,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false }: ViajeFo
       // Se abrió desde el detalle: se vuelve a ESE viaje (`viaje.id` es el que devolvió la base). Ruta armada acá.
       navigate(rutaDelViaje(viaje.id), {
         replace: true,
-        state: { aviso: 'viaje-guardado' satisfies DetalleAviso, volver },
+        state: { aviso: 'viaje-guardado' satisfies DetalleAviso, volver, ...estadoDesdeCliente(desdeCliente) },
       });
       return;
     }
@@ -378,7 +375,6 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false }: ViajeFo
           onAgregar={agregarEntrega}
           onQuitar={quitarEntrega}
           onChange={setEntrega}
-          onRefrescarClientes={refrescarClientes}
           onClienteCreado={registrarCliente}
         />
 

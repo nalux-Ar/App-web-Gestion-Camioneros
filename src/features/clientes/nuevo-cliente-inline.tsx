@@ -18,8 +18,6 @@ interface NuevoClienteInlineProps {
   idPrefix: string;
   /** Los clientes conocidos ahora: la lista cargada + los creados en esta pantalla. Sirve para avisar de un duplicado. */
   clientes: readonly ClienteOpcion[];
-  /** Vuelve a pedir la lista a la base y devuelve lo que hay AHORA. Tira el error si falla (sin red). */
-  onRefrescar: () => Promise<readonly ClienteOpcion[]>;
   /** Se creó el cliente, o se eligió usar uno que ya existía: hay que dejarlo seleccionado. */
   onSeleccionar: (cliente: ClienteOpcion) => void;
   onCancelar: () => void;
@@ -34,11 +32,12 @@ interface NuevoClienteInlineProps {
  * legítimos): si el nombre normalizado ya está en la lista, NO crea y avisa "Ya tienes un cliente llamado
  * «X»." con dos salidas, "Usar ese" y "Crear de todos modos".
  *
- * Reintentos (ver `altaCliente`): si la creación falla por red o timeout, el cliente pudo haberse creado
- * igual (se perdió la respuesta). El "Reintentar" primero refresca la lista y vuelve a verificar el
- * duplicado antes de crear otra vez. Lo tipeado nunca se borra por un error.
+ * Reintentos (ver `altaCliente` y `crearClienteIdempotente`): el mini formulario genera un `client_ref` al abrirse y lo
+ * manda IGUAL en cada "Reintentar". Si la creación falló por red o timeout pero el cliente se creó igual (se perdió la
+ * respuesta), la base reconoce la clave y el reintento usa ESE cliente en vez de crear otro. Lo tipeado nunca se borra
+ * por un error. Al crear bien el mini formulario se cierra: la próxima vez que se abra, la clave es otra.
  */
-export function NuevoClienteInline({ idPrefix, clientes, onRefrescar, onSeleccionar, onCancelar }: NuevoClienteInlineProps) {
+export function NuevoClienteInline({ idPrefix, clientes, onSeleccionar, onCancelar }: NuevoClienteInlineProps) {
   const tenantId = useTenantId();
   const crear = useCrearCliente();
   const { run, pending, error, retryable, clearError } = useSubmitFeedback({ context: CREAR_CLIENTE_CONTEXT });
@@ -46,7 +45,8 @@ export function NuevoClienteInline({ idPrefix, clientes, onRefrescar, onSeleccio
   const [nombre, setNombre] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [duplicado, setDuplicado] = useState<ClienteOpcion | null>(null);
-  // Lo que hay que recordar entre intentos (¿quedó en duda el anterior?, ¿qué homónimos se aceptaron?).
+  // Lo que hay que recordar entre intentos: la clave de idempotencia (una por apertura del mini formulario), las huellas de
+  // lo mandado y los nombres que ya pasaron el aviso de duplicado.
   const estadoRef = useRef<AltaClienteEstado>(estadoInicialAlta());
   const inputRef = useRef<HTMLInputElement>(null);
   const usarRef = useRef<HTMLButtonElement>(null);
@@ -83,15 +83,16 @@ export function NuevoClienteInline({ idPrefix, clientes, onRefrescar, onSeleccio
     setValidationError(null);
     setDuplicado(null);
 
-    // `keepLocked: false`: el mini formulario sigue montado tras un aviso de duplicado o un error.
+    // `keepLocked: false`: el mini formulario sigue montado tras un aviso de duplicado o un error. Solo el nombre: los
+    // datos de contacto se completan desde la pantalla de Clientes.
     const result = await run(
       () =>
         altaCliente({
-          nombre: validation.value,
+          datos: { nombre: validation.value },
           forzar,
           clientes,
           estado: estadoRef.current,
-          io: { refrescar: onRefrescar, crear: (valor) => crear.mutateAsync({ tenantId, nombre: valor }) },
+          io: { crear: async (args) => (await crear.mutateAsync({ tenantId, ...args })).cliente },
         }),
       { keepLocked: false },
     );
@@ -159,8 +160,8 @@ export function NuevoClienteInline({ idPrefix, clientes, onRefrescar, onSeleccio
         </Alert>
       ) : null}
 
-      {/* Con red caída o timeout, "Reintentar" refresca la lista y verifica el duplicado antes de crear. Si el error
-          no se arregla reintentando (nombre inválido), `retryable` es false y solo queda el mensaje. */}
+      {/* Con red caída o timeout, "Reintentar" vuelve a mandar el mismo client_ref: si el intento anterior llegó, no se crea
+          otro. Si el error no se arregla reintentando (nombre inválido), `retryable` es false y solo queda el mensaje. */}
       {error ? (
         <InlineError message={error} onRetry={retryable ? () => void intentar(false) : undefined} retrying={pending} />
       ) : null}

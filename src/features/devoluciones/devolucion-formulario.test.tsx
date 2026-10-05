@@ -430,8 +430,8 @@ describe('formulario de devolución: el selector de cliente', () => {
   it('sin clientes: lo explica y no se puede guardar (no se manda nada)', async () => {
     route.clientes = () => ok([]);
     await mount();
-    expect(bodyText()).toContain('Todavía no tienes clientes: se crean al cargar una entrega en un viaje.');
-    expect(ayudaDe('devolucion-cliente')).toBe('Todavía no tienes clientes: se crean al cargar una entrega en un viaje.');
+    expect(bodyText()).toContain('Todavía no tienes clientes: créalos en la sección Clientes o al cargar una entrega en un viaje.');
+    expect(ayudaDe('devolucion-cliente')).toBe('Todavía no tienes clientes: créalos en la sección Clientes o al cargar una entrega en un viaje.');
     expect(selectCliente().options).toHaveLength(1); // solo el placeholder
     const boton = buttonByText('Guardar devolución')!;
     expect(boton.disabled).toBe(true);

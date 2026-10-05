@@ -16,6 +16,12 @@ import { GastoItem } from '@/features/gastos/gasto-item';
 import { LIST_LIMIT as GASTOS_LIST_LIMIT } from '@/features/gastos/constants';
 import { sumMontos } from '@/features/gastos/gastos-list';
 import { useCategorias, useGastosDelViaje } from '@/features/gastos/use-gastos';
+import {
+  estadoDesdeCliente,
+  leerDesdeCliente,
+  rutaDelCliente,
+  type DesdeCliente,
+} from '@/features/clientes/cliente-navegacion';
 import { mapDataError } from '@/lib/data-errors';
 import { formatDateWithYear } from '@/lib/dates';
 import { formatNumber } from '@/lib/numbers';
@@ -51,9 +57,13 @@ function textoCantidadGastos(cantidad: number, truncado: boolean): string {
  * eso queda para el Resumen. Desde acá se carga un gasto de este viaje (acción principal), se carga una devolución
  * (acción secundaria; las devoluciones se ven y se cargan SOLO desde acá) o se edita el viaje.
  *
+ * Volver: a la lista de Viajes (con su mes) o, si el detalle se abrió desde el detalle de un cliente (`desdeCliente`, un
+ * uuid validado), a ESE cliente. El cliente pasa a todas las pantallas que se abren desde acá (editar el viaje, cargar o
+ * editar un gasto o una devolución), que lo devuelven al volver: así este enlace sigue diciendo "Cliente".
+ *
  * Qué NO hace: navegar a algo que venga del estado o de la URL. El `volver` (el mes de la lista) se sanea con
- * `sanitizeVolver`, el aviso es una lista blanca y a los formularios se les pasa un dato validado
- * (`estadoDesdeViaje`), nunca una ruta.
+ * `sanitizeVolver`, el cliente con `leerDesdeCliente`, el aviso es una lista blanca y a los formularios se les pasa un
+ * dato validado (`estadoDesdeViaje`), nunca una ruta.
  */
 export function ViajeDetallePage() {
   useScrollToTopOnMount();
@@ -61,7 +71,9 @@ export function ViajeDetallePage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const volver = sanitizeVolver((location.state as { volver?: unknown } | null)?.volver);
+  const estadoNavegacion: unknown = location.state;
+  const volver = sanitizeVolver((estadoNavegacion as { volver?: unknown } | null)?.volver);
+  const desdeCliente = leerDesdeCliente(estadoNavegacion);
   // Un id que no es uuid no se consulta: es "no encontrado" sin pedir nada.
   const id = isUuid(params.id) ? params.id.toLowerCase() : null;
 
@@ -75,9 +87,15 @@ export function ViajeDetallePage() {
   // Aviso de "Gasto guardado / eliminado" o "Viaje guardado" que llega desde el formulario en `location.state`.
   const aviso = leerAvisoDetalle(location.state);
   const cerrarAviso = useCallback(() => {
-    // Se conserva el `volver`: sin él, el enlace "Viajes" perdería el mes de la lista.
-    navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: { volver } });
-  }, [navigate, location.pathname, location.search, volver]);
+    // Se conservan el `volver` y el cliente (releídos y saneados del estado de ahora): sin ellos, el enlace de volver
+    // perdería el mes de la lista o el cliente.
+    const volverActual = sanitizeVolver((estadoNavegacion as { volver?: unknown } | null)?.volver);
+    const clienteActual = leerDesdeCliente(estadoNavegacion);
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: { volver: volverActual, ...estadoDesdeCliente(clienteActual) } },
+    );
+  }, [navigate, location.pathname, location.search, estadoNavegacion]);
   useEffect(() => {
     if (!aviso) return;
     const timeoutId = window.setTimeout(cerrarAviso, AVISO_AUTOCIERRE_MS);
@@ -89,7 +107,7 @@ export function ViajeDetallePage() {
   // El mismo botón se ofrece en el encabezado (desde `md`) y fijo abajo (celular), como en Gastos y Viajes.
   const cargarGasto = viaje ? (
     <Button asChild size="lg">
-      <Link to={`/gastos/nuevo?viaje=${viaje.id}`} state={estadoDesdeViaje(viaje.id, volver)}>
+      <Link to={`/gastos/nuevo?viaje=${viaje.id}`} state={estadoDesdeViaje(viaje.id, volver, desdeCliente)}>
         <Plus aria-hidden="true" /> Cargar gasto de este viaje
       </Link>
     </Button>
@@ -114,12 +132,18 @@ export function ViajeDetallePage() {
   } else {
     contenido = (
       <>
-        <DatosDelViaje viaje={viaje} volver={volver} />
+        <DatosDelViaje viaje={viaje} volver={volver} desdeCliente={desdeCliente} />
         <EntregasDelViaje viaje={viaje} />
-        <DevolucionesDelViaje viajeId={viaje.id} volver={volver} devolucionesQuery={devolucionesQuery} />
+        <DevolucionesDelViaje
+          viajeId={viaje.id}
+          volver={volver}
+          desdeCliente={desdeCliente}
+          devolucionesQuery={devolucionesQuery}
+        />
         <GastosDelViaje
           viajeId={viaje.id}
           volver={volver}
+          desdeCliente={desdeCliente}
           gastosQuery={gastosQuery}
           categoriasPorId={categoriasPorId}
           errorCategorias={
@@ -139,11 +163,13 @@ export function ViajeDetallePage() {
   return (
     <div className="space-y-5">
       <div className="space-y-1">
+        {/* Al cliente desde el que se abrió (ruta armada en el código con su uuid validado) o a la lista de Viajes. */}
         <Link
-          to={`/viajes${volver}`}
+          to={desdeCliente ? rutaDelCliente(desdeCliente.id) : `/viajes${volver}`}
+          state={desdeCliente ? { volver: desdeCliente.volver } : undefined}
           className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <ChevronLeft className="size-5" aria-hidden="true" /> Viajes
+          <ChevronLeft className="size-5" aria-hidden="true" /> {desdeCliente ? 'Cliente' : 'Viajes'}
         </Link>
         <PageHeader
           title={viaje ? <Recorrido origen={viaje.origen} destino={viaje.destino} /> : 'Viaje'}
@@ -178,7 +204,7 @@ export function ViajeDetallePage() {
 }
 
 /** Fecha, kilometraje, ingreso y observaciones, y el acceso a editar el viaje. */
-function DatosDelViaje({ viaje, volver }: { viaje: ViajeVista; volver: string }) {
+function DatosDelViaje({ viaje, volver, desdeCliente }: { viaje: ViajeVista; volver: string; desdeCliente: DesdeCliente | null }) {
   const km = kmDelViaje(viaje);
 
   return (
@@ -216,7 +242,7 @@ function DatosDelViaje({ viaje, volver }: { viaje: ViajeVista; volver: string })
       </dl>
 
       <Button asChild variant="outline" className="w-full sm:w-auto">
-        <Link to={`/viajes/${viaje.id}/editar`} state={estadoDesdeViaje(viaje.id, volver)}>
+        <Link to={`/viajes/${viaje.id}/editar`} state={estadoDesdeViaje(viaje.id, volver, desdeCliente)}>
           <Pencil aria-hidden="true" /> Editar viaje
         </Link>
       </Button>
@@ -256,15 +282,17 @@ function EntregasDelViaje({ viaje }: { viaje: ViajeVista }) {
 interface DevolucionesDelViajeProps {
   viajeId: string;
   volver: string;
+  desdeCliente: DesdeCliente | null;
   devolucionesQuery: ReturnType<typeof useDevolucionesDelViaje>;
 }
 
 /**
  * Las devoluciones del viaje (de la más nueva a la más vieja), entre las entregas y los gastos. Cada una enlaza a su
  * edición. El botón "Cargar devolución" es SECUNDARIO (la acción primaria de la pantalla sigue siendo cargar un gasto) y
- * lleva a `/viajes/<id>/devoluciones/nueva` con el mes de la lista como único dato en el state.
+ * lleva a `/viajes/<id>/devoluciones/nueva` con el mes de la lista (y el cliente, si el detalle se abrió desde uno) como
+ * únicos datos en el state.
  */
-function DevolucionesDelViaje({ viajeId, volver, devolucionesQuery }: DevolucionesDelViajeProps) {
+function DevolucionesDelViaje({ viajeId, volver, desdeCliente, devolucionesQuery }: DevolucionesDelViajeProps) {
   const items = devolucionesQuery.data?.items ?? [];
   const truncado = devolucionesQuery.data?.truncado ?? false;
 
@@ -299,7 +327,13 @@ function DevolucionesDelViaje({ viajeId, volver, devolucionesQuery }: Devolucion
         ) : null}
         <ul className="space-y-2">
           {items.map((devolucion) => (
-            <DevolucionItem key={devolucion.id} devolucion={devolucion} viajeId={viajeId} volver={volver} />
+            <DevolucionItem
+              key={devolucion.id}
+              devolucion={devolucion}
+              viajeId={viajeId}
+              volver={volver}
+              desdeCliente={desdeCliente}
+            />
           ))}
         </ul>
       </>
@@ -313,7 +347,7 @@ function DevolucionesDelViaje({ viajeId, volver, devolucionesQuery }: Devolucion
       </h2>
       {contenido}
       <Button asChild variant="outline" className="w-full sm:w-auto">
-        <Link to={rutaNuevaDevolucion(viajeId)} state={{ volver }}>
+        <Link to={rutaNuevaDevolucion(viajeId)} state={{ volver, ...estadoDesdeCliente(desdeCliente) }}>
           <Plus aria-hidden="true" /> Cargar devolución
         </Link>
       </Button>
@@ -324,13 +358,14 @@ function DevolucionesDelViaje({ viajeId, volver, devolucionesQuery }: Devolucion
 interface GastosDelViajeProps {
   viajeId: string;
   volver: string;
+  desdeCliente: DesdeCliente | null;
   gastosQuery: ReturnType<typeof useGastosDelViaje>;
   categoriasPorId: ReadonlyMap<string, Categoria>;
   errorCategorias: ReactNode;
 }
 
 /** Los gastos del viaje (del más nuevo al más viejo) con su total, sumado en centavos enteros. Cada uno enlaza a su edición. */
-function GastosDelViaje({ viajeId, volver, gastosQuery, categoriasPorId, errorCategorias }: GastosDelViajeProps) {
+function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categoriasPorId, errorCategorias }: GastosDelViajeProps) {
   const items = gastosQuery.data?.items ?? [];
   const truncado = gastosQuery.data?.truncado ?? false;
   const total = sumMontos(items);
@@ -384,7 +419,7 @@ function GastosDelViaje({ viajeId, volver, gastosQuery, categoriasPorId, errorCa
               key={gasto.id}
               gasto={gasto}
               categoria={categoriasPorId.get(gasto.categoria_id)}
-              desdeViaje={{ id: viajeId, volver }}
+              desdeViaje={desdeCliente ? { id: viajeId, volver, cliente: desdeCliente } : { id: viajeId, volver }}
             />
           ))}
         </ul>

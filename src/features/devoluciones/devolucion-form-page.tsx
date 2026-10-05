@@ -4,9 +4,11 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { estadoDesdeCliente, leerDesdeCliente, rutaDelCliente } from '@/features/clientes/cliente-navegacion';
 import { useClientes } from '@/features/clientes/use-clientes';
 import { useViajeVista } from '@/features/viajes/use-viajes';
 import {
+  ORIGEN_CLIENTE,
   ORIGEN_LISTA_DEVOLUCIONES,
   leerOrigenDevolucion,
   rutaDelViaje,
@@ -39,10 +41,14 @@ interface DevolucionFormPageProps {
  * `sanitizeVolver`; y la ruta de vuelta se arma acá: `/viajes/<viajeId>` (con un uuid validado) o, si la edición se abrió
  * desde la pestaña Devoluciones de `/viajes`, esa lista.
  *
- * Origen: lo que decide a dónde se vuelve es una marca explícita en el `state` (`leerOrigenDevolucion`, una lista blanca de un
- * solo literal que solo pone la fila de esa lista), NO la pestaña que traiga el `volver`: la edición también se abre desde el
- * detalle del viaje, que a su vez pudo abrirse desde esa pestaña, y ahí se vuelve al detalle, como siempre. Solo se
- * considera al EDITAR: es lo único que abre esa fila.
+ * Origen: lo que decide a dónde se vuelve es una marca explícita en el `state` (`leerOrigenDevolucion`, una lista blanca de
+ * literales que solo ponen la fila de la pestaña Devoluciones y la del detalle de un cliente), NO la pestaña que traiga el
+ * `volver`: la edición también se abre desde el detalle del viaje, que a su vez pudo abrirse desde esa pestaña o desde un
+ * cliente, y ahí se vuelve al detalle, como siempre. Solo se considera al EDITAR: es lo único que abren esas filas.
+ *
+ * Cliente: si la pantalla se abrió desde el detalle de un cliente (directo, con el origen `cliente`, o a través del detalle
+ * del viaje), el cliente (`desdeCliente`, un uuid validado) vuelve con la navegación: al cliente con el origen, o al
+ * detalle del viaje sin él (que así sigue ofreciendo "volver al cliente").
  *
  * Editar: la devolución se pide por id Y por viaje. Si no existe, es de otro viaje o de otro transportista, la pantalla
  * es la misma: "Devolución no encontrada" (la base no distingue los casos y el mensaje tampoco).
@@ -54,6 +60,9 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
   const volver = sanitizeVolver((location.state as { volver?: unknown } | null)?.volver);
   const origen = modo === 'editar' ? leerOrigenDevolucion(location.state) : null;
   const desdeLista = origen === ORIGEN_LISTA_DEVOLUCIONES;
+  const desdeCliente = leerDesdeCliente(location.state);
+  // `leerOrigenDevolucion` ya exige el cliente para el origen `cliente`: si hay origen, hay cliente.
+  const alCliente = origen === ORIGEN_CLIENTE && desdeCliente !== null;
 
   // Un id que no es uuid no se consulta: no existe. El del viaje, también.
   const viajeId = isUuid(params.viajeId) ? params.viajeId.toLowerCase() : null;
@@ -76,7 +85,7 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
   if (viajeId === null) {
     contenido = <ViajeNoEncontrado volver={volver} />;
   } else if (devolucionIdInvalido) {
-    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} origen={origen} />;
+    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} origen={origen} desdeCliente={desdeCliente} />;
   } else if (clientes.isError && clientes.data === undefined) {
     // Los errores de carga solo ocupan la pantalla si NO hay datos: un refresco fallido (típico al volver la señal) con
     // el formulario ya abierto no lo desmonta, porque se llevaría lo que el usuario tipeó.
@@ -102,7 +111,7 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
   } else if (clientes.isPending || viaje.isPending || (modo === 'editar' && devolucion.isPending)) {
     contenido = <ListSkeleton rows={4} />;
   } else if (modo === 'editar' && devolucion.data === null) {
-    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} origen={origen} />;
+    contenido = <DevolucionNoEncontrada viajeId={viajeId} volver={volver} origen={origen} desdeCliente={desdeCliente} />;
   } else if (viaje.data === null) {
     // El viaje no existe (o es de otro transportista: la base no distingue): no hay a qué cargarle una devolución.
     contenido = <ViajeNoEncontrado volver={volver} />;
@@ -119,6 +128,7 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
         idsClientesDelViaje={idsClientesDelViaje}
         volver={volver}
         origen={origen}
+        desdeCliente={desdeCliente}
       />
     );
   } else {
@@ -133,17 +143,20 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
         idsClientesDelViaje={idsClientesDelViaje}
         volver={volver}
         origen={origen}
+        desdeCliente={desdeCliente}
       />
     );
   }
 
-  // El enlace de volver: a la lista de Devoluciones si la edición se abrió desde ella; si no, al detalle del viaje (o, sin
-  // un viaje válido en la URL, a la lista de viajes).
+  // El enlace de volver: a la lista de Devoluciones o al cliente si la edición se abrió desde ahí; si no, al detalle del
+  // viaje (con el cliente, si lo había) o, sin un viaje válido en la URL, a la lista de viajes.
   const enlaceVolver = desdeLista
     ? { to: rutaListaDevoluciones(volver), state: undefined, texto: 'Devoluciones' }
-    : viajeId !== null
-      ? { to: rutaDelViaje(viajeId), state: { volver }, texto: 'Viaje' }
-      : { to: `/viajes${volver}`, state: undefined, texto: 'Viajes' };
+    : alCliente
+      ? { to: rutaDelCliente(desdeCliente.id), state: { volver: desdeCliente.volver }, texto: 'Cliente' }
+      : viajeId !== null
+        ? { to: rutaDelViaje(viajeId), state: { volver, ...estadoDesdeCliente(desdeCliente) }, texto: 'Viaje' }
+        : { to: `/viajes${volver}`, state: undefined, texto: 'Viajes' };
 
   return (
     <div className="space-y-5">

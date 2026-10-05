@@ -9,6 +9,7 @@ import { NumberField } from '@/components/shared/number-field';
 import { SelectField } from '@/components/shared/select-field';
 import { SubmitBar } from '@/components/shared/submit-bar';
 import { TextareaField } from '@/components/shared/textarea-field';
+import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { useTenantId } from '@/features/member/use-tenant-id';
 import { RECIENTES_LIMIT } from '@/features/viajes/constants';
 import { useViajesRecientes } from '@/features/viajes/use-viajes';
@@ -245,7 +246,7 @@ export function GastoFormulario({
       // Se abrió desde el detalle de un viaje: se vuelve a ESE viaje. La ruta se arma acá con un uuid ya validado.
       navigate(rutaDelViaje(desdeViaje.id), {
         replace: true,
-        state: { aviso: 'gasto-guardado' satisfies DetalleAviso, volver: desdeViaje.volver },
+        state: { aviso: 'gasto-guardado' satisfies DetalleAviso, volver: desdeViaje.volver, ...estadoDesdeCliente(desdeViaje.cliente) },
       });
       return;
     }
@@ -410,7 +411,11 @@ export function GastoFormulario({
               if (desdeViaje) {
                 navigate(rutaDelViaje(desdeViaje.id), {
                   replace: true,
-                  state: { aviso: 'gasto-eliminado' satisfies DetalleAviso, volver: desdeViaje.volver },
+                  state: {
+                    aviso: 'gasto-eliminado' satisfies DetalleAviso,
+                    volver: desdeViaje.volver,
+                    ...estadoDesdeCliente(desdeViaje.cliente),
+                  },
                 });
                 return;
               }

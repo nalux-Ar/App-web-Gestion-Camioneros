@@ -27,6 +27,14 @@ interface ConfirmDeleteProps {
   confirmLabel?: string;
   /** Deshabilita el botón que confirma (p.ej. mientras se averigua qué se va a borrar). "Cancelar" sigue disponible. */
   confirmDisabled?: boolean;
+  /**
+   * NO muestra el botón que confirma: el borrado no está permitido y el `prompt` explica por qué (p.ej. un cliente con
+   * entregas). Solo queda el botón de cerrar (`cancelLabel`). No es lo mismo que `confirmDisabled`: un botón deshabilitado
+   * que nunca se va a habilitar confunde.
+   */
+  confirmHidden?: boolean;
+  /** Texto del botón que cierra la confirmación. Por defecto "Cancelar" (con `confirmHidden`, p.ej. "Entendido"). */
+  cancelLabel?: string;
   /** Avisa cuando se pide o se cancela la confirmación: el llamador puede averiguar lo que necesita para el `prompt`. */
   onConfirmingChange?: (confirming: boolean) => void;
   /**
@@ -72,6 +80,8 @@ export function ConfirmDelete({
   prompt = '¿Seguro? Esto no se puede deshacer.',
   confirmLabel = 'Sí, eliminar',
   confirmDisabled = false,
+  confirmHidden = false,
+  cancelLabel = 'Cancelar',
   onConfirmingChange,
   keepConfirmLabelOnError = false,
 }: ConfirmDeleteProps) {
@@ -155,7 +165,7 @@ export function ConfirmDelete({
           {error ? <InlineError message={error} /> : null}
 
           <div className="flex flex-col gap-2 sm:flex-row">
-            {!error || retryable ? (
+            {!confirmHidden && (!error || retryable) ? (
               <Button
                 type="button"
                 variant="destructive"
@@ -183,7 +193,7 @@ export function ConfirmDelete({
               aria-describedby={promptId}
               onClick={handleCancel}
             >
-              Cancelar
+              {cancelLabel}
             </Button>
           </div>
 

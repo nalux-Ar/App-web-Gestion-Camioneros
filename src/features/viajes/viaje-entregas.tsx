@@ -34,7 +34,6 @@ interface ViajeEntregasProps {
   onAgregar: () => void;
   onQuitar: (key: string) => void;
   onChange: (key: string, cambios: Partial<Pick<EntregaFormRow, 'clienteId' | 'incidencias'>>) => void;
-  onRefrescarClientes: () => Promise<readonly ClienteOpcion[]>;
   onClienteCreado: (cliente: ClienteOpcion) => void;
 }
 
@@ -57,7 +56,6 @@ export function ViajeEntregas({
   onAgregar,
   onQuitar,
   onChange,
-  onRefrescarClientes,
   onClienteCreado,
 }: ViajeEntregasProps) {
   // Aviso para lectores de pantalla: al agregar o quitar una fila el foco se mueve, pero cuántas hay no se oye solo.
@@ -127,7 +125,6 @@ export function ViajeEntregas({
               carga={carga}
               onChange={onChange}
               onQuitar={quitar}
-              onRefrescarClientes={onRefrescarClientes}
               onClienteCreado={onClienteCreado}
             />
           ))}

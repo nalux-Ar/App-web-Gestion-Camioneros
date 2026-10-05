@@ -1,89 +1,78 @@
-import { isRetryableDataError } from '@/lib/data-errors';
+import { generateClientRef } from '@/features/gastos/client-ref';
+import type { ClienteDatos } from './cliente-form';
 import { buscarDuplicado, normalizarNombre, type ClienteOpcion } from './cliente-nombre';
 
 /**
- * Alta de un cliente "al vuelo" (desde un viaje) con aviso de duplicado. Lógica pura: la lista
- * fresca y la creación real se inyectan (`io`), así se prueba sin Supabase ni React.
+ * Alta de un cliente con aviso de duplicado: la usan el formulario de Clientes y el "+ Nuevo cliente" al vuelo del viaje.
+ * Lógica pura: la creación real se inyecta (`io`), así se prueba sin Supabase ni React.
  *
- * El problema de los reintentos: la tabla `clientes` no tiene clave de idempotencia (no hay `client_ref`
- * ni unique por nombre: bloquearía homónimos legítimos). Si la creación falla por red o timeout, la
- * respuesta pudo perderse y el cliente pudo haberse creado igual; un "Reintentar" a ciegas crearía el
- * segundo. Por eso, tras un fallo reintentable, el próximo intento PRIMERO refresca la lista y vuelve a
- * correr la verificación de duplicado: si el cliente de la respuesta perdida ya está, se ofrece "Usar ese".
+ * Dos cosas distintas:
+ *  - El AVISO de duplicado: la base no tiene unique por nombre (bloquearía homónimos legítimos, p.ej. dos sucursales con el
+ *    mismo nombre), así que, antes de crear, se compara el nombre normalizado contra la lista cargada y, si ya hay uno, NO
+ *    se crea: la persona decide ("Usar ese" / "Ver ese cliente" o "Crear / Guardar de todos modos").
+ *  - Los REINTENTOS: se resuelven en la base con el `client_ref` (migración 009, ver `crearClienteIdempotente`). Un
+ *    "Reintentar" tras una respuesta perdida manda el MISMO `client_ref`: si el primer intento llegó, la base lo reconoce
+ *    (23505) y se usa ese cliente en vez de crear otro. Antes de la 009 esto se mitigaba solo en el front (volver a pedir la
+ *    lista y buscar el nombre antes de reintentar); ya no hace falta.
  */
 
 export interface AltaClienteIO {
-  /** Pide la lista de clientes de nuevo y devuelve lo que hay AHORA en la base. Tira el error si falla. */
-  refrescar(): Promise<readonly ClienteOpcion[]>;
-  /** INSERT del cliente. Tira el error si falla. */
-  crear(nombre: string): Promise<ClienteOpcion>;
+  /** Guarda el cliente con idempotencia (`crearClienteIdempotente`) y devuelve el que quedó guardado. Tira el error si falla. */
+  crear(args: { datos: ClienteDatos; clientRef: string; sent: Set<string> }): Promise<ClienteOpcion>;
 }
 
 /**
- * Lo que hay que recordar entre intentos del MISMO mini formulario. `altaCliente` lo modifica. Se
- * descarta al cerrar el mini formulario (cancelar o crear bien).
+ * Lo que hay que recordar entre intentos del MISMO formulario (o mini formulario). `altaCliente` lo modifica. Se descarta
+ * (o se reemplaza por uno nuevo) al cerrar el formulario o tras crear bien.
  */
 export interface AltaClienteEstado {
-  /** El intento anterior falló por red/timeout/servidor: no se sabe si el cliente se creó. */
-  verificarAntes: boolean;
+  /** Clave de idempotencia: una al abrir el formulario, la MISMA en cada reintento, nueva tras crear bien. */
+  clientRef: string;
+  /** Huellas de lo ya mandado con este `clientRef` (ver `crearClienteIdempotente`). */
+  sent: Set<string>;
   /**
-   * Ids de homónimos que la persona ya vio y aceptó con "Crear de todos modos". No vuelven a
-   * contar como duplicado en un reintento (si no, el aviso mostraría siempre al cliente que ya
-   * tenía y no al que se creó en la respuesta perdida).
+   * Nombres (normalizados) que ya se mandaron con este `clientRef`: ya pasaron el aviso (o la persona eligió crearlo de todos
+   * modos), así que su reintento NO vuelve a avisar. Si avisara, el "cliente que ya existe" podría ser justamente el que creó
+   * el intento anterior (respuesta perdida), y el aviso confundiría: el reintento lo resuelve la base por el `client_ref`.
    */
-  ignorar: Set<string>;
+  nombresEnviados: Set<string>;
 }
 
 export function estadoInicialAlta(): AltaClienteEstado {
-  return { verificarAntes: false, ignorar: new Set() };
+  return { clientRef: generateClientRef(), sent: new Set(), nombresEnviados: new Set() };
 }
 
 export type AltaClienteResultado =
-  /** Se creó: hay que seleccionarlo. */
+  /** Se creó (o ya estaba creado por un intento anterior): hay que usarlo. */
   | { tipo: 'creado'; cliente: ClienteOpcion }
-  /** NO se creó: ya hay uno con ese nombre. La persona elige usarlo o crear otro igual. */
+  /** NO se creó: ya hay uno con ese nombre. La persona decide qué hacer. */
   | { tipo: 'duplicado'; existente: ClienteOpcion };
 
 interface AltaClienteArgs {
-  /** Nombre ya validado y recortado (`validateNombreCliente`). */
-  nombre: string;
-  /** "Crear de todos modos": se salta el aviso y los homónimos actuales quedan aceptados. */
+  /** Ya validados y recortados (el nombre con `validateNombreCliente`). */
+  datos: ClienteDatos;
+  /** "Crear / Guardar de todos modos": se salta el aviso. */
   forzar: boolean;
-  /** La lista de clientes cargada en pantalla (la que se usa si no hace falta refrescar). */
+  /** La lista de clientes cargada en pantalla (contra la que se busca el duplicado). */
   clientes: readonly ClienteOpcion[];
   estado: AltaClienteEstado;
   io: AltaClienteIO;
 }
 
 /**
- * - Si el intento anterior quedó en duda (`estado.verificarAntes`), refresca la lista primero. Si el
- *   refresco falla, se propaga el error SIN crear nada y la duda sigue en pie.
- * - Si hay un cliente con el mismo nombre normalizado (y no se fuerza), devuelve `duplicado` sin crear.
- * - Si no, crea. Si la creación falla con un error reintentable, deja la duda anotada y propaga el error.
+ * - Si hay un cliente con el mismo nombre normalizado (y no se fuerza ni es el reintento de un nombre ya mandado), devuelve
+ *   `duplicado` SIN crear.
+ * - Si no, crea con el `client_ref` del estado (idempotente) y devuelve el cliente guardado. Un error se propaga tal cual
+ *   (con su `code`) y el estado queda listo para reintentar con la misma clave.
  */
-export async function altaCliente({ nombre, forzar, clientes, estado, io }: AltaClienteArgs): Promise<AltaClienteResultado> {
-  const lista = estado.verificarAntes ? await io.refrescar() : clientes;
-
-  if (forzar) {
-    const buscado = normalizarNombre(nombre);
-    for (const cliente of lista) {
-      if (normalizarNombre(cliente.nombre) === buscado) estado.ignorar.add(cliente.id);
-    }
-  } else {
-    const existente = buscarDuplicado(nombre, lista, estado.ignorar);
+export async function altaCliente({ datos, forzar, clientes, estado, io }: AltaClienteArgs): Promise<AltaClienteResultado> {
+  const nombre = normalizarNombre(datos.nombre);
+  if (!forzar && !estado.nombresEnviados.has(nombre)) {
+    const existente = buscarDuplicado(datos.nombre, clientes);
     if (existente) return { tipo: 'duplicado', existente };
   }
 
-  let cliente: ClienteOpcion;
-  try {
-    cliente = await io.crear(nombre);
-  } catch (error) {
-    // Con red/timeout/servidor el cliente pudo haberse creado igual. Con un error que da lo mismo
-    // reintentando (datos inválidos, permiso) no se creó: no hay nada que verificar.
-    estado.verificarAntes = isRetryableDataError(error);
-    throw error;
-  }
-  estado.verificarAntes = false;
-  estado.ignorar.clear();
+  estado.nombresEnviados.add(nombre);
+  const cliente = await io.crear({ datos, clientRef: estado.clientRef, sent: estado.sent });
   return { tipo: 'creado', cliente };
 }

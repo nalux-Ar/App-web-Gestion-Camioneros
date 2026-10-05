@@ -45,6 +45,13 @@ const GastosPage = lazy(() => import('@/features/gastos/gastos-page').then((m) =
 const GastoFormPage = lazy(() =>
   import('@/features/gastos/gasto-form-page').then((m) => ({ default: m.GastoFormPage })),
 );
+const ClientesPage = lazy(() => import('@/features/clientes/clientes-page').then((m) => ({ default: m.ClientesPage })));
+const ClienteDetallePage = lazy(() =>
+  import('@/features/clientes/cliente-detalle-page').then((m) => ({ default: m.ClienteDetallePage })),
+);
+const ClienteFormPage = lazy(() =>
+  import('@/features/clientes/cliente-form-page').then((m) => ({ default: m.ClienteFormPage })),
+);
 const ConfiguracionPage = lazy(() =>
   import('@/features/configuracion/configuracion-page').then((m) => ({ default: m.ConfiguracionPage })),
 );
@@ -122,7 +129,12 @@ export function AppRouter() {
           <Route path="gastos" element={<GastosPage />} />
           <Route path="gastos/nuevo" element={<GastoFormPage modo="nuevo" />} />
           <Route path="gastos/:id/editar" element={<GastoFormPage modo="editar" />} />
-          <Route path="clientes" element={<ComingSoonPage title="Clientes" />} />
+          {/* `clientes/nuevo` (literal) gana sobre `clientes/:id`: react-router rankea los segmentos literales primero. El
+              `:id` lo valida cada pantalla con `isUuid` (si no es uuid, "Cliente no encontrado" sin consultar nada). */}
+          <Route path="clientes" element={<ClientesPage />} />
+          <Route path="clientes/nuevo" element={<ClienteFormPage modo="nuevo" />} />
+          <Route path="clientes/:id" element={<ClienteDetallePage />} />
+          <Route path="clientes/:id/editar" element={<ClienteFormPage modo="editar" />} />
           <Route path="reportes" element={<ComingSoonPage title="Reportes" />} />
           <Route path="configuracion" element={<ConfiguracionPage />} />
         </Route>

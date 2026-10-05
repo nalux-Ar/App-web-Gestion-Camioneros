@@ -17,10 +17,14 @@ export const MAX_NOMBRE_CLIENTE = 200;
 export const NOMBRE_CLIENTE_VACIO_MESSAGE = 'Escribe el nombre del cliente.';
 export const NOMBRE_CLIENTE_LARGO_MESSAGE = `El nombre puede tener hasta ${MAX_NOMBRE_CLIENTE} caracteres.`;
 
-/** Mensajes propios de los errores de la base al CREAR un cliente (constante de módulo: la usa `useSubmitFeedback`). */
+/** Mensajes propios de los errores de la base al CREAR un cliente al vuelo, desde un viaje (constante de módulo: la usa
+ *  `useSubmitFeedback`). */
 export const CREAR_CLIENTE_CONTEXT: DataErrorContext = {
   // Check de la base (23514, clase 22): el largo del nombre.
   invalidData: `Revisa el nombre del cliente: tiene que tener entre 1 y ${MAX_NOMBRE_CLIENTE} caracteres.`,
+  // El cliente que guardó un intento anterior (respuesta perdida) ya no está: crearlo de nuevo funciona (el índice del
+  // client_ref quedó libre).
+  notFound: 'El cliente que se había creado ya no está. Toca "Crear cliente" para crearlo de nuevo.',
 };
 
 /** Lo que la pantalla necesita de un cliente para elegirlo. */
@@ -95,7 +99,8 @@ export function ordenarClientes<T extends ClienteOpcion>(clientes: readonly T[])
 /**
  * La lista cargada más los clientes creados en esta pantalla que la lista todavía no trae (la lista se
  * refresca en segundo plano después de crear: sin esto, el cliente recién creado no estaría para elegir
- * ni para detectar un duplicado). Sin repetidos por id y ordenada.
+ * ni para detectar un duplicado). Sin repetidos por id y ordenada. Si un mismo id viene en las dos listas,
+ * gana el de la lista cargada (es el dato más nuevo de la base).
  */
 export function combinarClientes<T extends ClienteOpcion>(cargados: readonly T[], creados: readonly T[]): T[] {
   const ids = new Set(cargados.map((cliente) => cliente.id));
