@@ -21,6 +21,7 @@ import {
 } from '@/lib/theme';
 import { writeCachedThemePreference } from '@/lib/theme-cache';
 import { useAuth } from '@/features/auth/use-auth';
+import { CamionesCard } from '@/features/camiones/camiones-card';
 import { useMember } from '@/features/member/use-member';
 import { NombreCard } from './nombre-card';
 
@@ -153,6 +154,9 @@ export function ConfiguracionPage() {
       </Card>
 
       <NombreCard />
+
+      {/* El acceso a la pantalla de Camiones (no hay ítem en la barra de abajo). */}
+      <CamionesCard />
 
       <Card>
         <CardHeader>

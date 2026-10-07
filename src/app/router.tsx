@@ -52,6 +52,10 @@ const ClienteDetallePage = lazy(() =>
 const ClienteFormPage = lazy(() =>
   import('@/features/clientes/cliente-form-page').then((m) => ({ default: m.ClienteFormPage })),
 );
+const CamionesPage = lazy(() => import('@/features/camiones/camiones-page').then((m) => ({ default: m.CamionesPage })));
+const CamionFormPage = lazy(() =>
+  import('@/features/camiones/camion-form-page').then((m) => ({ default: m.CamionFormPage })),
+);
 const ConfiguracionPage = lazy(() =>
   import('@/features/configuracion/configuracion-page').then((m) => ({ default: m.ConfiguracionPage })),
 );
@@ -135,6 +139,11 @@ export function AppRouter() {
           <Route path="clientes/nuevo" element={<ClienteFormPage modo="nuevo" />} />
           <Route path="clientes/:id" element={<ClienteDetallePage />} />
           <Route path="clientes/:id/editar" element={<ClienteFormPage modo="editar" />} />
+          {/* Camiones: se llega desde Configuración (y desde Inicio mientras no hay ninguno); no están en la barra de abajo.
+              `camiones/nuevo` (literal) gana sobre `camiones/:id/editar`; el `:id` lo valida la pantalla con `isUuid`. */}
+          <Route path="camiones" element={<CamionesPage />} />
+          <Route path="camiones/nuevo" element={<CamionFormPage modo="nuevo" />} />
+          <Route path="camiones/:id/editar" element={<CamionFormPage modo="editar" />} />
           <Route path="reportes" element={<ComingSoonPage title="Reportes" />} />
           <Route path="configuracion" element={<ConfiguracionPage />} />
         </Route>

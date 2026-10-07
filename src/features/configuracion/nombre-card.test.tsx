@@ -94,6 +94,10 @@ function installResponder(onUpdate: (call: Call) => unknown) {
       });
     }
     if (call.table === 'transportistas') return onUpdate(call);
+    // Las tarjetas de camiones (Inicio y Configuración) leen la lista: con un camión, Inicio no muestra "Carga tu camión".
+    if (call.table === 'camiones') {
+      return ok([{ id: 'c0000000-0000-4000-8000-000000000001', patente: 'AB123CD', marca: null, modelo: null, anio: null, activa: true }]);
+    }
     throw new Error(`pedido inesperado: ${call.table} ${call.ops.map((o) => o.m).join('.')}`);
   };
 }
@@ -218,12 +222,12 @@ afterEach(async () => {
 });
 
 describe('tarjeta Nombre: estructura y accesibilidad', () => {
-  it('va entre "Tu cuenta" y "Tema", con título, descripción, label asociado y subtítulo actualizado', async () => {
+  it('va entre "Tu cuenta" y "Tema" (con la tarjeta "Camiones" justo debajo), con título, descripción, label asociado y subtítulo actualizado', async () => {
     installResponder(() => ok([]));
     await mount('user-a');
 
     const titles = [...document.querySelectorAll('[data-slot="card-title"]')].map((e) => e.textContent);
-    expect(titles.slice(0, 3)).toEqual(['Tu cuenta', 'Nombre', 'Tema']);
+    expect(titles.slice(0, 4)).toEqual(['Tu cuenta', 'Nombre', 'Camiones', 'Tema']);
     expect(bodyText()).toContain('Es el nombre de tu cuenta: aparece en el encabezado y en el saludo del inicio.');
     expect(bodyText()).toContain('Tu cuenta y cómo se ve la app para ti.');
     expect(bodyText()).not.toContain('Elige cómo se ve la app para ti.');

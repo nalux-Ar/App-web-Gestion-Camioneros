@@ -45,6 +45,7 @@ const ok = (data: unknown) => ({ data, error: null, status: 200 });
 const VIAJE = 'b0000000-0000-4000-8000-000000000001';
 const DEV = 'f0000000-0000-4000-8000-000000000001';
 const CLIENTE = 'a0000000-0000-4000-8000-000000000001';
+const CAMION = 'c0000000-0000-4000-8000-000000000001';
 const MIEMBRO = {
   rol: 'admin',
   tema: 'dark',
@@ -78,6 +79,10 @@ function installResponder() {
       return ok([]);
     }
     if (call.table === 'categorias_gasto') return ok([]);
+    if (call.table === 'camiones') {
+      if (has('maybeSingle')) return ok({ id: CAMION, patente: 'AB123CD', marca: 'Scania', modelo: null, anio: null, activa: true });
+      return ok([]);
+    }
     if (call.table === 'gastos') return ok([]);
     if (call.table === 'viajes') {
       // La pantalla de solo lectura y la de edición piden el viaje por id (con entregas embebidas).
@@ -312,5 +317,72 @@ describe('router: las rutas de Clientes', () => {
     await settle(6);
     expect(h1()).not.toBe('Almacén Central');
     expect(h.calls.filter((c) => c.table === 'clientes')).toHaveLength(0);
+  });
+});
+
+describe('router: las rutas de Camiones (fuera de la barra de abajo)', () => {
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+  const lecturasDeUnCamion = () => h.calls.filter((c) => c.table === 'camiones' && c.ops.some((o) => o.m === 'maybeSingle'));
+
+  it('/camiones es la lista de camiones, dentro del layout, con el volver a Configuración', async () => {
+    await mount('/camiones');
+    await until(() => h1() === 'Camiones' && document.querySelector('a[href="/configuracion"]') !== null);
+    expect(h1()).toBe('Camiones');
+    expect(document.querySelector('header')).not.toBeNull();
+    expect(document.querySelector('a[href="/camiones/nuevo"]')).not.toBeNull();
+  });
+
+  it('/camiones/nuevo es el alta (el literal gana sobre /camiones/:id/editar) y no lee ningún camión por id', async () => {
+    await mount('/camiones/nuevo');
+    await until(() => document.querySelector('#camion-patente') !== null);
+    expect(h1()).toBe('Nuevo camión');
+    expect(lecturasDeUnCamion()).toHaveLength(0);
+  });
+
+  it('/camiones/<id>/editar es la edición, con los datos de ese camión', async () => {
+    await mount(`/camiones/${CAMION}/editar`);
+    await until(() => document.querySelector('#camion-patente') !== null);
+    expect(h1()).toBe('Editar camión');
+    expect(document.querySelector<HTMLInputElement>('#camion-patente')!.value).toBe('AB123CD');
+    expect(document.querySelector<HTMLInputElement>('#camion-marca')!.value).toBe('Scania');
+  });
+
+  it('rutas parecidas que no existen caen en la ruta desconocida (Inicio), sin leer ningún camión', async () => {
+    for (const ruta of [`/camiones/${CAMION}`, `/camiones/${CAMION}/editar/x`, '/camiones/nuevo/x', '/camion', `/camiones/${CAMION}/archivar`]) {
+      h.calls.length = 0;
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola'));
+      expect(h1(), ruta).toMatch(/^Hola/);
+      expect(lecturasDeUnCamion(), ruta).toHaveLength(0);
+      await desmontar();
+    }
+  });
+
+  it('la barra de navegación NO tiene Camiones; se llega desde Configuración', async () => {
+    await mount('/configuracion');
+    await until(() => document.querySelector('a[href="/camiones"]') !== null);
+    expect([...document.querySelectorAll('nav a')].some((a) => a.getAttribute('href')?.startsWith('/camiones'))).toBe(false);
+    const enlace = document.querySelector<HTMLAnchorElement>('a[href="/camiones"]')!;
+    expect(enlace.textContent).toContain('Ver camiones');
+    expect(enlace.closest('nav')).toBeNull();
+  });
+
+  it('Inicio, sin ningún camión (administrador): la tarjeta "Carga tu camión" lleva al alta', async () => {
+    await mount('/');
+    await until(() => document.querySelector('a[href="/camiones/nuevo"]') !== null);
+    expect(document.body.textContent).toContain('Carga tu camión');
+  });
+
+  it('están detrás de la sesión: sin sesión no se pide NADA', async () => {
+    await mount(`/camiones/${CAMION}/editar`, false);
+    await settle(6);
+    expect(h1()).not.toBe('Editar camión');
+    expect(h.calls.filter((c) => c.table === 'camiones')).toHaveLength(0);
   });
 });

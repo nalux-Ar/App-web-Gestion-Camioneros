@@ -54,6 +54,14 @@ export interface DataErrorContext {
    *  chocar con una carrera y que es seguro repetir. Por defecto una FK no se reintenta (daría lo mismo). */
   foreignKeyRetryable?: boolean;
   /**
+   * Lo mismo que `foreignKeyByConstraint`, pero para CUALQUIER clase de error: un check (23514), un único (23505), una FK
+   * (23503) o un error propio de un trigger que pone un texto fijo en el mensaje (p. ej. el 55000 con `camion_archivado` de
+   * la migración 010). Mapa `nombre del constraint (o texto fijo) → mensaje`: si el `message` o los `details` del error lo
+   * nombran (`mentionsConstraint`), gana ese mensaje y el error NO se reintenta (con los mismos datos daría lo mismo:
+   * hay que cambiar algo). Se mira antes que todo lo demás. El nombre solo sirve para elegir el mensaje: nunca se muestra.
+   */
+  messagesByConstraint?: Readonly<Record<string, string>>;
+  /**
    * PostgreSQL 18 devuelve 23001 (`restrict_violation`) en vez de 23503 cuando un DELETE choca con un
    * `ON DELETE RESTRICT` (la base real hoy es PG 17 y da 23503). Con `true`, en ESTA pantalla un 23001 se trata
    * exactamente igual que una violación de FK: mismo mensaje (`foreignKey`) y mismo reintento
@@ -261,11 +269,18 @@ function kindInContext(error: unknown, context: DataErrorContext): DataErrorKind
   return kind;
 }
 
+/** El mensaje propio del contexto para el constraint (o texto fijo) que nombra el error, si lo hay. */
+function messageByConstraint(error: unknown, context: DataErrorContext): string | undefined {
+  return Object.entries(context.messagesByConstraint ?? {}).find(([constraint]) => mentionsConstraint(error, constraint))?.[1];
+}
+
 /** ¿Tiene sentido ofrecer "Reintentar" con los mismos datos? Con un check
  *  violado, un permiso negado o un registro inexistente, reintentar da lo mismo.
- *  Con el `context` de la pantalla, una FK puede declararse reintentable (`foreignKeyRetryable`). */
+ *  Con el `context` de la pantalla, una FK puede declararse reintentable (`foreignKeyRetryable`), y un error que nombra
+ *  un constraint de `messagesByConstraint` nunca se reintenta. */
 export function isRetryableDataError(error: unknown, context: DataErrorContext = {}): boolean {
   if (error instanceof UserMessageError) return error.retryable;
+  if (messageByConstraint(error, context) !== undefined) return false;
   const kind = kindInContext(error, context);
   if (kind === 'foreign-key' && context.foreignKeyRetryable === true) return true;
   return kind === 'network' || kind === 'timeout' || kind === 'server' || kind === 'unknown';
@@ -287,6 +302,8 @@ const DEFAULT_MESSAGES: Record<DataErrorKind, string> = {
 /** Mensaje en español neutro para mostrar al usuario. Nunca texto del servidor. */
 export function mapDataError(error: unknown, context: DataErrorContext = {}): string {
   if (error instanceof UserMessageError) return error.userMessage;
+  const porConstraint = messageByConstraint(error, context);
+  if (porConstraint !== undefined) return porConstraint;
   const kind = kindInContext(error, context);
   switch (kind) {
     case 'foreign-key': {

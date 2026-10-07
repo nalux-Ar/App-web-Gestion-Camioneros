@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 
 import { Card, CardContent } from '@/components/ui/card';
+import { CargarCamionCard } from '@/features/camiones/cargar-camion-card';
 import { useMember } from '@/features/member/use-member';
 import { PRIMARY_NAV_ITEMS } from '@/features/layout/nav-items';
 
@@ -19,6 +20,8 @@ export function InicioPage() {
         </h1>
         <p className="text-muted-foreground">¿Qué quieres hacer hoy?</p>
       </div>
+      {/* Solo mientras la cuenta no tiene ningún camión (y solo para el administrador). */}
+      <CargarCamionCard />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {accesos.map((item) => (
           <Link key={item.to} to={item.to}>
