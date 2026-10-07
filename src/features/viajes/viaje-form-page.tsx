@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { useCamiones } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { useClientes } from '@/features/clientes/use-clientes';
 import { mapDataError } from '@/lib/data-errors';
@@ -50,6 +51,8 @@ export function ViajeFormPage({ modo }: ViajeFormPageProps) {
   // Los clientes los usa el formulario (comparte esta misma consulta): pedirlos acá los trae EN PARALELO con el
   // viaje en vez de después, que con mala señal ahorra una espera entera. No bloquea la pantalla ni se espera.
   useClientes({ enabled: !idInvalido });
+  // Lo mismo con los camiones (el formulario los necesita para el camión del viaje); `fresca`: igual que en el formulario.
+  useCamiones({ enabled: !idInvalido, fresca: true });
 
   const titulo = modo === 'nuevo' ? 'Nuevo viaje' : 'Editar viaje';
 

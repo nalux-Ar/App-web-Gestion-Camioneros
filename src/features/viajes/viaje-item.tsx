@@ -9,6 +9,8 @@ interface ViajeItemProps {
   viaje: ViajeDeLista;
   /** `search` de la lista actual: viaja al detalle para volver con el mismo mes. */
   volver: string;
+  /** El camión del viaje ("AB 123 CD"), solo si la cuenta tiene 2 o más camiones. */
+  camion?: string;
 }
 
 function textoEntregas(cantidad: number): string {
@@ -22,9 +24,9 @@ function textoEntregas(cantidad: number): string {
  * cantidad de entregas; después los km (el valor, "Km final sin cargar" si el viaje sigue en curso, o nada
  * si no se cargaron); y a la derecha el ingreso, si lo hay. Los números van sin símbolo de moneda.
  */
-export function ViajeItem({ viaje, volver }: ViajeItemProps) {
+export function ViajeItem({ viaje, volver, camion }: ViajeItemProps) {
   const km = kmDelViaje(viaje);
-  const detalle = [formatDateShort(viaje.fecha), textoEntregas(viaje.cantidad_entregas)].join(' · ');
+  const detalle = [formatDateShort(viaje.fecha), textoEntregas(viaje.cantidad_entregas), camion].filter(Boolean).join(' · ');
 
   return (
     <li>

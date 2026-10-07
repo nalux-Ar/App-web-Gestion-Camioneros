@@ -330,7 +330,7 @@ describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
     await mount();
     expect(recientesCalls()).toHaveLength(1);
     const call = recientesCalls()[0]!;
-    expect(call.ops.find((o) => o.m === 'select')!.args).toEqual(['id, fecha, origen, destino']);
+    expect(call.ops.find((o) => o.m === 'select')!.args).toEqual(['id, fecha, origen, destino, camion_id']);
     expect(call.ops.filter((o) => o.m === 'order').map((o) => o.args)).toEqual([
       ['fecha', { ascending: false }],
       ['created_at', { ascending: false }],
@@ -483,7 +483,7 @@ describe('formulario de gasto (edicion): el viaje vinculado', () => {
     const detalle = callsTo('gastos').find((c) => c.ops.some((o) => o.m === 'maybeSingle'))!;
     const select = detalle.ops.find((o) => o.m === 'select')!.args[0] as string;
     expect(select).toContain('viaje_id');
-    expect(select).toContain('viajes(id, fecha, origen, destino)');
+    expect(select).toContain('viajes(id, fecha, origen, destino, camion_id)');
     expect(opcionCalls()).toHaveLength(0);
   });
 

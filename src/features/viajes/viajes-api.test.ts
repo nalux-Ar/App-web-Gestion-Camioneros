@@ -70,6 +70,7 @@ const columns = {
   fecha: '2026-10-02',
   origen: 'Rosario',
   destino: 'Córdoba',
+  camion_id: null,
   km_inicial: null,
   km_final: null,
   km_recorridos: null,
@@ -484,13 +485,13 @@ describe('contarDelViaje: los dos conteos juntos', () => {
 describe('lecturas de viajes para gastos y el detalle', () => {
   const signal = () => new AbortController().signal;
 
-  it('fetchViajesRecientes: id, fecha, origen y destino de los 50 más recientes (fecha desc, created_at desc), sin filtro de mes', async () => {
+  it('fetchViajesRecientes: id, fecha, origen, destino y camión de los 50 más recientes (fecha desc, created_at desc), sin filtro de mes', async () => {
     h.state.responder = () => ok([{ id: 'v1', fecha: '2026-10-01', origen: 'A', destino: 'B' }]);
     const r = await fetchViajesRecientes(signal());
     expect(r).toEqual([{ id: 'v1', fecha: '2026-10-01', origen: 'A', destino: 'B' }]);
     const [call] = h.calls;
     expect(call!.target).toBe('viajes');
-    expect(op(call!, 'select')[0]!.args).toEqual(['id, fecha, origen, destino']);
+    expect(op(call!, 'select')[0]!.args).toEqual(['id, fecha, origen, destino, camion_id']);
     expect(op(call!, 'order').map((o) => o.args)).toEqual([
       ['fecha', { ascending: false }],
       ['created_at', { ascending: false }],
@@ -504,7 +505,7 @@ describe('lecturas de viajes para gastos y el detalle', () => {
     h.state.responder = () => ok(null);
     await expect(fetchViajeOpcion(VIAJE_ID, signal())).resolves.toBeNull();
     const [call] = h.calls;
-    expect(op(call!, 'select')[0]!.args).toEqual(['id, fecha, origen, destino']);
+    expect(op(call!, 'select')[0]!.args).toEqual(['id, fecha, origen, destino, camion_id']);
     expect(op(call!, 'eq')[0]!.args).toEqual(['id', VIAJE_ID]);
     expect(ops(call!)).toContain('maybeSingle');
   });
@@ -519,7 +520,9 @@ describe('lecturas de viajes para gastos y el detalle', () => {
     expect(select).toContain('entregas(id, cliente_id, incidencias, created_at, clientes(nombre))'); // con el cliente_id: el formulario de devoluciones ofrece primero los clientes del viaje
     for (const columna of ['km_inicial', 'km_final', 'km_recorridos', 'ingreso', 'observaciones']) expect(select).toContain(columna);
     expect(select).not.toContain('client_ref');
-    expect(select).not.toContain('camion_id');
+    // El camión va SOLO como id (la patente se muestra desde la lista de camiones): nunca un embed camiones(...).
+    expect(select).toContain('camion_id');
+    expect(select).not.toContain('camiones(');
     expect(op(call!, 'eq')[0]!.args).toEqual(['id', VIAJE_ID]);
     expect(op(call!, 'order').map((o) => o.args)).toEqual([
       ['created_at', { ascending: true, referencedTable: 'entregas' }],
@@ -539,7 +542,8 @@ describe('viajeWriteIO.crear (rpc crear_viaje_con_entregas)', () => {
     expect(call!.target).toBe('rpc:crear_viaje_con_entregas');
     expect(op(call!, 'rpc')[0]!.args[0]).toEqual(args);
     expect(op(call!, 'rpc')[0]!.args[0]).toHaveProperty('p_km_inicial', null);
-    expect(Object.keys(op(call!, 'rpc')[0]!.args[0] as object)).not.toContain('p_camion_id');
+    // Desde la Etapa 5 el alta manda el camión (null explícito sin camión).
+    expect(op(call!, 'rpc')[0]!.args[0]).toHaveProperty('p_camion_id', null);
     expect(op(call!, 'abortSignal')[0]!.args[0]).toBeInstanceOf(AbortSignal);
   });
 
@@ -568,13 +572,12 @@ describe('viajeWriteIO.crear (rpc crear_viaje_con_entregas)', () => {
 });
 
 describe('viajeWriteIO.actualizar (rpc actualizar_viaje_con_entregas)', () => {
-  it('manda el reemplazo completo, con p_camion_id preservado y las entregas con/sin id', async () => {
+  it('manda el reemplazo completo, con el p_camion_id del formulario y las entregas con/sin id', async () => {
     h.state.responder = () => ok(null);
-    const args = buildActualizarArgs(
-      VIAJE_ID,
-      'camion-1',
-      { columns, entregas: [{ id: 'e1', cliente_id: 'c1', incidencias: null }, { id: null, cliente_id: 'c2', incidencias: 'x' }] },
-    );
+    const args = buildActualizarArgs(VIAJE_ID, {
+      columns: { ...columns, camion_id: 'camion-1' },
+      entregas: [{ id: 'e1', cliente_id: 'c1', incidencias: null }, { id: null, cliente_id: 'c2', incidencias: 'x' }],
+    });
     await viajeWriteIO.actualizar(args);
     const [call] = h.calls;
     expect(call!.target).toBe('rpc:actualizar_viaje_con_entregas');
@@ -597,7 +600,7 @@ describe('viajeWriteIO.actualizar (rpc actualizar_viaje_con_entregas)', () => {
     ];
     for (const { code, mensaje, reintentable } of casos) {
       h.state.responder = () => fail(code, 'new row for relation "viajes" violates check constraint "viajes_chk_km_coherentes"');
-      const error = await viajeWriteIO.actualizar(buildActualizarArgs(VIAJE_ID, null, { columns, entregas: [] })).then(
+      const error = await viajeWriteIO.actualizar(buildActualizarArgs(VIAJE_ID, { columns, entregas: [] })).then(
         () => null,
         (e: unknown) => e,
       );
@@ -634,7 +637,7 @@ describe('lecturas', () => {
     const [call] = h.calls;
     expect(call!.target).toBe('viajes');
     const select = op(call!, 'select')[0]!.args[0] as string;
-    expect(select).toContain('camion_id'); // la edición lo necesita para no borrarlo
+    expect(select).toContain('camion_id'); // el formulario arranca con el camión que ya tenía (un null lo borraría)
     expect(select).toContain('entregas(id, cliente_id, incidencias, created_at)');
     expect(select).not.toContain('client_ref');
     expect(op(call!, 'eq')[0]!.args).toEqual(['id', VIAJE_ID]);
@@ -667,6 +670,8 @@ describe('lecturas', () => {
     expect(h.calls).toHaveLength(1); // nada de una consulta por viaje
     const [call] = h.calls;
     expect(op(call!, 'select')[0]!.args[0]).toContain('entregas(count)');
+    expect(op(call!, 'select')[0]!.args[0]).toContain('camion_id'); // sin embed: la patente sale de la lista de camiones
+    expect(op(call!, 'select')[0]!.args[0]).not.toContain('camiones(');
     expect(op(call!, 'gte')[0]!.args).toEqual(['fecha', '2026-10-01']);
     expect(op(call!, 'lt')[0]!.args).toEqual(['fecha', '2026-11-01']);
     expect(op(call!, 'order').map((o) => o.args)).toEqual([

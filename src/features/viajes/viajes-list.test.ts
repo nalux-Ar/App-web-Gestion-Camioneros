@@ -26,6 +26,7 @@ const viaje = (over: Partial<ViajeDeLista> = {}): ViajeDeLista => ({
   fecha: '2026-10-01',
   origen: 'A',
   destino: 'B',
+  camion_id: null,
   km_inicial: null,
   km_final: null,
   km_recorridos: null,
@@ -150,6 +151,7 @@ describe('contarEntregas / aViajeDeLista (embed entregas(count))', () => {
       fecha: '2026-10-02',
       origen: 'Rosario',
       destino: 'Córdoba',
+      camion_id: null, // la fila no lo trajo: queda null (sin camión)
       km_inicial: 1200.5,
       km_final: 1850,
       km_recorridos: null,

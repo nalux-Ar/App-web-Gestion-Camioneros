@@ -16,6 +16,8 @@ export interface ViajeOpcion {
   fecha: string;
   origen: string;
   destino: string;
+  /** El camión del viaje (null o ausente si no tiene): una carga de combustible de ese viaje va con ese camión. */
+  camion_id?: string | null;
 }
 
 /**

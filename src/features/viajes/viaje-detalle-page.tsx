@@ -16,6 +16,8 @@ import { GastoItem } from '@/features/gastos/gasto-item';
 import { LIST_LIMIT as GASTOS_LIST_LIMIT } from '@/features/gastos/constants';
 import { sumMontos } from '@/features/gastos/gastos-list';
 import { useCategorias, useGastosDelViaje } from '@/features/gastos/use-gastos';
+import { buscarCamion, etiquetaCamion, type CamionDeLista } from '@/features/camiones/camion';
+import { useCamiones } from '@/features/camiones/use-camiones';
 import {
   estadoDesdeCliente,
   leerDesdeCliente,
@@ -81,6 +83,8 @@ export function ViajeDetallePage() {
   const gastosQuery = useGastosDelViaje(id);
   const devolucionesQuery = useDevolucionesDelViaje(id);
   const categoriasQuery = useCategorias();
+  // La patente del camión sale de la lista de camiones (en caché, sin embed). Si no cargó, la fila "Camión" no se muestra.
+  const camiones = useCamiones().data?.items;
   const categorias = categoriasQuery.data;
   const categoriasPorId = useMemo(() => new Map((categorias ?? []).map((categoria) => [categoria.id, categoria])), [categorias]);
 
@@ -132,7 +136,7 @@ export function ViajeDetallePage() {
   } else {
     contenido = (
       <>
-        <DatosDelViaje viaje={viaje} volver={volver} desdeCliente={desdeCliente} />
+        <DatosDelViaje viaje={viaje} volver={volver} desdeCliente={desdeCliente} camiones={camiones} />
         <EntregasDelViaje viaje={viaje} />
         <DevolucionesDelViaje
           viajeId={viaje.id}
@@ -203,8 +207,19 @@ export function ViajeDetallePage() {
   );
 }
 
-/** Fecha, kilometraje, ingreso y observaciones, y el acceso a editar el viaje. */
-function DatosDelViaje({ viaje, volver, desdeCliente }: { viaje: ViajeVista; volver: string; desdeCliente: DesdeCliente | null }) {
+interface DatosDelViajeProps {
+  viaje: ViajeVista;
+  volver: string;
+  desdeCliente: DesdeCliente | null;
+  /** Los camiones del tenant (undefined si la lista no cargó). */
+  camiones: readonly CamionDeLista[] | undefined;
+}
+
+/**
+ * Fecha, camión, kilometraje, ingreso y observaciones, y el acceso a editar el viaje. La fila "Camión" solo aparece si la
+ * cuenta tiene camiones: con el del viaje (su patente, "(archivado)" si lo está) o "Sin asignar" si el viaje no tiene.
+ */
+function DatosDelViaje({ viaje, volver, desdeCliente, camiones }: DatosDelViajeProps) {
   const km = kmDelViaje(viaje);
 
   return (
@@ -223,6 +238,14 @@ function DatosDelViaje({ viaje, volver, desdeCliente }: { viaje: ViajeVista; vol
             {viaje.ingreso !== null ? formatNumber(viaje.ingreso, { decimales: 2 }) : 'Sin cargar'}
           </dd>
         </div>
+        {camiones !== undefined && camiones.length > 0 ? (
+          <div className="col-span-2">
+            <dt className="text-sm text-muted-foreground">Camión</dt>
+            <dd className="text-base font-semibold">
+              {viaje.camion_id ? etiquetaCamion(buscarCamion(camiones, viaje.camion_id)) : 'Sin asignar'}
+            </dd>
+          </div>
+        ) : null}
         <div className="col-span-2">
           <dt className="text-sm text-muted-foreground">Kilometraje</dt>
           <dd className="text-base font-semibold tabular-nums">

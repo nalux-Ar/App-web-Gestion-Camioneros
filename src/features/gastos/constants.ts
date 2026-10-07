@@ -1,3 +1,4 @@
+import { CAMION_ARCHIVADO, CAMION_ARCHIVADO_MESSAGE, GASTOS_CAMION_FK, GASTOS_CAMION_VIAJE } from '@/features/camiones/constants';
 import type { DataErrorContext } from '@/lib/data-errors';
 import type { MetodoPago } from '@/lib/db';
 
@@ -54,6 +55,16 @@ export const METODO_PAGO_ORDER: readonly MetodoPago[] = ['efectivo', 'tarjeta_cr
 export const GASTOS_VIAJE_FK = 'gastos_viaje_fk';
 
 export const GUARDAR_GASTO_CONTEXT: DataErrorContext = {
+  // El camión de la carga (migración 010): se reconoce por el constraint o el texto fijo del mensaje, que nunca se muestran.
+  // Ninguno se arregla reintentando con lo mismo: hay que elegir otro camión (o revisar el viaje).
+  messagesByConstraint: {
+    // 23503: el camión no existe o no es del transportista (mismo error para los dos casos).
+    [GASTOS_CAMION_FK]: 'El camión elegido ya no existe. Elige otro.',
+    // 55000: se eligió un camión que mientras tanto se archivó.
+    [CAMION_ARCHIVADO]: CAMION_ARCHIVADO_MESSAGE,
+    // 23514: el camión no es el del viaje (el viaje cambió de camión mientras tanto, desde otro dispositivo).
+    [GASTOS_CAMION_VIAJE]: 'El camión no coincide con el del viaje: el viaje cambió de camión. Vuelve a elegir el viaje.',
+  },
   // 23503: el trigger rechaza una categoría que no es del transportista ni global (su mensaje no nombra ningún
   // constraint, así que es el caso "por defecto").
   foreignKey: 'La categoría elegida ya no está disponible. Elige otra.',

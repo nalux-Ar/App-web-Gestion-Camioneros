@@ -17,6 +17,8 @@ import { formatNumber } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { categoriasParaElegir, nombreParaMostrar, type Categoria } from './categorias';
 import { AVISO_MENSAJES, LIST_LIMIT, type GastoAviso } from './constants';
+import { buscarCamion, etiquetaCamion } from '@/features/camiones/camion';
+import { useCamiones } from '@/features/camiones/use-camiones';
 import { GastoItem } from './gasto-item';
 import { filtroToParams, filtroToSearch, readFiltro, type GastosFiltro } from './gastos-filters';
 import { sumMontos } from './gastos-list';
@@ -42,6 +44,9 @@ export function GastosPage() {
 
   const filtroUrl = readFiltro(searchParams);
   const categoriasQuery = useCategorias();
+  // La patente de una carga de combustible solo se muestra si la cuenta tiene 2 o más camiones (contando archivados).
+  const camiones = useCamiones().data?.items;
+  const conCamion = camiones !== undefined && camiones.length >= 2;
   const categorias = useMemo<readonly Categoria[]>(() => categoriasQuery.data ?? [], [categoriasQuery.data]);
 
   // "Cargadas" = hay datos de categorías (aunque un refresco posterior haya fallado: `isSuccess` sería false).
@@ -175,7 +180,13 @@ export function GastosPage() {
 
         <ul className="space-y-2">
           {items.map((gasto) => (
-            <GastoItem key={gasto.id} gasto={gasto} categoria={categoriasPorId.get(gasto.categoria_id)} volver={volver} />
+            <GastoItem
+              key={gasto.id}
+              gasto={gasto}
+              categoria={categoriasPorId.get(gasto.categoria_id)}
+              volver={volver}
+              camion={conCamion && gasto.camion_id ? etiquetaCamion(buscarCamion(camiones, gasto.camion_id)) : undefined}
+            />
           ))}
         </ul>
       </>

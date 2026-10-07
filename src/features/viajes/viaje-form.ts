@@ -1,3 +1,4 @@
+import type { ResolucionCamion } from '@/features/camiones/camion-seleccion';
 import { validateFechaDeRegistro } from '@/lib/dates';
 import {
   formatForInput,
@@ -50,6 +51,11 @@ export interface ViajeFormValues {
   fecha: string;
   origen: string;
   destino: string;
+  /**
+   * El camión elegido ('' = ninguno). Solo cuenta cuando hay que ELEGIR (2 o más camiones activos, o un camión archivado
+   * que el viaje ya tenía): con uno solo se asigna solo y sin camiones no hay nada que elegir (ver `decidirCamion`).
+   */
+  camionId: string;
   kmModo: KmModo;
   // Los tres textos se CONSERVAN si la persona cambia de modo y vuelve, pero solo se envían los del modo activo.
   kmInicial: string;
@@ -65,6 +71,7 @@ export type ViajeFormField =
   | 'fecha'
   | 'origen'
   | 'destino'
+  | 'camionId'
   | 'kmInicial'
   | 'kmFinal'
   | 'kmRecorridos'
@@ -76,6 +83,7 @@ export const VIAJE_FIELD_ORDER: readonly ViajeFormField[] = [
   'fecha',
   'origen',
   'destino',
+  'camionId',
   'kmInicial',
   'kmFinal',
   'kmRecorridos',
@@ -114,6 +122,7 @@ export function emptyViajeValues(today: string): ViajeFormValues {
     fecha: today,
     origen: '',
     destino: '',
+    camionId: '',
     kmModo: 'inicial-final',
     kmInicial: '',
     kmFinal: '',
@@ -134,6 +143,8 @@ export interface ViajeEditable {
   fecha: string;
   origen: string;
   destino: string;
+  /** El camión que el viaje ya tenía (puede estar archivado: se conserva salvo que se elija otro). */
+  camion_id?: string | null;
   km_inicial: number | string | null;
   km_final: number | string | null;
   km_recorridos: number | string | null;
@@ -155,6 +166,7 @@ export function valuesFromViaje(viaje: ViajeEditable, newKey: () => string = gen
     fecha: viaje.fecha,
     origen: viaje.origen,
     destino: viaje.destino,
+    camionId: viaje.camion_id ?? '',
     kmModo: kmModoDe(viaje),
     // Km (1 decimal) e ingreso (2) con el separador del dispositivo: un solo separador se lee como decimal
     // y nunca caen en la regla de ambigüedad (solo aplica a litros).
@@ -177,11 +189,13 @@ export function valuesFromViaje(viaje: ViajeEditable, newKey: () => string = gen
 // ---------------------------------------------------------------------------
 
 /** Columnas de `viajes` que escribe el formulario, TODAS explícitas (los `null` vacían el campo al editar).
- *  No incluye `camion_id` (se conserva el que ya tenía), `client_ref` (solo se manda al crear) ni lo que pone la base. */
+ *  `camion_id` es el que resolvió el formulario (`resolverCamion`): el elegido, el único activo, el que ya tenía, o null sin
+ *  camiones. No incluye `client_ref` (solo se manda al crear) ni lo que pone la base. */
 export interface ViajeColumns {
   fecha: string;
   origen: string;
   destino: string;
+  camion_id: string | null;
   km_inicial: number | null;
   km_final: number | null;
   km_recorridos: number | null;
@@ -214,6 +228,11 @@ export interface ValidarViajeContext {
    * cuál eligió cada fila: se pide cargarla antes de guardar.
    */
   clientes: ReadonlyArray<{ id: string }> | null;
+  /**
+   * El camión ya resuelto por el formulario (`resolverCamion` sobre `decidirCamion`), o un error si falta elegirlo o la
+   * lista de camiones no cargó. Sin esto (pruebas viejas, o sin camiones) el viaje va sin camión.
+   */
+  camion?: ResolucionCamion;
 }
 
 export type ViajeValidation =
@@ -336,6 +355,9 @@ export function validateViajeForm(values: ViajeFormValues, context: ValidarViaje
   const destino = validateTextoObligatorio(values.destino, DESTINO_VACIO_MESSAGE, destinoLargoMessage());
   if (!destino.ok) campos.destino = destino.message;
 
+  const camion: ResolucionCamion = context.camion ?? { ok: true, camionId: null };
+  if (!camion.ok) campos.camionId = camion.message;
+
   const km = validateKm(values);
   Object.assign(campos, km.errors);
 
@@ -370,7 +392,7 @@ export function validateViajeForm(values: ViajeFormValues, context: ValidarViaje
   if (focus) return { ok: false, errors, focus };
 
   // Si llegó hasta acá, fecha, origen, destino, ingreso y observaciones son válidos (TypeScript no lo sabe).
-  if (!fecha.ok || !origen.ok || !destino.ok || !ingreso.ok || !observaciones.ok) {
+  if (!fecha.ok || !origen.ok || !destino.ok || !ingreso.ok || !observaciones.ok || !camion.ok) {
     throw new Error('validateViajeForm: estado inconsistente');
   }
 
@@ -381,6 +403,7 @@ export function validateViajeForm(values: ViajeFormValues, context: ValidarViaje
         fecha: fecha.value,
         origen: origen.value,
         destino: destino.value,
+        camion_id: camion.camionId,
         km_inicial: km.km_inicial,
         km_final: km.km_final,
         km_recorridos: km.km_recorridos,

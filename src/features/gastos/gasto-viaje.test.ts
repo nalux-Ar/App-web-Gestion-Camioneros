@@ -134,9 +134,10 @@ describe('validación del viaje', () => {
 });
 
 describe('columnas, INSERT y huella con viaje_id', () => {
-  it('las columnas llevan exactamente estas claves (viaje_id incluido) y nada de transportista_id ni id', () => {
+  it('las columnas llevan exactamente estas claves (viaje_id y camion_id incluidos) y nada de transportista_id ni id', () => {
     expect(Object.keys(columnasValidas()).sort()).toEqual(
       [
+        'camion_id',
         'categoria_id',
         'descripcion',
         'fecha',

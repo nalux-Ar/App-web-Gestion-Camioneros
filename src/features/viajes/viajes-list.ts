@@ -8,6 +8,8 @@ export interface FilaViajeDeLista {
   fecha: string;
   origen: string;
   destino: string;
+  /** El camión del viaje (la patente se muestra desde la lista de camiones, sin embed). */
+  camion_id?: string | null;
   km_inicial: number | string | null;
   km_final: number | string | null;
   km_recorridos: number | string | null;
@@ -23,6 +25,7 @@ export interface ViajeDeLista {
   fecha: string;
   origen: string;
   destino: string;
+  camion_id: string | null;
   km_inicial: number | null;
   km_final: number | null;
   km_recorridos: number | null;
@@ -44,6 +47,7 @@ export function aViajeDeLista(fila: FilaViajeDeLista): ViajeDeLista {
     fecha: fila.fecha,
     origen: fila.origen,
     destino: fila.destino,
+    camion_id: fila.camion_id ?? null,
     km_inicial: fromDbNumber(fila.km_inicial),
     km_final: fromDbNumber(fila.km_final),
     km_recorridos: fromDbNumber(fila.km_recorridos),

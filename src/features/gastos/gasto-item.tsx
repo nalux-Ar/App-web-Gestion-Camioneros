@@ -19,6 +19,8 @@ interface GastoItemProps {
    * repite el recorrido del viaje, que ya es el título de la pantalla. Es un dato ya validado, no una ruta.
    */
   desdeViaje?: DesdeViaje;
+  /** El camión de la carga ("AB 123 CD"), solo si la cuenta tiene 2 o más camiones. */
+  camion?: string;
 }
 
 /**
@@ -27,11 +29,11 @@ interface GastoItemProps {
  * junto a la fecha. Si el gasto está vinculado a un viaje, su recorrido va en una línea discreta y truncada.
  * Los números van sin símbolo de moneda.
  */
-export function GastoItem({ gasto, categoria, volver = '', desdeViaje }: GastoItemProps) {
+export function GastoItem({ gasto, categoria, volver = '', desdeViaje, camion }: GastoItemProps) {
   const nombre = categoria ? nombreParaMostrar(categoria) : 'Gasto';
   // Los litros solo se guardan en combustible; si todavía no llegaron las categorías, `litros != null` ya lo implica.
   const mostrarLitros = gasto.litros !== null && (categoria === undefined || isCombustible(categoria));
-  const detalle = [formatDateShort(gasto.fecha), mostrarLitros ? `${formatNumber(gasto.litros, { decimales: 3, fijos: false })} L` : null]
+  const detalle = [formatDateShort(gasto.fecha), mostrarLitros ? `${formatNumber(gasto.litros, { decimales: 3, fijos: false })} L` : null, camion]
     .filter(Boolean)
     .join(' · ');
   const viaje = desdeViaje ? null : (gasto.viajes ?? null);

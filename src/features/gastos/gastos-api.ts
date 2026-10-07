@@ -29,7 +29,8 @@ import { acotarLista, type ListaAcotada } from './gastos-list';
 // ---------------------------------------------------------------------------
 
 /** Las columnas propias del gasto que muestra una fila de lista. */
-const FILA_COLUMNS = 'id, categoria_id, fecha, monto, descripcion, litros, created_at' as const;
+/** Con `camion_id` (la patente se muestra desde la lista de camiones ya cargada, sin embeber `camiones(...)`). */
+const FILA_COLUMNS = 'id, categoria_id, fecha, monto, descripcion, litros, camion_id, created_at' as const;
 
 /**
  * Las de la lista de un mes: las de la fila + el viaje al que está vinculado (`viaje_id` y el embed
@@ -44,7 +45,7 @@ const LIST_COLUMNS = `${FILA_COLUMNS}, viaje_id, viajes(origen, destino)` as con
  * entre los viajes recientes y abrir el gasto no pierde el vínculo.
  */
 const DETAIL_COLUMNS =
-  'id, categoria_id, fecha, monto, descripcion, metodo_pago, litros, precio_por_litro, km_odometro, tanque_lleno, viaje_id, viajes(id, fecha, origen, destino)' as const;
+  'id, categoria_id, fecha, monto, descripcion, metodo_pago, litros, precio_por_litro, km_odometro, tanque_lleno, viaje_id, camion_id, viajes(id, fecha, origen, destino, camion_id)' as const;
 
 /** Lo que tiene una fila de gasto en cualquier lista (la de un mes o la de un viaje). */
 export interface GastoDeFila {
@@ -54,6 +55,8 @@ export interface GastoDeFila {
   monto: number;
   descripcion: string | null;
   litros: number | null;
+  /** El camión de la carga (null si no tiene). */
+  camion_id?: string | null;
   created_at: string;
 }
 
@@ -109,7 +112,9 @@ export type GastoDetalle = {
   km_odometro: number | null;
   tanque_lleno: boolean | null;
   viaje_id: string | null;
-  /** El viaje vinculado (embebido), o `null` si no tiene. Lleva lo necesario para ofrecerlo en el selector. */
+  /** El camión de la carga (null si no tiene). */
+  camion_id: string | null;
+  /** El viaje vinculado (embebido, con su camión), o `null` si no tiene. Lleva lo necesario para ofrecerlo en el selector. */
   viajes: ViajeOpcion | null;
 };
 

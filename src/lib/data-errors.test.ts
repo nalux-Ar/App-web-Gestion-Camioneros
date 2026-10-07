@@ -184,3 +184,79 @@ describe('borrar un viaje: 23001 (PostgreSQL 18) es lo mismo que 23503', () => {
     expect(mapDataError(fk('x', '', '23514'), ELIMINAR_VIAJE_CONTEXT)).toBe(mapDataError(fk('x', '', '23514')));
   });
 });
+
+describe('messagesByConstraint: un mensaje por constraint, para cualquier clase de error (010)', () => {
+  /** Los textos reales de la migración 010 (el del trigger y los de los constraints). */
+  // `DataRequestError` no guarda el `hint` de PostgREST (nunca se muestra): el error crudo sí lo trae.
+  const ARCHIVADO_CRUDO = { code: '55000', message: 'El camión está archivado (camion_archivado)', details: '', hint: 'Reactivalo o elegí otro camión.' };
+  const ARCHIVADO = new DataRequestError(ARCHIVADO_CRUDO, 400);
+  const NO_COINCIDE = new DataRequestError({ code: '23514', message: 'El camión del gasto no coincide con el del viaje (gastos_camion_viaje_chk)' }, 400);
+  const FK_CAMION_GASTO = fk(
+    'insert or update on table "gastos" violates foreign key constraint "gastos_camion_fk"',
+    'Key (transportista_id, camion_id)=(11111111-1111-4111-8111-111111111111, 33333333-3333-4333-8333-333333333333) is not present in table "camiones".',
+  );
+  const FK_CAMION_VIAJE = fk('insert or update on table "viajes" violates foreign key constraint "viajes_camion_fk"');
+  const CONTEXTO: DataErrorContext = {
+    messagesByConstraint: { camion_archivado: 'archivado', gastos_camion_viaje_chk: 'no coincide', camiones_transportista_patente_key: 'repetida' },
+    invalidData: 'datos',
+    unique: 'único',
+  };
+
+  it('elige el mensaje por el constraint (o el texto fijo) en 55000, 23514 y 23505', () => {
+    expect(mapDataError(ARCHIVADO, CONTEXTO)).toBe('archivado');
+    expect(mapDataError(NO_COINCIDE, CONTEXTO)).toBe('no coincide');
+    const repetida = new DataRequestError({ code: '23505', message: 'duplicate key value violates unique constraint "camiones_transportista_patente_key"' }, 409);
+    expect(mapDataError(repetida, CONTEXTO)).toBe('repetida');
+  });
+
+  it('gana sobre el mensaje de la clase; si no nombra ninguno, sigue la clase', () => {
+    expect(mapDataError(new DataRequestError({ code: '23514', message: 'violates check constraint "otro_chk"' }, 400), CONTEXTO)).toBe('datos');
+    expect(mapDataError(new DataRequestError({ code: '23505', message: 'duplicate key "otra_key"' }, 409), CONTEXTO)).toBe('único');
+  });
+
+  it('nunca se reintenta (aunque la clase sí se reintentaría): con lo mismo da lo mismo', () => {
+    // 55000 es "otro" (unknown, reintentable) sin el contexto: con el contexto deja de serlo.
+    expect(isRetryableDataError(ARCHIVADO)).toBe(true);
+    expect(isRetryableDataError(ARCHIVADO, CONTEXTO)).toBe(false);
+    expect(isRetryableDataError(NO_COINCIDE, CONTEXTO)).toBe(false);
+  });
+
+  it('coincide por palabra entera: un nombre que lo contiene no cuenta', () => {
+    const parecido = new DataRequestError({ code: '55000', message: 'El camión está archivado (camion_archivado_v2)' }, 400);
+    expect(mapDataError(parecido, CONTEXTO)).not.toBe('archivado');
+  });
+
+  it('el texto del constraint ni el hint del trigger se muestran nunca', () => {
+    for (const error of [ARCHIVADO, ARCHIVADO_CRUDO, NO_COINCIDE, FK_CAMION_GASTO]) {
+      const texto = mapDataError(error, GUARDAR_GASTO_CONTEXT);
+      expect(texto).not.toMatch(/camion_|_chk|_fk|Reactivalo/);
+    }
+  });
+
+  it('GUARDAR un gasto: FK del camión, camión archivado y no coincide con el viaje; la FK del viaje y la de categoría siguen igual', () => {
+    expect(mapDataError(FK_CAMION_GASTO, GUARDAR_GASTO_CONTEXT)).toBe('El camión elegido ya no existe. Elige otro.');
+    expect(mapDataError(ARCHIVADO, GUARDAR_GASTO_CONTEXT)).toBe('Ese camión está archivado. Elige otro camión o reactívalo desde Camiones.');
+    expect(mapDataError(NO_COINCIDE, GUARDAR_GASTO_CONTEXT)).toBe(
+      'El camión no coincide con el del viaje: el viaje cambió de camión. Vuelve a elegir el viaje.',
+    );
+    expect(mapDataError(fk(MSG_FK_VIAJE, DETALLE_FK_VIAJE), GUARDAR_GASTO_CONTEXT)).toBe('El viaje elegido ya no existe. Elige otro o déjalo sin viaje.');
+    expect(mapDataError(fk(MSG_TRIGGER_CATEGORIA), GUARDAR_GASTO_CONTEXT)).toBe('La categoría elegida ya no está disponible. Elige otra.');
+    for (const error of [FK_CAMION_GASTO, ARCHIVADO, NO_COINCIDE]) expect(isRetryableDataError(error, GUARDAR_GASTO_CONTEXT)).toBe(false);
+  });
+
+  it('el detalle de la FK del camión nombra "camiones" y no "viajes": no se confunde con la del viaje', () => {
+    expect(mentionsConstraint(FK_CAMION_GASTO, GASTOS_VIAJE_FK)).toBe(false);
+  });
+
+  it('GUARDAR un viaje: FK del camión y camión archivado; la FK de un cliente sigue con su mensaje', () => {
+    expect(mapDataError(FK_CAMION_VIAJE, GUARDAR_VIAJE_CONTEXT)).toBe('El camión elegido ya no existe. Elige otro.');
+    expect(mapDataError(ARCHIVADO, GUARDAR_VIAJE_CONTEXT)).toBe('Ese camión está archivado. Elige otro camión o reactívalo desde Camiones.');
+    expect(mapDataError(fk('El cliente no existe'), GUARDAR_VIAJE_CONTEXT)).toBe('Alguno de los clientes ya no existe: actualiza la lista y elígelo de nuevo.');
+    expect(isRetryableDataError(FK_CAMION_VIAJE, GUARDAR_VIAJE_CONTEXT)).toBe(false);
+  });
+
+  it('sin messagesByConstraint todo sigue como antes (contexto vacío)', () => {
+    expect(mapDataError(ARCHIVADO)).toBe(mapDataError(new DataRequestError({ code: '55000', message: 'x' }, 400)));
+    expect(isRetryableDataError(NO_COINCIDE)).toBe(false);
+  });
+});

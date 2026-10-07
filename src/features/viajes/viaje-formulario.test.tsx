@@ -93,8 +93,15 @@ const db = {
 };
 
 type Handler = (call: Call) => unknown;
+/**
+ * Los camiones de la cuenta. Por defecto, solo el del viaje de prueba y ARCHIVADO: así un viaje nuevo va sin camión (no hay
+ * activos) y un viaje que ya lo tenía lo conserva, como antes de la Etapa 5. Las pruebas del camión cambian esta ruta.
+ */
+const CAMION_ARCHIVADO = { id: CAMION_ID, patente: 'AB123CD', marca: null, modelo: null, anio: null, activa: false };
+
 const route: {
   clientes: Handler;
+  camiones: Handler;
   insertCliente: Handler;
   /** `select('id, nombre').eq('client_ref', ?).maybeSingle()`: el cliente que ya guardó un intento anterior. */
   clientePorRef: Handler;
@@ -110,6 +117,7 @@ const route: {
   desvincular: Handler;
 } = {
   clientes: () => ok(db.clientes),
+  camiones: () => ok([CAMION_ARCHIVADO]),
   insertCliente: () => {
     throw new Error('insertCliente sin definir');
   },
@@ -131,6 +139,7 @@ function resetRoutes() {
     { id: C_FRIGO, nombre: 'Frigorífico Sur' },
   ];
   route.clientes = () => ok(db.clientes);
+  route.camiones = () => ok([CAMION_ARCHIVADO]);
   route.insertCliente = () => {
     throw new Error('insertCliente sin definir');
   };
@@ -150,6 +159,7 @@ function installResponder() {
   h.state.responder = (call: Call) => {
     const has = (m: string) => call.ops.some((o) => o.m === m);
     if (call.target === 'miembros' && has('maybeSingle')) return ok(MIEMBRO);
+    if (call.target === 'camiones') return route.camiones(call);
     if (call.target === 'clientes') {
       if (has('insert')) return route.insertCliente(call);
       if (has('maybeSingle')) return route.clientePorRef(call);
@@ -824,6 +834,8 @@ describe('formulario de viaje: guardar (alta)', () => {
       p_fecha: todayLocal(),
       p_origen: 'Rosario',
       p_destino: 'Córdoba',
+      // Sin camiones activos el viaje va sin camión: `null` explícito (la base no le pone ninguno).
+      p_camion_id: null,
       p_km_inicial: 1200,
       p_km_final: null,
       p_km_recorridos: null,
@@ -831,7 +843,6 @@ describe('formulario de viaje: guardar (alta)', () => {
       p_ingreso: 2500.5,
       p_entregas: [{ cliente_id: C_ALMACEN, incidencias: 'Golpe' }],
     });
-    expect(Object.keys(args)).not.toContain('p_camion_id');
     // Fue con timeout de escritura.
     expect(crearCalls()[0]!.ops.find((o) => o.m === 'abortSignal')!.args[0]).toBeInstanceOf(AbortSignal);
 
@@ -1366,7 +1377,7 @@ describe('formulario de viaje: editar', () => {
     for (const key of [delMes, otroMes]) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
   });
 
-  it('un viaje sin camión se guarda con p_camion_id = null', async () => {
+  it('un viaje sin camión (y sin camiones activos) se guarda con p_camion_id = null', async () => {
     route.detalle = () => ok(detalleViaje({ camion_id: null }));
     await mount(`/viajes/${VIAJE_ID}/editar`);
     await guardar();

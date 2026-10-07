@@ -26,14 +26,15 @@ export type EntregaPayload = { id?: string; cliente_id: string; incidencias: str
  *
  * Por qué a mano: los tipos de `src/lib/database.types.ts` los genera Supabase y marcan los parámetros
  * opcionales como `number | undefined` (sin `null`), pero la base sí acepta `null` (el default de esos
- * parámetros es `null`). Acá se manda `null` explícito para vaciar un campo. No lleva `p_camion_id`: en
- * el alta no se manda (queda en el default `null`).
+ * parámetros es `null`). Acá se manda `null` explícito para vaciar un campo. `p_camion_id` es el camión que
+ * resolvió el formulario (`null` sin camiones: con exactamente un camión activo la base pone ese, migración 010).
  */
 export interface CrearViajeArgs {
   p_client_ref: string;
   p_fecha: string;
   p_origen: string;
   p_destino: string;
+  p_camion_id: string | null;
   p_km_inicial: number | null;
   p_km_final: number | null;
   p_km_recorridos: number | null;
@@ -57,7 +58,10 @@ export interface ActualizarViajeArgs {
   p_fecha: string;
   p_origen: string;
   p_destino: string;
-  /** El camión que el viaje YA tenía (null si no tenía). Mandar `null` siempre lo borraría sin querer. */
+  /**
+   * El camión del formulario: el que el viaje ya tenía si no se cambió (aunque esté archivado: la base solo rechaza un
+   * camión archivado si CAMBIA), o el elegido. `null` deja el viaje sin camión: nunca se manda por defecto.
+   */
   p_camion_id: string | null;
   p_km_inicial: number | null;
   p_km_final: number | null;
@@ -95,6 +99,7 @@ export function buildCrearArgs({ columns, entregas }: ViajeDatos, clientRef: str
     p_fecha: columns.fecha,
     p_origen: columns.origen,
     p_destino: columns.destino,
+    p_camion_id: columns.camion_id,
     p_km_inicial: columns.km_inicial,
     p_km_final: columns.km_final,
     p_km_recorridos: columns.km_recorridos,
@@ -104,14 +109,14 @@ export function buildCrearArgs({ columns, entregas }: ViajeDatos, clientRef: str
   };
 }
 
-/** Edición: reemplazo completo. `camionId` es el que el viaje ya tenía (se pasa tal cual). */
-export function buildActualizarArgs(viajeId: string, camionId: string | null, { columns, entregas }: ViajeDatos): ActualizarViajeArgs {
+/** Edición: reemplazo completo, con el camión del FORMULARIO (`columns.camion_id`): el que ya tenía o el elegido. */
+export function buildActualizarArgs(viajeId: string, { columns, entregas }: ViajeDatos): ActualizarViajeArgs {
   return {
     p_viaje_id: viajeId,
     p_fecha: columns.fecha,
     p_origen: columns.origen,
     p_destino: columns.destino,
-    p_camion_id: camionId,
+    p_camion_id: columns.camion_id,
     p_km_inicial: columns.km_inicial,
     p_km_final: columns.km_final,
     p_km_recorridos: columns.km_recorridos,
@@ -131,6 +136,7 @@ export function fingerprintOf({ columns, entregas }: ViajeDatos): string {
     columns.fecha,
     columns.origen,
     columns.destino,
+    columns.camion_id,
     columns.km_inicial,
     columns.km_final,
     columns.km_recorridos,
@@ -190,8 +196,9 @@ export async function crearViaje({ datos, clientRef, sent, io }: CrearViajeArgsF
   const sameAsEverythingSent = sent.size === 1 && sent.has(fingerprint);
   if (sameAsEverythingSent) return 'ya-guardado';
 
-  // El viaje lo creó este mismo formulario sin camión: `p_camion_id` = null es lo que ya tiene.
-  await io.actualizar(buildActualizarArgs(viajeId, null, datos));
+  // Con el camión de lo que está en pantalla. Antes de la Etapa 5 acá iba `null` ("el formulario lo creó sin camión"):
+  // con camiones eso BORRABA el camión del viaje recién creado si el usuario había cambiado algo entre intentos.
+  await io.actualizar(buildActualizarArgs(viajeId, datos));
   return 'ya-guardado-actualizado';
 }
 
@@ -201,8 +208,7 @@ export async function crearViaje({ datos, clientRef, sent, io }: CrearViajeArgsF
 
 interface ActualizarViajeArgsFlow {
   viajeId: string;
-  /** El `camion_id` que el viaje ya tenía (leído del detalle), tal cual. Si era null, null. */
-  camionId: string | null;
+  /** Con el camión del formulario (`datos.columns.camion_id`). */
   datos: ViajeDatos;
   io: ViajeWriteIO;
 }
@@ -211,8 +217,9 @@ interface ActualizarViajeArgsFlow {
  * Reemplazo completo del viaje y sus entregas. "Último guardado gana" entre pestañas: la función de la
  * base serializa los guardados del mismo viaje (lock de la fila) y deja la lista de entregas exactamente
  * como se manda; si otra pestaña agregó una entrega que esta no tiene, se borra. El único aviso que da la
- * base es P0002 cuando el viaje (o una entrega con `id`) ya no está.
+ * base es P0002 cuando el viaje (o una entrega con `id`) ya no está. Si el camión cambia, la base mueve al camión
+ * nuevo los gastos del viaje que tenían camión (trigger de la 010): el botón de guardar lo avisa antes.
  */
-export async function actualizarViaje({ viajeId, camionId, datos, io }: ActualizarViajeArgsFlow): Promise<void> {
-  await io.actualizar(buildActualizarArgs(viajeId, camionId, datos));
+export async function actualizarViaje({ viajeId, datos, io }: ActualizarViajeArgsFlow): Promise<void> {
+  await io.actualizar(buildActualizarArgs(viajeId, datos));
 }

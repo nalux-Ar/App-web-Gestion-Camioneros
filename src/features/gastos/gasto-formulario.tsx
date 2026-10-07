@@ -9,7 +9,19 @@ import { NumberField } from '@/components/shared/number-field';
 import { SelectField } from '@/components/shared/select-field';
 import { SubmitBar } from '@/components/shared/submit-bar';
 import { TextareaField } from '@/components/shared/textarea-field';
+import type { CamionDeLista } from '@/features/camiones/camion';
+import {
+  CAMIONES_SIN_CARGAR_MESSAGE,
+  combinarCamiones,
+  decidirCamion,
+  domIdDelCamion,
+  resolverCamion,
+  type ResolucionCamion,
+} from '@/features/camiones/camion-seleccion';
+import { CamionSelector } from '@/features/camiones/camion-selector';
+import { useCamiones } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
+import { useMember } from '@/features/member/use-member';
 import { useTenantId } from '@/features/member/use-tenant-id';
 import { RECIENTES_LIMIT } from '@/features/viajes/constants';
 import { useViajesRecientes } from '@/features/viajes/use-viajes';
@@ -54,6 +66,8 @@ import { useActualizarGasto, useCrearGasto, useEliminarGasto } from './use-gasto
 const FIELD_DOM_IDS: Record<GastoFormField, string> = {
   categoriaId: 'gasto-categoria-0', // primera opción del grupo de botones
   monto: 'gasto-monto',
+  // Prefijo: el control real depende de la decisión (botones, lista o bloque); ver `domIdDelCamion`.
+  camionId: 'gasto-camion',
   litros: 'gasto-litros',
   kmOdometro: 'gasto-km',
   tanqueLleno: 'gasto-tanque-0',
@@ -103,9 +117,14 @@ interface GastoFormularioProps {
  * incluye el viaje ya vinculado al gasto que se edita y el preseleccionado. Si la lista no carga, el error con
  * "Reintentar" va junto al campo y NO bloquea el guardado ni toca nada de lo tipeado.
  *
- * Combustible: con la categoría Combustible aparecen litros, km del odómetro y tanque lleno;
+ * Combustible: con la categoría Combustible aparecen el camión, los litros, el km del odómetro y el tanque lleno;
  * el precio por litro NO se tipea, se calcula (monto ÷ litros). Si se cambia a otra categoría,
  * esos campos desaparecen y al guardar se mandan en NULL (también en el UPDATE).
+ *
+ * Camión (solo Combustible: con litros hace falta camión; ver `decidirCamion`): si el gasto va en un viaje con camión, va
+ * ESE camión, bloqueado y visible; si no, con uno solo activo se asigna solo, con dos o más se elige con un toque (sin
+ * preselección) y sin ninguno se carga uno ahí mismo ("+ Nuevo camión", solo el administrador). Un gasto que ya tenía un
+ * camión archivado lo conserva. Si la lista de camiones no carga, la carga de combustible no se guarda.
  */
 export function GastoFormulario({
   categorias,
@@ -122,7 +141,8 @@ export function GastoFormulario({
     gasto ? valuesFromGasto(gasto) : emptyGastoValues(todayLocal(), viajePreseleccionado?.id ?? ''),
   );
   const [errors, setErrors] = useState<GastoFormErrors>({});
-  const [focusRequest, setFocusRequest] = useState<{ field: GastoFormField; n: number } | null>(null);
+  // `domId`: el id del DOM ya resuelto cuando depende de lo que se ve (el control del camión cambia según la decisión).
+  const [focusRequest, setFocusRequest] = useState<{ field: GastoFormField; n: number; domId?: string } | null>(null);
   const [gone, setGone] = useState(false);
 
   // Clave de idempotencia del ALTA: una vez al abrir, igual en cada reintento, nueva tras guardar.
@@ -164,6 +184,45 @@ export function GastoFormulario({
   );
 
   const fuel = esCombustibleElegida(values.categoriaId, categorias);
+
+  // Camión de la carga de combustible: la lista de camiones (en caché) + los cargados o reactivados acá mismo, que la lista
+  // todavía no trae (se refresca en segundo plano). El camión del viaje elegido manda (la base exige que coincidan).
+  const { member } = useMember();
+  // `fresca`: se vuelve a pedir al abrir el formulario (si no, una lista vieja con 1 solo camión asignaría ese sin mostrar el selector).
+  const camionesQuery = useCamiones({ fresca: true });
+  // Cada camión cargado o reactivado acá, con el momento de la lista que se tenía al hacerlo (`dataUpdatedAt`): en cuanto la
+  // lista se vuelve a leer, ella manda (ver `combinarCamiones`).
+  const [camionesCreados, setCamionesCreados] = useState<Array<{ camion: CamionDeLista; listaAl: number }>>([]);
+  const [mensajeCamion, setMensajeCamion] = useState<string | null>(null);
+  const camionesCargados = camionesQuery.data?.items;
+  const listaAl = camionesQuery.dataUpdatedAt;
+  const camiones = useMemo(
+    () =>
+      camionesCargados
+        ? combinarCamiones(
+            camionesCargados,
+            camionesCreados.filter((creado) => creado.listaAl >= listaAl).map((creado) => creado.camion),
+          )
+        : null,
+    [camionesCargados, camionesCreados, listaAl],
+  );
+  const viajeElegidoOpcion = values.viajeId === '' ? null : (viajes.find((viaje) => viaje.id === values.viajeId) ?? null);
+  const camionDelViaje = viajeElegidoOpcion?.camion_id ?? null;
+  const decisionCamion =
+    fuel && camiones
+      ? decidirCamion({ camiones, original: gasto?.camion_id ?? null, camionDelViaje, contexto: 'combustible' })
+      : null;
+  const resolucionCamion: ResolucionCamion = !fuel
+    ? { ok: true, camionId: null }
+    : decisionCamion
+      ? resolverCamion(decisionCamion, values.camionId)
+      : { ok: false, message: CAMIONES_SIN_CARGAR_MESSAGE };
+
+  function usarCamionNuevo(camion: CamionDeLista, mensaje: string) {
+    setCamionesCreados((previos) => [...previos.filter((previo) => previo.camion.id !== camion.id), { camion, listaAl }]);
+    setField('camionId', camion.id);
+    setMensajeCamion(mensaje);
+  }
   // "Gastos varios": la descripción es obligatoria (ver `validateGastoForm`).
   const gastosVarios = esGastosVariosElegida(values.categoriaId, categorias);
   const opcionesCategoria = categoriasParaElegir(categorias, gasto?.categoria_id).map((categoria) => ({
@@ -178,7 +237,7 @@ export function GastoFormulario({
   // solo toca el DOM (no hay setState adentro).
   useEffect(() => {
     if (!focusRequest) return;
-    const element = document.getElementById(FIELD_DOM_IDS[focusRequest.field]);
+    const element = document.getElementById(focusRequest.domId ?? FIELD_DOM_IDS[focusRequest.field]);
     if (!element) return;
     element.focus({ preventScroll: true });
     element.scrollIntoView({ block: 'center' }); // centrado: no queda bajo el header fijo
@@ -192,6 +251,8 @@ export function GastoFormulario({
   function handleViajeChange(viajeId: string) {
     setField('viajeId', viajeId);
     setViajeElegido(viajes.find((viaje) => viaje.id === viajeId) ?? null);
+    // Se deja el viaje que tenía camión: el camión queda elegido (editable), con el valor que tenía.
+    if (camionDelViaje) setField('camionId', camionDelViaje);
   }
 
   function handleCategoriaChange(categoriaId: string) {
@@ -206,10 +267,12 @@ export function GastoFormulario({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const validation = validateGastoForm(values, { categorias, today: todayLocal(), viajes });
+    const validation = validateGastoForm(values, { categorias, today: todayLocal(), viajes, camion: resolucionCamion });
     if (!validation.ok) {
       setErrors(validation.errors);
-      setFocusRequest((previous) => ({ field: validation.firstField, n: (previous?.n ?? 0) + 1 }));
+      // El camión no tiene un único control: el foco va al que se está mostrando (botón, lista o bloque).
+      const domId = validation.firstField === 'camionId' ? domIdDelCamion(FIELD_DOM_IDS.camionId, decisionCamion) : undefined;
+      setFocusRequest((previous) => ({ field: validation.firstField, n: (previous?.n ?? 0) + 1, domId }));
       return;
     }
     setErrors({});
@@ -300,6 +363,26 @@ export function GastoFormulario({
         {fuel ? (
           <div className="space-y-5 rounded-lg border border-border bg-card p-4">
             <p className="text-sm font-semibold">Combustible</p>
+            <CamionSelector
+              id={FIELD_DOM_IDS.camionId}
+              decision={decisionCamion}
+              value={values.camionId}
+              onChange={(camionId) => setField('camionId', camionId)}
+              error={errors.camionId}
+              carga={{
+                estado: camionesCargados ? 'listo' : camionesQuery.isError ? 'error' : 'cargando',
+                error: camionesQuery.error,
+                reintentando: camionesQuery.isFetching,
+                onReintentar: () => void camionesQuery.refetch(),
+              }}
+              esAdmin={member?.rol === 'admin'}
+              esElPrimero={camiones !== null && camiones.length === 0}
+              onCamionListo={usarCamionNuevo}
+            />
+            {/* Lo que pasó al cargar o reactivar un camión desde acá (p. ej. cuántos registros sin camión se le asignaron). */}
+            <p role="status" aria-live="polite" className={mensajeCamion ? 'text-sm font-medium' : 'sr-only'}>
+              {mensajeCamion ?? ''}
+            </p>
             <NumberField
               id="gasto-litros"
               label="Litros"

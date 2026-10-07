@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { useCamiones } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { useViajeOpcion, useViajesRecientes } from '@/features/viajes/use-viajes';
 import { leerDesdeViaje, rutaDelViaje } from '@/features/viajes/viaje-navegacion';
@@ -54,6 +55,8 @@ export function GastoFormPage({ modo }: GastoFormPageProps) {
   // categorías y el gasto en vez de después, que con mala señal ahorra una espera entera. No bloquea la pantalla ni se espera:
   // si falla, el error con "Reintentar" va junto al campo y el gasto se puede guardar igual.
   useViajesRecientes({ enabled: !idInvalido });
+  // Lo mismo con los camiones (el bloque Combustible los necesita para el camión de la carga); `fresca`: igual que en el formulario.
+  useCamiones({ enabled: !idInvalido, fresca: true });
 
   const titulo = modo === 'nuevo' ? 'Nuevo gasto' : 'Editar gasto';
 

@@ -1,3 +1,4 @@
+import type { ResolucionCamion } from '@/features/camiones/camion-seleccion';
 import { validateFechaDeRegistro } from '@/lib/dates';
 import type { MetodoPago, NewRow } from '@/lib/db';
 import {
@@ -43,6 +44,8 @@ export interface GastoFormValues {
   metodoPago: '' | MetodoPago;
   // Solo se usan con la categoría Combustible. Se CONSERVAN si el usuario
   // cambia de categoría y vuelve, pero no se envían (ver `validateGastoForm`).
+  /** El camión elegido ('' = ninguno). Solo cuenta cuando hay que ELEGIR (ver `decidirCamion`). */
+  camionId: string;
   litros: string;
   kmOdometro: string;
   tanqueLleno: TanqueLlenoChoice;
@@ -55,6 +58,7 @@ export const GASTO_FIELD_ORDER: readonly GastoFormField[] = [
   'categoriaId',
   'descripcion',
   'monto',
+  'camionId',
   'litros',
   'kmOdometro',
   'tanqueLleno',
@@ -75,6 +79,7 @@ export function emptyGastoValues(today: string, viajeId = ''): GastoFormValues {
     viajeId,
     descripcion: '',
     metodoPago: '',
+    camionId: '',
     litros: '',
     kmOdometro: '',
     tanqueLleno: '',
@@ -92,6 +97,8 @@ export interface GastoEditable {
   km_odometro: number | string | null;
   tanque_lleno: boolean | null;
   viaje_id: string | null;
+  /** El camión que el gasto ya tenía (puede estar archivado: se conserva salvo que se elija otro). */
+  camion_id?: string | null;
 }
 
 export function valuesFromGasto(gasto: GastoEditable): GastoFormValues {
@@ -102,6 +109,7 @@ export function valuesFromGasto(gasto: GastoEditable): GastoFormValues {
     viajeId: gasto.viaje_id ?? '',
     descripcion: gasto.descripcion ?? '',
     metodoPago: gasto.metodo_pago ?? '',
+    camionId: gasto.camion_id ?? '',
     // Litros SIEMPRE con coma: con el punto decimal de es-MX/es-US/es-419, 40,125 L quedaría "40.125", que
     // las reglas de litros rechazan como ambiguo (¿40,125 o 40125?). La coma se lee igual en cualquier idioma.
     litros: formatForInput(fromDbNumber(gasto.litros), ','),
@@ -161,6 +169,8 @@ export interface GastoColumns {
   precio_por_litro: number | null;
   km_odometro: number | null;
   tanque_lleno: boolean | null;
+  /** El camión de la carga de combustible; `null` en las demás categorías (como los litros). */
+  camion_id: string | null;
 }
 
 export interface ValidarGastoContext {
@@ -170,6 +180,12 @@ export interface ValidarGastoContext {
   today: string;
   /** Los viajes que se pueden elegir ahora (los recientes + el vinculado + el preseleccionado): ver `opcionesDeViaje`. */
   viajes: ReadonlyArray<{ id: string }>;
+  /**
+   * Solo en Combustible: el camión ya resuelto por el formulario (`resolverCamion` sobre `decidirCamion`), o el error si
+   * falta elegirlo, hay que cargar uno o la lista de camiones no cargó. Con litros hace falta camión: en Combustible la
+   * resolución nunca da `null`. Sin esto (pruebas viejas) la carga va sin camión.
+   */
+  camion?: ResolucionCamion;
 }
 
 export type GastoValidation =
@@ -202,10 +218,10 @@ export const VIAJE_INVALIDO_MESSAGE = 'Elige un viaje de la lista.';
  *  - viaje: opcional ('' = sin viaje); si hay, tiene que ser uno de los viajes conocidos (`context.viajes`).
  *  - descripción: <= 2000 caracteres (recortada; vacía = null). OBLIGATORIA solo en la
  *    categoría global "Gastos varios"; en las demás es opcional.
- *  - Combustible: litros obligatorios (> 0), km >= 0 opcional, tanque lleno
- *    Sí/No/Sin indicar; precio por litro calculado.
- *  - Cualquier otra categoría: litros, precio, km y tanque van en NULL aunque
- *    el formulario los tenga cargados de antes.
+ *  - Combustible: camión obligatorio (`context.camion`), litros obligatorios (> 0),
+ *    km >= 0 opcional, tanque lleno Sí/No/Sin indicar; precio por litro calculado.
+ *  - Cualquier otra categoría: camión, litros, precio, km y tanque van en NULL
+ *    aunque el formulario los tenga cargados de antes.
  */
 export function validateGastoForm(values: GastoFormValues, context: ValidarGastoContext): GastoValidation {
   const errors: GastoFormErrors = {};
@@ -242,8 +258,13 @@ export function validateGastoForm(values: GastoFormValues, context: ValidarGasto
   let litros: number | null = null;
   let kmOdometro: number | null = null;
   let tanqueLleno: boolean | null = null;
+  let camionId: string | null = null;
 
   if (fuel) {
+    const camion: ResolucionCamion = context.camion ?? { ok: true, camionId: null };
+    if (camion.ok) camionId = camion.camionId;
+    else errors.camionId = camion.message;
+
     const litrosResult = validateRequiredNumber(values.litros, 'litros');
     if (litrosResult.ok) litros = litrosResult.value;
     else errors.litros = litrosResult.message;
@@ -280,6 +301,8 @@ export function validateGastoForm(values: GastoFormValues, context: ValidarGasto
       precio_por_litro: calcPrecioPorLitro(montoDb, litrosDb),
       km_odometro: toDbNumberOrNull(kmOdometro, 'km'),
       tanque_lleno: litrosDb === null ? null : tanqueLleno,
+      // Fuera de Combustible va en NULL aunque el formulario tuviera uno elegido (como los litros).
+      camion_id: camionId,
     },
   };
 }
@@ -304,6 +327,7 @@ const COLUMN_KEYS: ReadonlyArray<keyof GastoColumns> = [
   'precio_por_litro',
   'km_odometro',
   'tanque_lleno',
+  'camion_id',
 ];
 
 /**

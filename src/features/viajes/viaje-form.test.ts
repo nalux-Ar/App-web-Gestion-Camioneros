@@ -63,6 +63,7 @@ describe('emptyViajeValues / newEntregaRow', () => {
       fecha: TODAY,
       origen: '',
       destino: '',
+      camionId: '', // sin camión elegido (si hay que elegir, se elige: sin preselección)
       kmModo: 'inicial-final',
       kmInicial: '',
       kmFinal: '',
@@ -85,6 +86,7 @@ describe('validateViajeForm: lo mínimo y el recorte', () => {
       fecha: TODAY,
       origen: 'Rosario',
       destino: 'Córdoba',
+      camion_id: null, // sin contexto de camión (sin camiones): va sin camión
       km_inicial: null,
       km_final: null,
       km_recorridos: null,
@@ -328,11 +330,12 @@ describe('entregas', () => {
 });
 
 describe('foco al primer error, en el orden VISUAL', () => {
-  it('el orden de los campos es fecha, origen, destino, km, ingreso y observaciones', () => {
+  it('el orden de los campos es fecha, origen, destino, camión, km, ingreso y observaciones', () => {
     expect(VIAJE_FIELD_ORDER).toEqual([
       'fecha',
       'origen',
       'destino',
+      'camionId',
       'kmInicial',
       'kmFinal',
       'kmRecorridos',
@@ -473,6 +476,7 @@ describe('editar: deducción del modo de km y valores iniciales', () => {
       fecha: '2026-09-15',
       origen: 'Rosario',
       destino: 'Córdoba',
+      camion_id: null,
       km_inicial: 1200,
       km_final: 1850.5,
       km_recorridos: null,
@@ -480,5 +484,50 @@ describe('editar: deducción del modo de km y valores iniciales', () => {
       ingreso: 1234.5,
     });
     expect(datos.entregas).toEqual([{ id: 'e-1', cliente_id: CLIENTE_A, incidencias: 'Golpe' }]);
+  });
+});
+
+describe('validateViajeForm: el camión (Etapa 5b)', () => {
+  it('sin resolución del camión (código viejo) va sin camión', () => {
+    expect(ok(validateViajeForm(base(), ctx)).columns.camion_id).toBeNull();
+  });
+
+  it('lo resuelto va a camion_id tal cual', () => {
+    const camionId = 'c0000000-0000-4000-8000-000000000001';
+    expect(ok(validateViajeForm(base(), { ...ctx, camion: { ok: true, camionId } })).columns.camion_id).toBe(camionId);
+    expect(ok(validateViajeForm(base(), { ...ctx, camion: { ok: true, camionId: null } })).columns.camion_id).toBeNull();
+  });
+
+  it('si falta el camión: el error va al campo camionId y el foco también (después de destino)', () => {
+    const v = fail(validateViajeForm(base(), { ...ctx, camion: { ok: false, message: 'Elige el camión.' } }));
+    expect(v.errors.campos.camionId).toBe('Elige el camión.');
+    expect(v.focus).toEqual({ tipo: 'campo', field: 'camionId' });
+  });
+
+  it('con otro error antes (destino vacío), el foco va a ese', () => {
+    const v = fail(validateViajeForm(base({ destino: '' }), { ...ctx, camion: { ok: false, message: 'Elige el camión.' } }));
+    expect(v.errors.campos.camionId).toBe('Elige el camión.');
+    expect(v.focus).toEqual({ tipo: 'campo', field: 'destino' });
+  });
+
+  it('el camión va en el orden de los campos justo después de destino', () => {
+    expect(VIAJE_FIELD_ORDER.indexOf('camionId')).toBe(VIAJE_FIELD_ORDER.indexOf('destino') + 1);
+  });
+
+  it('valuesFromViaje: el camión que tenía (o vacío)', () => {
+    const viaje = {
+      fecha: '2026-01-01',
+      origen: 'A',
+      destino: 'B',
+      km_inicial: null,
+      km_final: null,
+      km_recorridos: null,
+      ingreso: null,
+      observaciones: null,
+      entregas: [],
+    } as unknown as ViajeEditable;
+    expect(valuesFromViaje({ ...viaje, camion_id: 'c-1' }).camionId).toBe('c-1');
+    expect(valuesFromViaje({ ...viaje, camion_id: null }).camionId).toBe('');
+    expect(valuesFromViaje(viaje).camionId).toBe('');
   });
 });

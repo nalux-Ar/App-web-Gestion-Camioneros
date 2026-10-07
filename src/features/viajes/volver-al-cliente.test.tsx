@@ -89,11 +89,14 @@ function installResponder() {
     if (call.target === 'miembros' && has('maybeSingle')) return ok(MIEMBRO);
     if (call.target === 'clientes') return ok(CLIENTES);
     if (call.target === 'categorias_gasto') return ok(CATS);
+    if (call.target === 'camiones') return ok([]); // sin camiones: el viaje va sin camión, como antes
+
     if (call.target === 'rpc:actualizar_viaje_con_entregas') return ok(null);
     if (call.target === 'viajes') {
       if (!has('maybeSingle')) return ok([]); // los viajes recientes del selector de gastos
-      if (select.includes('camion_id')) return ok(EDICION);
-      if (select.includes('clientes(nombre)')) return ok(VISTA);
+      // La vista trae el nombre del cliente de cada entrega; la edición no (las dos traen camion_id desde la Etapa 5).
+      if (select.includes('clientes(nombre)')) return ok({ ...VISTA, camion_id: null });
+      if (select.includes('camion_id') && select.includes('entregas(')) return ok(EDICION);
       return ok({ id: VIAJE, fecha: base.fecha, origen: base.origen, destino: base.destino }); // el viaje preseleccionado de un gasto
     }
     if (call.target === 'gastos') return has('insert') ? ok(null) : ok(GASTOS);

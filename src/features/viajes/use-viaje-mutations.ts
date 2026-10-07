@@ -1,9 +1,11 @@
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
+import { camionesKeys } from '@/features/camiones/camiones-keys';
+import { CAMION_ARCHIVADO, VIAJES_CAMION_FK } from '@/features/camiones/constants';
 import { clientesKeys } from '@/features/clientes/clientes-keys';
 import { devolucionesKeys } from '@/features/devoluciones/devoluciones-keys';
 import { gastosKeys } from '@/features/gastos/gastos-keys';
-import { classifyDataError } from '@/lib/data-errors';
+import { classifyDataError, mentionsConstraint } from '@/lib/data-errors';
 import type { ConteosDelViaje } from './eliminar-viaje-textos';
 import type { ViajeDatos } from './viaje-form';
 import { actualizarViaje, crearViaje, type CrearViajeResultado } from './viaje-save';
@@ -44,11 +46,19 @@ function invalidarViajes(queryClient: QueryClient, tenantId: string) {
   void queryClient.invalidateQueries({ queryKey: devolucionesKeys.delosMeses(tenantId) });
 }
 
-/** Tras un guardado (bien o mal): marca vieja la lista de viajes y, si el error es de referencia, la de clientes. */
+/**
+ * Tras un guardado (bien o mal): marca vieja la lista de viajes; si el error es de referencia, la de clientes; y si es del
+ * camión (no existe, o se archivó mientras tanto), la de camiones: si no, el selector seguiría ofreciendo el camión viejo y
+ * el error se repetiría hasta recargar la página.
+ */
 function invalidarTrasGuardar(queryClient: QueryClient, tenantId: string, error: Error | null) {
   invalidarViajes(queryClient, tenantId);
-  if (error !== null && classifyDataError(error) === 'foreign-key') {
+  if (error === null) return;
+  if (classifyDataError(error) === 'foreign-key') {
     void queryClient.invalidateQueries({ queryKey: clientesKeys.all(tenantId) });
+  }
+  if (mentionsConstraint(error, VIAJES_CAMION_FK) || mentionsConstraint(error, CAMION_ARCHIVADO)) {
+    void queryClient.invalidateQueries({ queryKey: camionesKeys.list(tenantId) });
   }
 }
 
@@ -72,8 +82,7 @@ export function useCrearViaje() {
 export interface ActualizarViajeVariables {
   tenantId: string;
   viajeId: string;
-  /** El `camion_id` que el viaje ya tenía (leído del detalle). */
-  camionId: string | null;
+  /** Con el camión del formulario (`datos.columns.camion_id`). */
   datos: ViajeDatos;
 }
 
@@ -81,11 +90,12 @@ export function useActualizarViaje() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, ActualizarViajeVariables>({
     scope: { id: 'actualizar-viaje' },
-    mutationFn: ({ viajeId, camionId, datos }) => actualizarViaje({ viajeId, camionId, datos, io: viajeWriteIO }),
+    mutationFn: ({ viajeId, datos }) => actualizarViaje({ viajeId, datos, io: viajeWriteIO }),
     onSettled: (_resultado, error, { tenantId }) => {
       invalidarTrasGuardar(queryClient, tenantId, error);
-      // La lista de gastos muestra el recorrido de cada viaje vinculado: si se editó el viaje, está vieja. Ningún
-      // formulario de gasto está abierto mientras se edita un viaje, así que no se refresca nada bajo el dedo.
+      // La lista de gastos muestra el recorrido de cada viaje vinculado (y, si el viaje cambió de camión, la base movió
+      // sus gastos con camión al nuevo): si se editó el viaje, está vieja. Ningún formulario de gasto está abierto mientras
+      // se edita un viaje, así que no se refresca nada bajo el dedo.
       if (error === null) void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },
   });

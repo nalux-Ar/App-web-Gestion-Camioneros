@@ -9,6 +9,9 @@ export const CAMPO_DOM_IDS: Record<ViajeFormField, string> = {
   fecha: 'viaje-fecha',
   origen: 'viaje-origen',
   destino: 'viaje-destino',
+  // Prefijo: el control real depende de la decisión (botones `viaje-camion-0`, lista `viaje-camion`, bloque
+  // `viaje-camion-bloque`); ver `domIdDelCamion`.
+  camionId: 'viaje-camion',
   kmInicial: 'viaje-km-inicial',
   kmFinal: 'viaje-km-final',
   kmRecorridos: 'viaje-km-recorridos',

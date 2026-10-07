@@ -8,6 +8,16 @@ import { SubmitBar } from '@/components/shared/submit-bar';
 import { TextareaField } from '@/components/shared/textarea-field';
 import { Input } from '@/components/ui/input';
 import { FieldShell } from '@/components/shared/field-shell';
+import { buscarCamion, etiquetaCamion } from '@/features/camiones/camion';
+import {
+  CAMIONES_SIN_CARGAR_MESSAGE,
+  decidirCamion,
+  domIdDelCamion,
+  resolverCamion,
+  type ResolucionCamion,
+} from '@/features/camiones/camion-seleccion';
+import { CamionSelector } from '@/features/camiones/camion-selector';
+import { useCamiones, useGastosAMover } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente, type DesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { combinarClientes, type ClienteOpcion } from '@/features/clientes/cliente-nombre';
 import { useClientes } from '@/features/clientes/use-clientes';
@@ -24,6 +34,7 @@ import {
   type ViajeAviso,
 } from './constants';
 import { EliminarViaje } from './eliminar-viaje';
+import { textosCambioDeCamion, type EstadoGastosAMover } from './viaje-camion';
 import type { CargaClientes } from './entrega-fila';
 import { CAMPO_DOM_IDS, domIdOf, type FocusRequest } from './viaje-dom-ids';
 import { ViajeEntregas } from './viaje-entregas';
@@ -75,7 +86,12 @@ interface ViajeFormularioProps {
  *
  * Edición: "último guardado gana" entre pestañas. Se guarda un REEMPLAZO COMPLETO del viaje y de su lista
  * de entregas (las que no se mandan, se borran): si otra pestaña cambió algo mientras esta estaba abierta,
- * este guardado lo pisa. El `camion_id` que el viaje ya tenía se pasa tal cual (si no, se borraría).
+ * este guardado lo pisa.
+ *
+ * Camión (ver `decidirCamion`): sin camiones activos no se muestra nada y el viaje va sin camión; con uno solo, se asigna
+ * solo; con dos o más se elige con un toque, sin preselección. Al editar se conserva el que el viaje ya tenía (aunque esté
+ * archivado) salvo que se elija otro. Si la lista de camiones no carga, no se guarda ("Falta cargar tus camiones"). Si al
+ * editar cambia el camión y el viaje tiene gastos con otro camión, la base los mueve al nuevo: el botón lo dice antes.
  */
 export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeCliente = null }: ViajeFormularioProps) {
   const navigate = useNavigate();
@@ -86,7 +102,8 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
     viaje ? valuesFromViaje(viaje) : emptyViajeValues(todayLocal()),
   );
   const [errors, setErrors] = useState<ViajeFormErrors>(SIN_ERRORES);
-  const [focusRequest, setFocusRequest] = useState<{ target: FocusRequest; n: number } | null>(null);
+  // `domId`: el id del DOM ya resuelto cuando depende de lo que se ve (el control del camión cambia según la decisión).
+  const [focusRequest, setFocusRequest] = useState<{ target: FocusRequest; n: number; domId?: string } | null>(null);
 
   // Clave de idempotencia del ALTA: una vez al abrir, igual en cada reintento, nueva tras guardar.
   const [clientRef, setClientRef] = useState(() => (editando ? '' : generateClientRef()));
@@ -122,17 +139,49 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
     setCreados((previos) => (previos.some((previo) => previo.id === cliente.id) ? previos : [...previos, cliente]));
   }, []);
 
+  // Camión: la lista de camiones del tenant (en caché, la misma de todas las pantallas) decide qué se muestra. Mientras no
+  // cargó (o si falló) no se puede decidir, y el viaje no se guarda: sin saber si hay camiones, mandar "sin camión" podría
+  // dejarlo mal asignado.
+  // `fresca`: se vuelve a pedir al abrir el formulario (si no, una lista vieja con 1 solo camión asignaría ese sin mostrar el selector).
+  const camionesQuery = useCamiones({ fresca: true });
+  const camionesCargados = camionesQuery.data?.items;
+  const original = viaje?.camion_id ?? null;
+  const decisionCamion = camionesCargados ? decidirCamion({ camiones: camionesCargados, original, contexto: 'viaje' }) : null;
+  const resolucionCamion: ResolucionCamion = decisionCamion
+    ? resolverCamion(decisionCamion, values.camionId)
+    : { ok: false, message: CAMIONES_SIN_CARGAR_MESSAGE };
+  const camionNuevo = resolucionCamion.ok ? resolucionCamion.camionId : null;
+
+  // Al editar, si el camión cambia a otro (no a "sin camión"), la base mueve los gastos del viaje que tenían otro camión:
+  // se cuentan FRESCOS para decirlo en el botón antes de guardar.
+  const cambiaCamion = viaje !== undefined && camionNuevo !== null && camionNuevo !== original;
+  const gastosAMover = useGastosAMover(viaje?.id ?? null, camionNuevo, cambiaCamion);
+  const estadoGastosAMover: EstadoGastosAMover = !cambiaCamion
+    ? { tipo: 'sin-cambio' }
+    : gastosAMover.fetchStatus === 'idle' && gastosAMover.data !== undefined && !gastosAMover.isError
+      ? { tipo: 'listo', cantidad: gastosAMover.data }
+      : gastosAMover.fetchStatus === 'idle' && gastosAMover.isError
+        ? { tipo: 'error' }
+        : { tipo: 'cargando' };
+  const textosGuardar = textosCambioDeCamion(
+    estadoGastosAMover,
+    etiquetaCamion(camionesCargados ? buscarCamion(camionesCargados, camionNuevo) : null),
+  );
+
   // Foco al primer campo con error (o al lugar que se pide), después de que se pinte. Es un efecto que solo toca el DOM.
   useEffect(() => {
     if (!focusRequest) return;
-    const element = document.getElementById(domIdOf(focusRequest.target));
+    const element = document.getElementById(focusRequest.domId ?? domIdOf(focusRequest.target));
     if (!element) return;
     element.focus({ preventScroll: true });
     element.scrollIntoView({ block: 'center' }); // centrado: no queda bajo el header fijo
   }, [focusRequest]);
 
   function pedirFoco(target: FocusRequest) {
-    setFocusRequest((previous) => ({ target, n: (previous?.n ?? 0) + 1 }));
+    // El camión no tiene un único control: el foco va al que se está mostrando (botón, lista o bloque).
+    const domId =
+      target.tipo === 'campo' && target.field === 'camionId' ? domIdDelCamion(CAMPO_DOM_IDS.camionId, decisionCamion) : undefined;
+    setFocusRequest((previous) => ({ target, n: (previous?.n ?? 0) + 1, domId }));
   }
 
   /** Todos los campos sueltos son texto (lo que tipeó la persona). Tocar un campo descarta su error. */
@@ -198,7 +247,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const validation = validateViajeForm(values, { today: todayLocal(), clientes });
+    const validation = validateViajeForm(values, { today: todayLocal(), clientes, camion: resolucionCamion });
     if (!validation.ok) {
       setErrors(validation.errors);
       pedirFoco(validation.focus);
@@ -209,8 +258,8 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
 
     const result = await run<void>(async () => {
       if (viaje) {
-        // Reemplazo completo. `camionId` es el que el viaje YA tenía (leído del detalle): pasar `null` siempre lo borraría.
-        await actualizar.mutateAsync({ tenantId, viajeId: viaje.id, camionId: viaje.camion_id, datos });
+        // Reemplazo completo, con el camión del FORMULARIO (`datos.columns.camion_id`): el que ya tenía o el elegido.
+        await actualizar.mutateAsync({ tenantId, viajeId: viaje.id, datos });
         return;
       }
       // `crearViaje` trata "ya estaba guardado" (creado = false) como éxito.
@@ -275,6 +324,24 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
             error={errors.campos.destino}
           />
         </div>
+
+        <CamionSelector
+          id={CAMPO_DOM_IDS.camionId}
+          decision={decisionCamion}
+          value={values.camionId}
+          onChange={(camionId) => setField('camionId', camionId)}
+          error={errors.campos.camionId}
+          carga={{
+            estado: camionesCargados ? 'listo' : camionesQuery.isError ? 'error' : 'cargando',
+            error: camionesQuery.error,
+            reintentando: camionesQuery.isFetching,
+            onReintentar: () => void camionesQuery.refetch(),
+          }}
+          // En un viaje nunca se carga un camión en línea (sin camiones activos el viaje va sin camión).
+          esAdmin={false}
+          esElPrimero={false}
+          onCamionListo={() => {}}
+        />
 
         <div className="space-y-5">
           <ChoiceGroup
@@ -378,7 +445,17 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
           onClienteCreado={registrarCliente}
         />
 
-        <SubmitBar pending={pending} error={error} retryable={retryable} label="Guardar viaje" />
+        {/* Si el camión cambia y el viaje tiene gastos con otro camión, la base los mueve: queda dicho antes de guardar. */}
+        <p aria-live="polite" className={textosGuardar.aviso ? 'text-sm font-medium' : 'sr-only'}>
+          {textosGuardar.aviso ?? ''}
+        </p>
+        <SubmitBar
+          pending={pending}
+          error={error}
+          retryable={retryable}
+          label={textosGuardar.label}
+          disabled={!textosGuardar.puedeGuardar}
+        />
       </form>
 
       {viaje ? (

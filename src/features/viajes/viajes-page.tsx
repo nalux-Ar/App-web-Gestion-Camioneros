@@ -17,6 +17,8 @@ import { formatNumber } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { LIST_LIMIT } from './constants';
 import { useViajesDelMes } from './use-viajes';
+import { buscarCamion, etiquetaCamion } from '@/features/camiones/camion';
+import { useCamiones } from '@/features/camiones/use-camiones';
 import { ViajeItem } from './viaje-item';
 import { LISTA_AVISO_MENSAJES, leerAvisoLista } from './viaje-navegacion';
 import { filtroToParams, filtroToSearch, readFiltro, type ViajesFiltro } from './viajes-filters';
@@ -109,6 +111,9 @@ function ViajesDelMes({ filtro, nuevoViaje }: { filtro: ViajesFiltro; nuevoViaje
 
   // `search` actual (ya normalizado): al detalle de un viaje para que "volver" conserve el mes.
   const volver = filtroToSearch(filtro);
+  // La patente solo se muestra si la cuenta tiene 2 o más camiones (contando archivados): con uno solo no aporta nada.
+  const camiones = useCamiones().data?.items;
+  const conCamion = camiones !== undefined && camiones.length >= 2;
 
   const items = viajesQuery.data?.items ?? [];
   const truncado = viajesQuery.data?.truncado ?? false;
@@ -176,7 +181,12 @@ function ViajesDelMes({ filtro, nuevoViaje }: { filtro: ViajesFiltro; nuevoViaje
 
       <ul className="space-y-2">
         {items.map((viaje) => (
-          <ViajeItem key={viaje.id} viaje={viaje} volver={volver} />
+          <ViajeItem
+            key={viaje.id}
+            viaje={viaje}
+            volver={volver}
+            camion={conCamion && viaje.camion_id ? etiquetaCamion(buscarCamion(camiones, viaje.camion_id)) : undefined}
+          />
         ))}
       </ul>
     </>

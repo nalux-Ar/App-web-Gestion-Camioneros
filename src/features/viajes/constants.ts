@@ -1,3 +1,4 @@
+import { CAMION_ARCHIVADO, CAMION_ARCHIVADO_MESSAGE, VIAJES_CAMION_FK } from '@/features/camiones/constants';
 import type { DataErrorContext } from '@/lib/data-errors';
 
 /** Tope de viajes que trae la lista de un mes. Se pide uno más para saber si se alcanzó. */
@@ -21,7 +22,14 @@ export const TEXTO_COUNTER_FROM = 1800;
 /** Mensajes propios de los errores de la base al GUARDAR un viaje (constante de módulo: la usa `useSubmitFeedback`).
  *  Nunca se muestra el nombre de un constraint ni el texto del servidor. */
 export const GUARDAR_VIAJE_CONTEXT: DataErrorContext = {
-  // 23503: algún cliente_id (o el camión) no existe o no es del transportista. Mismo error para "no existe" y "es de otro tenant".
+  // El camión (migración 010): se reconoce por el constraint o el texto fijo del mensaje, que nunca se muestran.
+  //  - 23503 de `viajes_camion_fk`: el camión no existe o no es del transportista (mismo error para los dos casos).
+  //  - 55000 con `camion_archivado`: se eligió un camión que mientras tanto se archivó.
+  messagesByConstraint: {
+    [VIAJES_CAMION_FK]: 'El camión elegido ya no existe. Elige otro.',
+    [CAMION_ARCHIVADO]: CAMION_ARCHIVADO_MESSAGE,
+  },
+  // 23503 de un cliente_id que no existe o no es del transportista (la función de la 007 no nombra ningún constraint).
   foreignKey: 'Alguno de los clientes ya no existe: actualiza la lista y elígelo de nuevo.',
   // P0002: el viaje (o una de sus entregas) no se encontró al actualizar. Reintentar con lo mismo da lo mismo.
   notFound: 'El viaje cambió o ya no existe. Vuelve a la lista y actualízala.',

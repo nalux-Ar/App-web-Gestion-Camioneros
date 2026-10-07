@@ -33,9 +33,10 @@ import { aViajeDeLista, type FilaViajeDeLista, type ViajeDeLista } from './viaje
  * Solo las columnas que usa la lista + la cantidad de entregas con un embed `entregas(count)`: sale en la
  * MISMA consulta, sin pedir nada por viaje. PostgREST devuelve `entregas: [{ count: n }]`.
  * OJO: el conteo embebido depende del soporte de agregados de PostgREST de la base; ver `aViajeDeLista`.
+ * `camion_id` va solo: la patente se muestra desde la lista de camiones ya cargada, sin embeber `camiones(...)`.
  */
 const LIST_COLUMNS =
-  'id, fecha, origen, destino, km_inicial, km_final, km_recorridos, ingreso, created_at, entregas(count)' as const;
+  'id, camion_id, fecha, origen, destino, km_inicial, km_final, km_recorridos, ingreso, created_at, entregas(count)' as const;
 
 export interface FetchViajesArgs {
   /** 'YYYY-MM-DD' inclusive. */
@@ -62,8 +63,9 @@ export async function fetchViajesDelRango({ desde, hasta, signal }: FetchViajesA
   return { items: acotada.items.map(aViajeDeLista), truncado: acotada.truncado };
 }
 
-/** Columnas del formulario de edición. Incluye `camion_id`: la edición lo pasa tal cual (si no, se borraría) y
- *  no incluye `client_ref` (solo se usa al crear). Las entregas vienen embebidas. */
+/** Columnas del formulario de edición. Incluye `camion_id`: el formulario arranca con el camión que el viaje ya tenía
+ *  (la edición es un reemplazo completo: un `null` lo borraría) y no incluye `client_ref` (solo se usa al crear). Las
+ *  entregas vienen embebidas. */
 const DETAIL_COLUMNS =
   'id, camion_id, fecha, origen, destino, km_inicial, km_final, km_recorridos, ingreso, observaciones, entregas(id, cliente_id, incidencias, created_at)' as const;
 
@@ -107,8 +109,9 @@ export async function fetchViaje(id: string, signal: AbortSignal): Promise<Viaje
   );
 }
 
-/** Lo que necesita el selector "Viaje" del formulario de gastos (y nada más: es una consulta liviana). */
-const OPCION_COLUMNS = 'id, fecha, origen, destino' as const;
+/** Lo que necesita el selector "Viaje" del formulario de gastos (y nada más: es una consulta liviana). Con el camión del
+ *  viaje: una carga de combustible de ese viaje va con ESE camión (la base exige que coincidan). */
+const OPCION_COLUMNS = 'id, fecha, origen, destino, camion_id' as const;
 
 /**
  * Los viajes más recientes del transportista (fecha desc, luego created_at desc), hasta `RECIENTES_LIMIT`,
@@ -136,10 +139,10 @@ export async function fetchViajeOpcion(id: string, signal: AbortSignal): Promise
  * Columnas de la pantalla de solo lectura de un viaje. Las entregas vienen embebidas con el nombre del cliente
  * (`clientes(nombre)`, por la FK compuesta `entregas_cliente_fk`: PostgREST devuelve un objeto, o `null`) y con su
  * `cliente_id`: el formulario de devoluciones lo usa para ofrecer primero los clientes de las entregas del viaje.
- * No incluye `camion_id` ni `client_ref`: nada de esto se edita desde esta pantalla.
+ * Con `camion_id` (la fila "Camión"; la patente sale de la lista de camiones, sin embed). No incluye `client_ref`.
  */
 const VISTA_COLUMNS =
-  'id, fecha, origen, destino, km_inicial, km_final, km_recorridos, ingreso, observaciones, entregas(id, cliente_id, incidencias, created_at, clientes(nombre))' as const;
+  'id, camion_id, fecha, origen, destino, km_inicial, km_final, km_recorridos, ingreso, observaciones, entregas(id, cliente_id, incidencias, created_at, clientes(nombre))' as const;
 
 export interface EntregaVista {
   id: string;
@@ -151,6 +154,7 @@ export interface EntregaVista {
 
 export interface ViajeVista {
   id: string;
+  camion_id: string | null;
   fecha: string;
   origen: string;
   destino: string;

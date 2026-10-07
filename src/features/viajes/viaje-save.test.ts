@@ -27,6 +27,7 @@ const datos = (over: Partial<ViajeDatos['columns']> = {}, entregas: ViajeDatos['
     fecha: '2026-10-02',
     origen: 'Rosario',
     destino: 'Córdoba',
+    camion_id: null,
     km_inicial: null,
     km_final: null,
     km_recorridos: null,
@@ -82,6 +83,7 @@ describe('buildCrearArgs', () => {
       p_fecha: '2026-10-02',
       p_origen: 'Rosario',
       p_destino: 'Córdoba',
+      p_camion_id: null,
       p_km_inicial: null,
       p_km_final: null,
       p_km_recorridos: null,
@@ -89,14 +91,16 @@ describe('buildCrearArgs', () => {
       p_ingreso: null,
       p_entregas: [],
     });
-    for (const clave of ['p_km_inicial', 'p_km_final', 'p_km_recorridos', 'p_observaciones', 'p_ingreso']) {
+    for (const clave of ['p_km_inicial', 'p_km_final', 'p_km_recorridos', 'p_observaciones', 'p_ingreso', 'p_camion_id']) {
       expect(args).toHaveProperty(clave, null);
     }
   });
 
-  it('NO manda p_camion_id en el alta, ni transportista_id, ni id del viaje', () => {
+  it('manda el p_camion_id que resolvió el formulario (null sin camión, explícito); nunca transportista_id ni id del viaje', () => {
     const args = buildCrearArgs(datos(), REF);
-    expect(Object.keys(args)).not.toContain('p_camion_id');
+    expect(Object.prototype.hasOwnProperty.call(args, 'p_camion_id')).toBe(true);
+    expect(args.p_camion_id).toBeNull();
+    expect(buildCrearArgs(datos({ camion_id: CAMION_ID }), REF).p_camion_id).toBe(CAMION_ID);
     expect(Object.keys(args)).not.toContain('p_viaje_id');
     expect(JSON.stringify(args)).not.toContain('transportista');
   });
@@ -145,7 +149,7 @@ describe('buildActualizarArgs', () => {
   ];
 
   it('manda los 11 parámetros (reemplazo completo), todos presentes aunque sean null', () => {
-    const args = buildActualizarArgs(VIAJE_ID, null, datos());
+    const args = buildActualizarArgs(VIAJE_ID, datos());
     expect(Object.keys(args).sort()).toEqual(COLUMNAS_ESPERADAS);
     expect(args).toEqual({
       p_viaje_id: VIAJE_ID,
@@ -162,16 +166,15 @@ describe('buildActualizarArgs', () => {
     });
   });
 
-  it('preserva el camion_id que el viaje ya tenía (tal cual) y también el null', () => {
-    expect(buildActualizarArgs(VIAJE_ID, CAMION_ID, datos()).p_camion_id).toBe(CAMION_ID);
-    expect(buildActualizarArgs(VIAJE_ID, null, datos()).p_camion_id).toBeNull();
+  it('manda el camion_id del FORMULARIO (el que ya tenía o el elegido) y también el null', () => {
+    expect(buildActualizarArgs(VIAJE_ID, datos({ camion_id: CAMION_ID })).p_camion_id).toBe(CAMION_ID);
+    expect(buildActualizarArgs(VIAJE_ID, datos()).p_camion_id).toBeNull();
   });
 
   it('las entregas existentes van con su id, las nuevas sin id; las quitadas simplemente no vienen', () => {
     const args = buildActualizarArgs(
       VIAJE_ID,
-      CAMION_ID,
-      datos({}, [
+      datos({ camion_id: CAMION_ID }, [
         { id: 'e-2', cliente_id: CLIENTE_A, incidencias: 'Cambió' }, // existente (la e-1 se quitó: no viene)
         { id: null, cliente_id: CLIENTE_B, incidencias: null }, // nueva
       ]),
@@ -184,7 +187,7 @@ describe('buildActualizarArgs', () => {
   });
 
   it('para vaciar un campo manda null explícito (no lo omite)', () => {
-    const args = buildActualizarArgs(VIAJE_ID, null, datos({ km_inicial: null, ingreso: null, observaciones: null }));
+    const args = buildActualizarArgs(VIAJE_ID, datos({ km_inicial: null, ingreso: null, observaciones: null }));
     for (const clave of ['p_km_inicial', 'p_ingreso', 'p_observaciones', 'p_camion_id']) {
       expect(Object.prototype.hasOwnProperty.call(args, clave)).toBe(true);
       expect((args as unknown as Record<string, unknown>)[clave]).toBeNull();
@@ -197,10 +200,8 @@ describe('tipos a mano vs tipos generados (comprobación de compilación)', () =
 
   it('las claves de actualizar y de crear coinciden con las que generó Supabase (si la base cambia, esto deja de compilar)', () => {
     expectTypeOf<keyof ActualizarViajeArgs>().toEqualTypeOf<keyof Funciones['actualizar_viaje_con_entregas']['Args']>();
-    // El alta no manda p_camion_id (queda en su default null).
-    expectTypeOf<keyof CrearViajeArgs>().toEqualTypeOf<
-      Exclude<keyof Funciones['crear_viaje_con_entregas']['Args'], 'p_camion_id'>
-    >();
+    // Desde la Etapa 5 el alta también manda p_camion_id: las claves son exactamente las generadas.
+    expectTypeOf<keyof CrearViajeArgs>().toEqualTypeOf<keyof Funciones['crear_viaje_con_entregas']['Args']>();
     expect(true).toBe(true);
   });
 });
@@ -224,6 +225,7 @@ describe('fingerprintOf', () => {
       datos({ fecha: '2026-10-01' }, entregas),
       datos({ origen: 'Rosarioo' }, entregas),
       datos({ destino: 'Salta' }, entregas),
+      datos({ camion_id: CAMION_ID }, entregas), // otro camión
       datos({ km_inicial: 1 }, entregas),
       datos({ km_final: 1 }, entregas),
       datos({ km_recorridos: 1 }, entregas),
@@ -310,12 +312,45 @@ describe('crearViaje', () => {
     expect(args.p_viaje_id).toBe(VIAJE_ID);
     expect(args.p_origen).toBe('San Lorenzo');
     expect(args.p_km_inicial).toBe(10);
-    expect(args.p_camion_id).toBeNull(); // el viaje lo creó este formulario sin camión
+    expect(args.p_camion_id).toBeNull(); // B no tiene camión: lo que hay en pantalla
     // Entregas sin id: la función borra las que no vengan y crea las nuevas; el resultado queda igual a lo que se ve.
     expect(args.p_entregas).toEqual([
       { cliente_id: CLIENTE_B, incidencias: 'Golpe' },
       { cliente_id: CLIENTE_A, incidencias: null },
     ]);
+  });
+
+  it('BUG LATENTE corregido: ya guardado y con cambios, la actualización lleva el camión del FORMULARIO (no null, que lo borraría)', async () => {
+    let intento = 0;
+    const { io, actualizar } = fakeIO(async () => {
+      intento += 1;
+      if (intento === 1) throw redCaida();
+      return { viajeId: VIAJE_ID, creado: false };
+    });
+    const sent = new Set<string>();
+    await expect(crearViaje({ datos: datos({ camion_id: CAMION_ID }), clientRef: REF, sent, io })).rejects.toThrow();
+    const r = await crearViaje({ datos: datos({ camion_id: CAMION_ID, origen: 'San Lorenzo' }), clientRef: REF, sent, io });
+    expect(r).toBe('ya-guardado-actualizado');
+    expect(actualizar.mock.calls[0]![0].p_camion_id).toBe(CAMION_ID);
+  });
+
+  it('cambiar SOLO el camión entre intentos también cuenta como cambio: actualiza con el camión nuevo', async () => {
+    let intento = 0;
+    const { io, actualizar } = fakeIO(async () => {
+      intento += 1;
+      if (intento === 1) throw redCaida();
+      return { viajeId: VIAJE_ID, creado: false };
+    });
+    const sent = new Set<string>();
+    await expect(crearViaje({ datos: datos(), clientRef: REF, sent, io })).rejects.toThrow();
+    expect(await crearViaje({ datos: datos({ camion_id: CAMION_ID }), clientRef: REF, sent, io })).toBe('ya-guardado-actualizado');
+    expect(actualizar.mock.calls[0]![0].p_camion_id).toBe(CAMION_ID);
+  });
+
+  it('el alta manda el camión en crear_viaje_con_entregas', async () => {
+    const { io, crear } = fakeIO();
+    await crearViaje({ datos: datos({ camion_id: CAMION_ID }), clientRef: REF, sent: new Set(), io });
+    expect(crear.mock.calls[0]![0].p_camion_id).toBe(CAMION_ID);
   });
 
   it('1er intento falla con A, el usuario cambia a B y el 2º CREA (la base no tenía A): "creado", sin actualizar', async () => {
@@ -369,12 +404,11 @@ describe('crearViaje', () => {
 });
 
 describe('actualizarViaje', () => {
-  it('reemplazo completo: pasa el camion_id que ya tenía y las entregas con/sin id', async () => {
+  it('reemplazo completo: pasa el camion_id del formulario y las entregas con/sin id', async () => {
     const { io, actualizar } = fakeIO();
     await actualizarViaje({
       viajeId: VIAJE_ID,
-      camionId: CAMION_ID,
-      datos: datos({ ingreso: 100 }, [
+      datos: datos({ ingreso: 100, camion_id: CAMION_ID }, [
         { id: 'e-1', cliente_id: CLIENTE_A, incidencias: null },
         { id: null, cliente_id: CLIENTE_B, incidencias: 'Nueva' },
       ]),
@@ -393,7 +427,7 @@ describe('actualizarViaje', () => {
 
   it('un viaje sin camión se actualiza con p_camion_id = null', async () => {
     const { io, actualizar } = fakeIO();
-    await actualizarViaje({ viajeId: VIAJE_ID, camionId: null, datos: datos(), io });
+    await actualizarViaje({ viajeId: VIAJE_ID, datos: datos(), io });
     expect(actualizar.mock.calls[0]![0].p_camion_id).toBeNull();
   });
 
@@ -402,7 +436,7 @@ describe('actualizarViaje', () => {
     const { io } = fakeIO(undefined, async () => {
       throw error;
     });
-    await expect(actualizarViaje({ viajeId: VIAJE_ID, camionId: null, datos: datos(), io })).rejects.toBe(error);
+    await expect(actualizarViaje({ viajeId: VIAJE_ID, datos: datos(), io })).rejects.toBe(error);
     expect(mapDataError(error, GUARDAR_VIAJE_CONTEXT)).toBe('El viaje cambió o ya no existe. Vuelve a la lista y actualízala.');
   });
 });
