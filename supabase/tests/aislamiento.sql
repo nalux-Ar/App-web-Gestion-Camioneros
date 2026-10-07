@@ -5,18 +5,19 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 18 cubren además las migraciones 005 a 009, el vínculo
+-- secciones 11 a 19 cubren además las migraciones 005 a 010, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
--- devoluciones de la Etapa 4 (la 008 agrega su client_ref) y los clientes
--- de la Etapa 5a (la 009 agrega su client_ref).
+-- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
+-- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
+-- (la 010: varios camiones por tenant).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
 -- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql, 003_rls.sql,
 -- 005_gastos_combustible.sql, 006_gastos_client_ref.sql,
--- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql y
--- 009_clientes_client_ref.sql
--- (las secciones 11 a 18 usan sus columnas y funciones; la 16 no necesita
+-- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql,
+-- 009_clientes_client_ref.sql y 010_varios_camiones.sql
+-- (las secciones 11 a 19 usan sus columnas y funciones; la 16 no necesita
 -- ninguna migración propia; la 004 no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
@@ -41,7 +42,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 18 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 19 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -5115,6 +5116,1113 @@ begin
     v_ent_cruzadas = 0 and v_ent_huerfanas = 0 and v_dev_cruzadas = 0 and v_dev_huerfanas = 0 and v_ent > 0 and v_dev > 0,
     format('entregas: cruzadas=%s huerfanas=%s (de %s) | devoluciones: cruzadas=%s huerfanas=%s (de %s)',
       v_ent_cruzadas, v_ent_huerfanas, v_ent, v_dev_cruzadas, v_dev_huerfanas, v_dev));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 19) Camiones: varios por tenant, gastos.camion_id, archivado,
+--     coherencia, propagación, camión por defecto y crear_camion (migración 010)
+-- ---------------------------------------------------------------------
+-- Requiere 010_varios_camiones.sql aplicada (y la 007 para las funciones de
+-- viajes, que la 010 no toca). El front da de alta camiones con
+-- crear_camion (RPC), los edita, archiva y reactiva con UPDATE directo
+-- (solo admin), manda gastos.camion_id en el INSERT/UPDATE de gastos y
+-- viajes.camion_id por las funciones de viajes. Esta sección prueba eso y
+-- las reglas de los triggers de la 010, entre tenants y por rol.
+-- Lo que ya cubren otras secciones no se repite: B no ve, no edita ni borra
+-- el camión de A por id (1.x), un viaje de B con el camión de A (3.7 y 14.9)
+-- y que anon no lee camiones (8.5).
+-- No hay casos anteriores que prueben el límite de un camión por tenant
+-- (camiones_un_por_transportista): el setup crea un solo camión por tenant,
+-- que sigue siendo válido. El caso 19.7 prueba que ahora se puede un segundo.
+--
+-- Camión por defecto: desde la 010, un viaje nuevo sin camión recibe el
+-- único camión activo del tenant. En las secciones 13 a 18 A y B tienen un
+-- solo camión (el del setup), así que sus viajes nuevos ya lo reciben; esas
+-- secciones no miran el camión de sus viajes (salvo 14 y 15, que lo mandan
+-- explícito) y pasan igual.
+--
+-- Datos propios (se crean acá; de las secciones anteriores solo se usan los
+-- tenants, usuarios, camiones y categorías del setup y los helpers
+-- _test_sqlstate de la sección 13 y _test_error_completo de la 17):
+--   A: camiones A2 (por crear_camion), A3 (INSERT directo) y, más adelante,
+--      AARCH (archivado) y A4/A5/A6 (para el RESTRICT); viajes VX (con el
+--      camión del setup), VN y VNN (sin camión), y gastos sobre ellos.
+--   B: dos camiones con patentes que también usa A.
+--   C: un tenant nuevo (usuario propio) con 3 viajes y 3 gastos cargados SIN
+--      camión (2 con litros): es el caso real de hoy. Se crea su primer camión.
+--   D: un tenant nuevo cuyo primer camión se archiva antes de crear el segundo.
+--
+-- SQLSTATE de ON DELETE RESTRICT: en PostgreSQL 17 (la versión de Supabase
+-- hoy) un DELETE que viola un RESTRICT da 23503 (foreign_key_violation); en
+-- PostgreSQL 18 (p.ej. PGlite 0.5.x) da 23001 (restrict_violation). El caso
+-- de esta sección que depende de eso (19.22) acepta los dos códigos y exige
+-- además el nombre del constraint: el archivo corre igual en las dos
+-- versiones sin parchear nada.
+-- Concurrencia: el advisory lock de crear_camion y el FOR SHARE de la
+-- coherencia solo se pueden probar con dos conexiones; acá se comprueba que
+-- estén en el código (19.4 y 19.5), no su efecto.
+
+select public._test_set('uid_c_admin', 'c0c0c0c0-0000-0000-0000-000000000019');
+select public._test_set('uid_d_admin', 'd0d0d0d0-0000-0000-0000-000000000019');
+
+insert into auth.users (instance_id, id, aud, role, email)
+values
+  ('00000000-0000-0000-0000-000000000000', (public._test_get('uid_c_admin'))::uuid, 'authenticated','authenticated','admin-c-s19@test.elan'),
+  ('00000000-0000-0000-0000-000000000000', (public._test_get('uid_d_admin'))::uuid, 'authenticated','authenticated','admin-d-s19@test.elan');
+
+-- C: alta del tenant y lo que ya tenía cargado sin camión.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_c_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_tid uuid; v1 uuid; v2 uuid; v3 uuid; v_id uuid;
+  v_comb uuid := (public._test_get('categoria_global_combustible_id'))::uuid;
+  v_peajes uuid := (public._test_get('categoria_global_peajes_id'))::uuid;
+begin
+  v_tid := public.create_transportista('Transportes C (sección 19)');
+  perform public._test_set('s19_tenant_c', v_tid::text);
+  insert into public.viajes (origen, destino) values ('Origen C1', 'Destino C1') returning id into v1;
+  insert into public.viajes (origen, destino) values ('Origen C2', 'Destino C2') returning id into v2;
+  insert into public.viajes (origen, destino) values ('Origen C3', 'Destino C3') returning id into v3;
+  perform public._test_set('s19_vc1', v1::text);
+  perform public._test_set('s19_vc2', v2::text);
+  perform public._test_set('s19_vc3', v3::text);
+  insert into public.gastos (categoria_id, monto, litros, km_odometro, tanque_lleno)
+    values (v_comb, 40000, 40, 100000, true) returning id into v_id;
+  perform public._test_set('s19_gc_l1', v_id::text);
+  insert into public.gastos (categoria_id, monto, litros, viaje_id)
+    values (v_comb, 30000, 30, v1) returning id into v_id;
+  perform public._test_set('s19_gc_l2', v_id::text);
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values (v_peajes, 900, v2) returning id into v_id;
+  perform public._test_set('s19_gc_p', v_id::text);
+exception when others then
+  perform public._test_set('s19_error_setup_c', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- D: solo el alta del tenant.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_d_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_tid uuid;
+begin
+  v_tid := public.create_transportista('Transportes D (sección 19)');
+  perform public._test_set('s19_tenant_d', v_tid::text);
+exception when others then
+  perform public._test_set('s19_error_setup_d', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: los datos de la sección quedaron como se describe arriba.
+do $$
+declare
+  c_caso constant text := '19.0 setup: C y D son tenants nuevos y distintos de A y B; C tiene 0 camiones, 3 viajes sin camión y 3 gastos sin camión (2 con litros: la 010 todavía no exige camión para los litros, eso es la 011); D tiene 0 camiones; A y B tienen 1 camión cada uno (el del setup)';
+  v_tc uuid := (public._test_get('s19_tenant_c'))::uuid;
+  v_td uuid := (public._test_get('s19_tenant_d'))::uuid;
+  v_cam_c int; v_viajes_c int; v_gastos_c int; v_litros_c int; v_cam_d int; v_cam_a int; v_cam_b int;
+begin
+  select count(*) into v_cam_c from public.camiones where transportista_id = v_tc;
+  select count(*) into v_viajes_c from public.viajes where transportista_id = v_tc and camion_id is null;
+  select count(*), count(*) filter (where litros is not null) into v_gastos_c, v_litros_c
+    from public.gastos where transportista_id = v_tc and camion_id is null;
+  select count(*) into v_cam_d from public.camiones where transportista_id = v_td;
+  select count(*) into v_cam_a from public.camiones where transportista_id = (public._test_get('tenant_a_id'))::uuid;
+  select count(*) into v_cam_b from public.camiones where transportista_id = (public._test_get('tenant_b_id'))::uuid;
+  perform public._test_chk(c_caso,
+    public._test_get('s19_error_setup_c') is null and public._test_get('s19_error_setup_d') is null
+      and v_tc is not null and v_td is not null and v_tc <> v_td
+      and v_tc not in ((public._test_get('tenant_a_id'))::uuid, (public._test_get('tenant_b_id'))::uuid)
+      and v_cam_c = 0 and v_viajes_c = 3 and v_gastos_c = 3 and v_litros_c = 2
+      and v_cam_d = 0 and v_cam_a = 1 and v_cam_b = 1,
+    format('error_c=%s error_d=%s | C: camiones=%s viajes sin camión=%s gastos sin camión=%s (con litros %s) | D: camiones=%s | A: %s B: %s',
+      public._test_get('s19_error_setup_c'), public._test_get('s19_error_setup_d'),
+      v_cam_c, v_viajes_c, v_gastos_c, v_litros_c, v_cam_d, v_cam_a, v_cam_b));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Como postgres: las piezas de la migración 010.
+do $$
+declare
+  c_caso constant text := '19.1 Migración 010: camiones.activa es boolean NOT NULL con default true y comentario; camiones_un_por_transportista ya no existe ni queda ningún único sobre (transportista_id) solo; camiones_transportista_id_key (transportista_id, id) sigue (sostiene las FK compuestas)';
+  v_tipo text; v_notnull boolean; v_default text; v_comentario text; v_viejo int; v_unico_tenant int; v_key int;
+begin
+  select a.atttypid::regtype::text, a.attnotnull, pg_get_expr(d.adbin, d.adrelid), col_description(a.attrelid, a.attnum)
+    into v_tipo, v_notnull, v_default, v_comentario
+    from pg_attribute a
+    left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+   where a.attrelid = 'public.camiones'::regclass and a.attname = 'activa' and not a.attisdropped;
+  select count(*) into v_viejo from pg_constraint
+   where conrelid = 'public.camiones'::regclass and conname = 'camiones_un_por_transportista';
+  select count(*) into v_unico_tenant from pg_index i
+   where i.indrelid = 'public.camiones'::regclass and i.indisunique and i.indnkeyatts = 1
+     and i.indkey[0] = (select attnum from pg_attribute where attrelid = 'public.camiones'::regclass and attname = 'transportista_id');
+  select count(*) into v_key from pg_constraint c
+   where c.conrelid = 'public.camiones'::regclass and c.conname = 'camiones_transportista_id_key' and c.contype = 'u'
+     and (select array_agg(a.attname::text order by k.ord)
+            from unnest(c.conkey) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum) = array['transportista_id', 'id']::text[];
+  perform public._test_chk(c_caso,
+    v_tipo = 'boolean' and v_notnull and v_default = 'true' and v_comentario is not null
+      and v_viejo = 0 and v_unico_tenant = 0 and v_key = 1,
+    format('activa: tipo=%s not_null=%s default=%s comentario=%s | un_por_transportista=%s | únicos sobre (transportista_id)=%s | (transportista_id, id)=%s',
+      v_tipo, v_notnull, v_default, v_comentario is not null, v_viejo, v_unico_tenant, v_key));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.2 Migración 010: camiones_patente_normalizada_chk exige ^[A-Z0-9]{1,20}$ y está validado; camiones_transportista_patente_key es un único (no parcial) sobre (transportista_id, patente), en ese orden; camiones_patente_chk de 001 sigue';
+  v_chk text; v_chk_valido boolean; v_cols text[]; v_parcial boolean; v_viejo int;
+begin
+  select pg_get_constraintdef(c.oid), c.convalidated into v_chk, v_chk_valido
+    from pg_constraint c
+   where c.conrelid = 'public.camiones'::regclass and c.conname = 'camiones_patente_normalizada_chk' and c.contype = 'c';
+  select (select array_agg(a.attname::text order by k.ord)
+            from unnest(c.conkey) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum),
+         i.indpred is not null
+    into v_cols, v_parcial
+    from pg_constraint c
+    join pg_index i on i.indexrelid = c.conindid
+   where c.conrelid = 'public.camiones'::regclass and c.conname = 'camiones_transportista_patente_key' and c.contype = 'u';
+  select count(*) into v_viejo from pg_constraint
+   where conrelid = 'public.camiones'::regclass and conname = 'camiones_patente_chk' and contype = 'c';
+  perform public._test_chk(c_caso,
+    v_chk like '%^[A-Z0-9]{1,20}$%' and v_chk_valido
+      and v_cols = array['transportista_id', 'patente']::text[] and v_parcial is false and v_viejo = 1,
+    format('check=%s validado=%s | único columnas=%s parcial=%s | camiones_patente_chk=%s', v_chk, v_chk_valido, v_cols, v_parcial, v_viejo));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.3 Migración 010: gastos.camion_id es uuid, admite NULL, sin default y con comentario; gastos_camion_fk es MATCH SIMPLE (transportista_id, camion_id) -> camiones (transportista_id, id) con ON DELETE RESTRICT y validada; gastos_transportista_camion_idx indexa (transportista_id, camion_id); viajes_camion_fk sigue igual';
+  v_tipo text; v_notnull boolean; v_default boolean; v_comentario text;
+  v_cols text[]; v_ref text; v_refcols text[]; v_del "char"; v_match "char"; v_valida boolean;
+  v_idx text[]; v_idx_parcial boolean; v_viajes_fk "char";
+begin
+  select a.atttypid::regtype::text, a.attnotnull, a.atthasdef, col_description(a.attrelid, a.attnum)
+    into v_tipo, v_notnull, v_default, v_comentario
+    from pg_attribute a
+   where a.attrelid = 'public.gastos'::regclass and a.attname = 'camion_id' and not a.attisdropped;
+  select (select array_agg(a.attname::text order by k.ord)
+            from unnest(c.conkey) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum),
+         c.confrelid::regclass::text,
+         (select array_agg(a.attname::text order by k.ord)
+            from unnest(c.confkey) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum),
+         c.confdeltype, c.confmatchtype, c.convalidated
+    into v_cols, v_ref, v_refcols, v_del, v_match, v_valida
+    from pg_constraint c
+   where c.conrelid = 'public.gastos'::regclass and c.conname = 'gastos_camion_fk' and c.contype = 'f';
+  select (select array_agg(a.attname::text order by k.ord)
+            from unnest(i.indkey::int2[]) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum),
+         i.indpred is not null
+    into v_idx, v_idx_parcial
+    from pg_index i join pg_class c on c.oid = i.indexrelid
+   where i.indrelid = 'public.gastos'::regclass and c.relname = 'gastos_transportista_camion_idx';
+  select c.confdeltype into v_viajes_fk from pg_constraint c
+   where c.conrelid = 'public.viajes'::regclass and c.conname = 'viajes_camion_fk';
+  perform public._test_chk(c_caso,
+    v_tipo = 'uuid' and v_notnull is false and v_default is false and v_comentario is not null
+      and v_cols = array['transportista_id', 'camion_id']::text[] and v_ref = 'camiones'
+      and v_refcols = array['transportista_id', 'id']::text[] and v_del = 'r' and v_match = 's' and v_valida
+      and v_idx = array['transportista_id', 'camion_id']::text[] and v_idx_parcial is false and v_viajes_fk = 'r',
+    format('columna: tipo=%s not_null=%s default=%s comentario=%s | FK %s -> %s %s on delete=%s match=%s validada=%s | índice=%s parcial=%s | viajes_camion_fk on delete=%s',
+      v_tipo, v_notnull, v_default, v_comentario is not null, v_cols, v_ref, v_refcols, v_del, v_match, v_valida, v_idx, v_idx_parcial, v_viajes_fk));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.4 Migración 010: fn_camion_por_defecto, fn_validar_camion y fn_propagar_camion_viaje son SECURITY INVOKER con search_path fijo y sin EXECUTE para anon, authenticated ni public (fn_validar_camion lee el viaje FOR SHARE); los triggers trg_21/trg_22/trg_50 son FOR EACH ROW, están habilitados, llaman a su función y disparan en este orden: gastos BEFORE INSERT 10-15-21-22, gastos BEFORE UPDATE 15-20-21-22-25-30, viajes BEFORE INSERT 10-21-22, viajes BEFORE UPDATE 20-22-25-30, viajes AFTER UPDATE solo trg_50 y ningún AFTER propio en gastos';
+  v_n_fns int; v_mal text[]; v_share boolean; v_bind int;
+  v_gi text[]; v_gu text[]; v_vi text[]; v_vu text[]; v_va text[]; v_ga text[];
+begin
+  select count(*) into v_n_fns from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and p.proname in ('fn_camion_por_defecto', 'fn_validar_camion', 'fn_propagar_camion_viaje');
+  select array_agg(p.proname::text order by p.proname) into v_mal
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and p.proname in ('fn_camion_por_defecto', 'fn_validar_camion', 'fn_propagar_camion_viaje')
+     and (p.prosecdef
+          or not coalesce(p.proconfig::text like '%search_path=public%', false)
+          or has_function_privilege('anon', p.oid, 'execute')
+          or has_function_privilege('authenticated', p.oid, 'execute')
+          or has_function_privilege('public', p.oid, 'execute'));
+  -- Atado al SELECT del viaje (no a cualquier mención, que podría ser un comentario).
+  select coalesce(bool_or(p.prosrc ~* 'v\.id\s*=\s*new\.viaje_id\s+for\s+share'), false) into v_share
+    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'fn_validar_camion';
+
+  -- tgtype: 1 = FOR EACH ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE, 16 = UPDATE, 32 = TRUNCATE, 64 = INSTEAD.
+  select count(*) into v_bind
+    from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+   where not t.tgisinternal and t.tgenabled = 'O' and (t.tgtype & 1) = 1
+     and (   (t.tgrelid = 'public.viajes'::regclass and t.tgname = 'trg_21_camion_por_defecto' and p.proname = 'fn_camion_por_defecto')
+          or (t.tgrelid = 'public.gastos'::regclass and t.tgname = 'trg_21_camion_por_defecto' and p.proname = 'fn_camion_por_defecto')
+          or (t.tgrelid = 'public.viajes'::regclass and t.tgname = 'trg_22_validar_camion' and p.proname = 'fn_validar_camion')
+          or (t.tgrelid = 'public.gastos'::regclass and t.tgname = 'trg_22_validar_camion' and p.proname = 'fn_validar_camion')
+          or (t.tgrelid = 'public.viajes'::regclass and t.tgname = 'trg_50_propagar_camion_a_gastos' and p.proname = 'fn_propagar_camion_viaje'
+              and (t.tgtype & (4 | 8 | 32)) = 0));
+
+  select array_agg(t.tgname::text order by t.tgname) into v_gi from pg_trigger t
+   where t.tgrelid = 'public.gastos'::regclass and not t.tgisinternal and (t.tgtype & 2) = 2 and (t.tgtype & 4) = 4;
+  select array_agg(t.tgname::text order by t.tgname) into v_gu from pg_trigger t
+   where t.tgrelid = 'public.gastos'::regclass and not t.tgisinternal and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16;
+  select array_agg(t.tgname::text order by t.tgname) into v_vi from pg_trigger t
+   where t.tgrelid = 'public.viajes'::regclass and not t.tgisinternal and (t.tgtype & 2) = 2 and (t.tgtype & 4) = 4;
+  select array_agg(t.tgname::text order by t.tgname) into v_vu from pg_trigger t
+   where t.tgrelid = 'public.viajes'::regclass and not t.tgisinternal and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16;
+  select array_agg(t.tgname::text order by t.tgname) into v_va from pg_trigger t
+   where t.tgrelid = 'public.viajes'::regclass and not t.tgisinternal and (t.tgtype & (2 | 64)) = 0;
+  select array_agg(t.tgname::text order by t.tgname) into v_ga from pg_trigger t
+   where t.tgrelid = 'public.gastos'::regclass and not t.tgisinternal and (t.tgtype & (2 | 64)) = 0;
+
+  perform public._test_chk(c_caso,
+    v_n_fns = 3 and v_mal is null and v_share and v_bind = 5
+      and v_gi = array['trg_10_forzar_transportista_id', 'trg_15_validar_categoria_gasto', 'trg_21_camion_por_defecto', 'trg_22_validar_camion']::text[]
+      and v_gu = array['trg_15_validar_categoria_gasto', 'trg_20_bloquear_cambio_transportista_id', 'trg_21_camion_por_defecto',
+                       'trg_22_validar_camion', 'trg_25_bloquear_cambio_client_ref', 'trg_30_set_updated_at']::text[]
+      and v_vi = array['trg_10_forzar_transportista_id', 'trg_21_camion_por_defecto', 'trg_22_validar_camion']::text[]
+      and v_vu = array['trg_20_bloquear_cambio_transportista_id', 'trg_22_validar_camion', 'trg_25_bloquear_cambio_client_ref', 'trg_30_set_updated_at']::text[]
+      and v_va = array['trg_50_propagar_camion_a_gastos']::text[]
+      and v_ga is null,
+    format('funciones=%s con problemas=%s FOR SHARE=%s | triggers bien atados=%s/5 | gastos BI=%s BU=%s AFTER=%s | viajes BI=%s BU=%s AFTER=%s',
+      v_n_fns, v_mal, v_share, v_bind, v_gi, v_gu, v_ga, v_vi, v_vu, v_va));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.5 Migración 010: crear_camion es una sola función (sin sobrecargas), SECURITY INVOKER con search_path fijo, EXECUTE solo para authenticated (no anon ni public), con parámetros (p_patente, p_marca, p_modelo, p_anio) y salida (camion_id, creado, viajes_asignados, gastos_asignados, activa), y toma el advisory lock por tenant';
+  v_n int; v_invoker boolean; v_path boolean; v_anon boolean; v_auth boolean; v_public boolean;
+  v_in text[]; v_out text[]; v_lock boolean;
+begin
+  select count(*) into v_n from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'crear_camion';
+  select not p.prosecdef, coalesce(p.proconfig::text like '%search_path=public%', false),
+         has_function_privilege('anon', p.oid, 'execute'),
+         has_function_privilege('authenticated', p.oid, 'execute'),
+         has_function_privilege('public', p.oid, 'execute'),
+         (select array_agg(a.n order by a.o) from unnest(p.proargnames, p.proargmodes::text[]) with ordinality as a(n, m, o) where a.m = 'i'),
+         (select array_agg(a.n order by a.o) from unnest(p.proargnames, p.proargmodes::text[]) with ordinality as a(n, m, o) where a.m = 't'),
+         p.prosrc ~* 'perform\s+pg_advisory_xact_lock\s*\('
+    into v_invoker, v_path, v_anon, v_auth, v_public, v_in, v_out, v_lock
+    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'crear_camion';
+  perform public._test_chk(c_caso,
+    v_n = 1 and v_invoker and v_path and v_anon is false and v_auth and v_public is false
+      and v_in = array['p_patente', 'p_marca', 'p_modelo', 'p_anio']::text[]
+      and v_out = array['camion_id', 'creado', 'viajes_asignados', 'gastos_asignados', 'activa']::text[]
+      and v_lock,
+    format('funciones=%s invoker=%s search_path=%s EXECUTE anon=%s authenticated=%s public=%s | entrada=%s salida=%s | advisory lock=%s',
+      v_n, v_invoker, v_path, v_anon, v_auth, v_public, v_in, v_out, v_lock));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.6 Migración 010: camiones tiene RLS y exactamente 4 policies permisivas para authenticated (camiones_select, camiones_insert_admin, camiones_update_admin, camiones_delete_admin): la de SELECT es solo por tenant y las de escritura exigen admin; camiones_tenant_isolation ya no existe';
+  v_rls boolean; v_pols text[]; v_roles boolean; v_perm boolean; v_sel_admin boolean; v_esc_admin boolean;
+begin
+  select relrowsecurity into v_rls from pg_class where oid = 'public.camiones'::regclass;
+  select array_agg(p.policyname::text || ':' || p.cmd order by p.policyname),
+         bool_and(p.roles = array['authenticated']::name[]),
+         bool_and(p.permissive = 'PERMISSIVE'),
+         bool_or(p.cmd = 'SELECT' and coalesce(p.qual, '') like '%admin%'),
+         bool_and(p.cmd = 'SELECT'
+                  or (p.cmd = 'INSERT' and coalesce(p.with_check, '') like '%admin%')
+                  or (p.cmd in ('UPDATE', 'DELETE') and coalesce(p.qual, '') like '%admin%'))
+    into v_pols, v_roles, v_perm, v_sel_admin, v_esc_admin
+    from pg_policies p
+   where p.schemaname = 'public' and p.tablename = 'camiones';
+  perform public._test_chk(c_caso,
+    v_rls and v_roles and v_perm and v_sel_admin is false and v_esc_admin
+      and v_pols = array['camiones_delete_admin:DELETE', 'camiones_insert_admin:INSERT', 'camiones_select:SELECT', 'camiones_update_admin:UPDATE']::text[],
+    format('rls=%s policies=%s roles ok=%s permisivas=%s | SELECT exige admin=%s | escrituras exigen admin=%s', v_rls, v_pols, v_roles, v_perm, v_sel_admin, v_esc_admin));
+end
+$$;
+
+-- A (admin): segundo camión, patentes, gastos con camión, default, coherencia,
+-- propagación, archivado y RESTRICT.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '19.7 Regresión del límite de un camión: A, que ya tiene el del setup, crea un segundo con crear_camion (patente "ab 123-cd" normalizada a AB123CD, marca recortada, modelo vacío como NULL; creado = true, 0 viajes y 0 gastos asignados porque no es el primero, activa) y un tercero por INSERT directo: A queda con 3 camiones';
+  r record; v_patente text; v_marca text; v_modelo text; v_anio int; v_tid uuid; v_id3 uuid; v_n int;
+begin
+  select * into r from public.crear_camion('ab 123-cd', '  Iveco ', '', 2020);
+  perform public._test_set('s19_a2', r.camion_id::text);
+  select patente, marca, modelo, anio, transportista_id into v_patente, v_marca, v_modelo, v_anio, v_tid
+    from public.camiones where id = r.camion_id;
+  insert into public.camiones (patente, marca) values ('AC456EF', 'Scania') returning id into v_id3;
+  perform public._test_set('s19_a3', v_id3::text);
+  select count(*) into v_n from public.camiones;
+  perform public._test_chk(c_caso,
+    r.creado and r.viajes_asignados = 0 and r.gastos_asignados = 0 and r.activa
+      and v_patente = 'AB123CD' and v_marca = 'Iveco' and v_modelo is null and v_anio = 2020
+      and v_tid = (public._test_get('tenant_a_id'))::uuid and v_id3 is not null and v_n = 3,
+    format('crear_camion=%s | patente=%s marca=%s modelo=%s anio=%s tenant=%s | tercero=%s | camiones de A=%s',
+      r, v_patente, v_marca, v_modelo, v_anio, v_tid, v_id3, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.8 Patente inválida (23514): un INSERT directo en minúsculas o con espacios (camiones_patente_normalizada_chk), crear_camion con una patente que queda vacía o de 21 caracteres (camiones_patente_chk) y un UPDATE a minúsculas; no se crea nada y la fila editada queda igual';
+  v_a text; v_b text; v_c text; v_d text; v_e text; v_antes jsonb; v_despues jsonb; v_n int;
+begin
+  select to_jsonb(c) into v_antes from public.camiones c where c.id = (public._test_get('s19_a2'))::uuid;
+  v_a := public._test_sqlstate($q$insert into public.camiones (patente) values ('ab123zz')$q$);
+  v_b := public._test_sqlstate($q$insert into public.camiones (patente) values ('AB 123 ZZ')$q$);
+  v_c := public._test_sqlstate($q$select * from public.crear_camion(' - ')$q$);
+  v_d := public._test_sqlstate(format('select * from public.crear_camion(%L)', repeat('A', 21)));
+  v_e := public._test_sqlstate(format(
+    $q$update public.camiones set patente = 'ab123cd' where id = %L::uuid$q$, public._test_get('s19_a2')));
+  select to_jsonb(c) into v_despues from public.camiones c where c.id = (public._test_get('s19_a2'))::uuid;
+  select count(*) into v_n from public.camiones;
+  perform public._test_chk(c_caso,
+    v_a like '23514|camiones_patente_normalizada_chk|%' and v_b like '23514|camiones_patente_normalizada_chk|%'
+      and v_c like '23514|camiones_patente_chk|%' and v_d like '23514|camiones_patente_chk|%'
+      and v_e like '23514|camiones_patente_normalizada_chk|%'
+      and v_antes is not null and v_antes = v_despues and v_n = 3,
+    format('minúsculas: %s | espacios: %s | vacía: %s | 21: %s | update: %s | fila igual=%s camiones=%s', v_a, v_b, v_c, v_d, v_e, v_antes = v_despues, v_n));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.9 Patente repetida en el tenant (23505 en camiones_transportista_patente_key, sin DETAIL con los valores de la clave): por INSERT directo y por UPDATE de otro camión; la fila editada queda igual';
+  v_ins text; v_upd text; v_antes jsonb; v_despues jsonb; v_n int;
+begin
+  select to_jsonb(c) into v_antes from public.camiones c where c.id = (public._test_get('s19_a3'))::uuid;
+  v_ins := public._test_error_completo($q$insert into public.camiones (patente) values ('AB123CD')$q$);
+  v_upd := public._test_error_completo(format(
+    $q$update public.camiones set patente = 'AB123CD' where id = %L::uuid$q$, public._test_get('s19_a3')));
+  select to_jsonb(c) into v_despues from public.camiones c where c.id = (public._test_get('s19_a3'))::uuid;
+  select count(*) into v_n from public.camiones where patente = 'AB123CD';
+  perform public._test_chk(c_caso,
+    v_ins like E'sqlstate=23505\nconstraint=camiones_transportista_patente_key\n%' and v_ins like E'%\ndetail=\nhint=%'
+      and v_upd like E'sqlstate=23505\nconstraint=camiones_transportista_patente_key\n%' and v_upd like E'%\ndetail=\nhint=%'
+      and v_antes is not null and v_antes = v_despues and v_n = 1,
+    format('insert: %s || update: %s || fila igual=%s filas con AB123CD=%s',
+      replace(v_ins, E'\n', ' ; '), replace(v_upd, E'\n', ' ; '), v_antes = v_despues, v_n));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.10 crear_camion es idempotente por patente: el reintento con "AB-123-CD" (y otra marca) devuelve el mismo camión con creado = false, 0 y 0, activa, sin tocarlo, y sigue habiendo una sola fila con esa patente';
+  r record; v_n int; v_marca text;
+begin
+  select * into r from public.crear_camion('AB-123-CD', 'Otra marca');
+  select count(*) into v_n from public.camiones where patente = 'AB123CD';
+  select marca into v_marca from public.camiones where id = (public._test_get('s19_a2'))::uuid;
+  perform public._test_chk(c_caso,
+    r.camion_id = (public._test_get('s19_a2'))::uuid and r.creado is false
+      and r.viajes_asignados = 0 and r.gastos_asignados = 0 and r.activa and v_n = 1 and v_marca = 'Iveco',
+    format('resultado=%s filas=%s marca=%s', r, v_n, v_marca));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.11 A carga un gasto (peaje, sin viaje) con un camión propio: queda en su tenant con ese camión';
+  v_id uuid; v_tid uuid; v_cam uuid;
+begin
+  insert into public.gastos (categoria_id, monto, camion_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 1500, (public._test_get('s19_a2'))::uuid)
+    returning id, transportista_id, camion_id into v_id, v_tid, v_cam;
+  perform public._test_set('s19_g_own', v_id::text);
+  perform public._test_chk(c_caso,
+    v_tid = (public._test_get('tenant_a_id'))::uuid and v_cam = (public._test_get('s19_a2'))::uuid,
+    format('tenant=%s camion=%s', v_tid, v_cam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Datos propios de A para los casos que siguen (A ya tiene 3 camiones activos).
+do $$
+declare v_id uuid;
+  v_comb uuid := (public._test_get('categoria_global_combustible_id'))::uuid;
+  v_peajes uuid := (public._test_get('categoria_global_peajes_id'))::uuid;
+  v_c1 uuid := (public._test_get('camion_a_id'))::uuid;
+begin
+  insert into public.viajes (origen, destino, camion_id) values ('Origen S19-X', 'Destino S19-X', v_c1) returning id into v_id;
+  perform public._test_set('s19_vx', v_id::text);
+  insert into public.viajes (origen, destino) values ('Origen S19-N', 'Destino S19-N') returning id into v_id;
+  perform public._test_set('s19_vn', v_id::text);
+  insert into public.viajes (origen, destino) values ('Origen S19-NN (no se toca)', 'Destino S19-NN') returning id into v_id;
+  perform public._test_set('s19_vnn', v_id::text);
+  insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id)
+    values (v_comb, 50000, 45, (public._test_get('s19_vx'))::uuid, v_c1) returning id into v_id;
+  perform public._test_set('s19_gx_l', v_id::text);
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values (v_peajes, 700, (public._test_get('s19_vx'))::uuid) returning id into v_id;
+  perform public._test_set('s19_gx_p', v_id::text);
+  -- Un viaje sin camión por la función de la 007 (se mira en 19.12: en la misma
+  -- sentencia que la llama no se vería la fila que inserta).
+  perform public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date,
+                                          p_origen => 'Origen S19-F', p_destino => 'Destino S19-F');
+exception when others then
+  perform public._test_set('s19_error_datos_a', sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.12 Camión por defecto con MÁS de un camión activo (A tiene 3): un viaje sin camión (INSERT directo o crear_viaje_con_entregas) queda sin camión, y un gasto con litros sin camión ni viaje también; un gasto con litros sin camión en un viaje con camión activo toma el del viaje; un peaje sin camión queda sin camión';
+  v_c1 uuid := (public._test_get('camion_a_id'))::uuid;
+  v_vn uuid; v_vx uuid; v_gx_l uuid; v_gx_p uuid; v_f int; v_g_nulo uuid; v_g_def uuid; v_g_def_cam uuid;
+begin
+  select camion_id into v_vn from public.viajes where id = (public._test_get('s19_vn'))::uuid;
+  select camion_id into v_vx from public.viajes where id = (public._test_get('s19_vx'))::uuid;
+  select camion_id into v_gx_l from public.gastos where id = (public._test_get('s19_gx_l'))::uuid;
+  select camion_id into v_gx_p from public.gastos where id = (public._test_get('s19_gx_p'))::uuid;
+  select count(*) into v_f from public.viajes where origen = 'Origen S19-F' and camion_id is null;
+  insert into public.gastos (categoria_id, monto, litros)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 1000, 10) returning camion_id into v_g_nulo;
+  insert into public.gastos (categoria_id, monto, litros, viaje_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 2000, 20, (public._test_get('s19_vx'))::uuid)
+    returning id, camion_id into v_g_def, v_g_def_cam;
+  perform public._test_set('s19_gx_def', v_g_def::text);
+  perform public._test_chk(c_caso,
+    public._test_get('s19_error_datos_a') is null
+      and v_vn is null and v_f = 1 and v_vx = v_c1 and v_gx_l = v_c1 and v_gx_p is null
+      and v_g_nulo is null and v_g_def_cam = v_c1,
+    format('error_datos=%s | VN=%s viaje de la función sin camión=%s VX=%s GX_L=%s GX_P=%s | litros sin viaje=%s | litros en VX=%s',
+      public._test_get('s19_error_datos_a'), v_vn, v_f, v_vx, v_gx_l, v_gx_p, v_g_nulo, v_g_def_cam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.13 Coherencia gasto <-> viaje: un gasto con un camión distinto del de su viaje falla con 23514 (gastos_camion_viaje_chk) al insertarlo, al cambiarle el camión y al vincularlo a ese viaje; no se crea nada y las filas quedan iguales';
+  v_a text; v_b text; v_c text; v_gl_antes jsonb; v_gl_despues jsonb; v_go_antes jsonb; v_go_despues jsonb; v_n int;
+begin
+  select to_jsonb(g) into v_gl_antes from public.gastos g where g.id = (public._test_get('s19_gx_l'))::uuid;
+  select to_jsonb(g) into v_go_antes from public.gastos g where g.id = (public._test_get('s19_g_own'))::uuid;
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id) values (%L::uuid, 3000, 30, %L::uuid, %L::uuid)',
+    public._test_get('categoria_global_combustible_id'), public._test_get('s19_vx'), public._test_get('s19_a2')));
+  v_b := public._test_sqlstate(format(
+    'update public.gastos set camion_id = %L::uuid where id = %L::uuid', public._test_get('s19_a2'), public._test_get('s19_gx_l')));
+  v_c := public._test_sqlstate(format(
+    'update public.gastos set viaje_id = %L::uuid where id = %L::uuid', public._test_get('s19_vx'), public._test_get('s19_g_own')));
+  select to_jsonb(g) into v_gl_despues from public.gastos g where g.id = (public._test_get('s19_gx_l'))::uuid;
+  select to_jsonb(g) into v_go_despues from public.gastos g where g.id = (public._test_get('s19_g_own'))::uuid;
+  select count(*) into v_n from public.gastos where monto = 3000 and viaje_id = (public._test_get('s19_vx'))::uuid;
+  perform public._test_chk(c_caso,
+    v_a like '23514|%gastos_camion_viaje_chk%' and v_b like '23514|%gastos_camion_viaje_chk%' and v_c like '23514|%gastos_camion_viaje_chk%'
+      and v_gl_antes = v_gl_despues and v_go_antes = v_go_despues and v_n = 0,
+    format('insert: %s | cambiar camión: %s | vincular: %s | filas iguales=%s/%s creados=%s',
+      v_a, v_b, v_c, v_gl_antes = v_gl_despues, v_go_antes = v_go_despues, v_n));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.14 Coherencia, lo que SÍ se permite: un gasto con camión en un viaje SIN camión, un gasto con camión sin viaje, y editar un peaje de un viaje con camión sin darle camión (el default solo aplica a gastos con litros)';
+  v_g_vn uuid; v_cam uuid; v_sin_viaje uuid; v_rows int; v_peaje uuid;
+begin
+  insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 4000, 40, (public._test_get('s19_vn'))::uuid,
+            (public._test_get('s19_a2'))::uuid)
+    returning id, camion_id into v_g_vn, v_cam;
+  perform public._test_set('s19_g_vn', v_g_vn::text);
+  insert into public.gastos (categoria_id, monto, camion_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 600, (public._test_get('s19_a3'))::uuid)
+    returning camion_id into v_sin_viaje;
+  update public.gastos set descripcion = 'peaje editado' where id = (public._test_get('s19_gx_p'))::uuid;
+  get diagnostics v_rows = row_count;
+  select camion_id into v_peaje from public.gastos where id = (public._test_get('s19_gx_p'))::uuid;
+  perform public._test_chk(c_caso,
+    v_cam = (public._test_get('s19_a2'))::uuid and v_sin_viaje = (public._test_get('s19_a3'))::uuid
+      and v_rows = 1 and v_peaje is null,
+    format('en viaje sin camión=%s | sin viaje=%s | peaje editado: filas=%s camión=%s', v_cam, v_sin_viaje, v_rows, v_peaje));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.15 Propagación: actualizar_viaje_con_entregas cambia el camión del viaje VX y sus gastos CON camión lo siguen; el peaje sin camión de VX sigue sin camión y no se tocan los gastos de otros viajes ni los sin viaje';
+  v_a2 uuid := (public._test_get('s19_a2'))::uuid;
+  v_vx uuid; v_gl uuid; v_gd uuid; v_gp uuid; v_go uuid; v_gvn uuid;
+begin
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('s19_vx'))::uuid, p_fecha => current_date,
+    p_origen => 'Origen S19-X', p_destino => 'Destino S19-X', p_camion_id => v_a2,
+    p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => '[]'::jsonb);
+  select camion_id into v_vx from public.viajes where id = (public._test_get('s19_vx'))::uuid;
+  select camion_id into v_gl from public.gastos where id = (public._test_get('s19_gx_l'))::uuid;
+  select camion_id into v_gd from public.gastos where id = (public._test_get('s19_gx_def'))::uuid;
+  select camion_id into v_gp from public.gastos where id = (public._test_get('s19_gx_p'))::uuid;
+  select camion_id into v_go from public.gastos where id = (public._test_get('s19_g_own'))::uuid;
+  select camion_id into v_gvn from public.gastos where id = (public._test_get('s19_g_vn'))::uuid;
+  perform public._test_chk(c_caso,
+    v_vx = v_a2 and v_gl = v_a2 and v_gd = v_a2 and v_gp is null and v_go = v_a2 and v_gvn = v_a2,
+    format('VX=%s GX_L=%s GX_DEF=%s GX_P=%s | sin viaje=%s | de VN=%s', v_vx, v_gl, v_gd, v_gp, v_go, v_gvn));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.16 Propagación: dejar VX sin camión no toca sus gastos; un UPDATE directo que le pone otro camión los mueve (el peaje sigue sin camión); y un viaje que no tenía camión (VN) al recibir uno arrastra a sus gastos con camión';
+  v_a2 uuid := (public._test_get('s19_a2'))::uuid;
+  v_a3 uuid := (public._test_get('s19_a3'))::uuid;
+  v_c1 uuid := (public._test_get('camion_a_id'))::uuid;
+  v_gl1 uuid; v_gd1 uuid; v_vx2 uuid; v_gl2 uuid; v_gd2 uuid; v_gp2 uuid; v_vn uuid; v_gvn uuid;
+begin
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('s19_vx'))::uuid, p_fecha => current_date,
+    p_origen => 'Origen S19-X', p_destino => 'Destino S19-X', p_camion_id => null,
+    p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => '[]'::jsonb);
+  select camion_id into v_gl1 from public.gastos where id = (public._test_get('s19_gx_l'))::uuid;
+  select camion_id into v_gd1 from public.gastos where id = (public._test_get('s19_gx_def'))::uuid;
+
+  update public.viajes set camion_id = v_c1 where id = (public._test_get('s19_vx'))::uuid;
+  select camion_id into v_vx2 from public.viajes where id = (public._test_get('s19_vx'))::uuid;
+  select camion_id into v_gl2 from public.gastos where id = (public._test_get('s19_gx_l'))::uuid;
+  select camion_id into v_gd2 from public.gastos where id = (public._test_get('s19_gx_def'))::uuid;
+  select camion_id into v_gp2 from public.gastos where id = (public._test_get('s19_gx_p'))::uuid;
+
+  update public.viajes set camion_id = v_a3 where id = (public._test_get('s19_vn'))::uuid;
+  select camion_id into v_vn from public.viajes where id = (public._test_get('s19_vn'))::uuid;
+  select camion_id into v_gvn from public.gastos where id = (public._test_get('s19_g_vn'))::uuid;
+  perform public._test_chk(c_caso,
+    v_gl1 = v_a2 and v_gd1 = v_a2 and v_vx2 = v_c1 and v_gl2 = v_c1 and v_gd2 = v_c1 and v_gp2 is null
+      and v_vn = v_a3 and v_gvn = v_a3,
+    format('VX sin camión: GX_L=%s GX_DEF=%s | VX -> C1: viaje=%s GX_L=%s GX_DEF=%s GX_P=%s | VN -> A3: viaje=%s gasto=%s',
+      v_gl1, v_gd1, v_vx2, v_gl2, v_gd2, v_gp2, v_vn, v_gvn));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.17 El admin archiva un camión (UPDATE de activa a false, 1 fila) y crear_camion con esa patente (escrita distinto) devuelve el camión archivado con creado = false y activa = false';
+  v_rows int; r record;
+begin
+  update public.camiones set activa = false where id = (public._test_get('s19_a3'))::uuid;
+  get diagnostics v_rows = row_count;
+  select * into r from public.crear_camion('ac-456 ef');
+  perform public._test_chk(c_caso,
+    v_rows = 1 and r.camion_id = (public._test_get('s19_a3'))::uuid and r.creado is false
+      and r.viajes_asignados = 0 and r.gastos_asignados = 0 and r.activa is false,
+    format('filas=%s crear_camion=%s', v_rows, r));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.18 Un camión archivado no se asigna a nada nuevo (55000, mensaje con camion_archivado y hint "Reactivalo o elegí otro camión."): gasto nuevo, viaje nuevo por INSERT directo y por crear_viaje_con_entregas, cambiar el camión de un gasto y el de un viaje con actualizar_viaje_con_entregas; no se crea nada y las filas quedan iguales';
+  v_ref uuid := gen_random_uuid();
+  v_a text; v_b text; v_c text; v_d text; v_e text; v_n_viaje int;
+  v_go_antes jsonb; v_go_despues jsonb; v_vx_antes jsonb; v_vx_despues jsonb; v_gx_antes jsonb; v_gx_despues jsonb;
+begin
+  select to_jsonb(g) into v_go_antes from public.gastos g where g.id = (public._test_get('s19_g_own'))::uuid;
+  select to_jsonb(v) into v_vx_antes from public.viajes v where v.id = (public._test_get('s19_vx'))::uuid;
+  select to_jsonb(g) into v_gx_antes from public.gastos g where g.id = (public._test_get('s19_gx_l'))::uuid;
+  v_a := public._test_error_completo(format(
+    'insert into public.gastos (categoria_id, monto, camion_id) values (%L::uuid, 100, %L::uuid)',
+    public._test_get('categoria_global_peajes_id'), public._test_get('s19_a3')));
+  v_b := public._test_error_completo(format(
+    $q$insert into public.viajes (origen, destino, camion_id) values ('O', 'D', %L::uuid)$q$, public._test_get('s19_a3')));
+  v_c := public._test_error_completo(format(
+    $q$select * from public.crear_viaje_con_entregas(p_client_ref => %L::uuid, p_fecha => current_date, p_origen => 'O', p_destino => 'D', p_camion_id => %L::uuid)$q$,
+    v_ref, public._test_get('s19_a3')));
+  v_d := public._test_error_completo(format(
+    'update public.gastos set camion_id = %L::uuid where id = %L::uuid', public._test_get('s19_a3'), public._test_get('s19_g_own')));
+  v_e := public._test_error_completo(format(
+    $q$select public.actualizar_viaje_con_entregas(p_viaje_id => %L::uuid, p_fecha => current_date, p_origen => 'Origen S19-X', p_destino => 'Destino S19-X', p_camion_id => %L::uuid, p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null, p_entregas => '[]'::jsonb)$q$,
+    public._test_get('s19_vx'), public._test_get('s19_a3')));
+  select count(*) into v_n_viaje from public.viajes where client_ref = v_ref;
+  select to_jsonb(g) into v_go_despues from public.gastos g where g.id = (public._test_get('s19_g_own'))::uuid;
+  select to_jsonb(v) into v_vx_despues from public.viajes v where v.id = (public._test_get('s19_vx'))::uuid;
+  select to_jsonb(g) into v_gx_despues from public.gastos g where g.id = (public._test_get('s19_gx_l'))::uuid;
+  perform public._test_chk(c_caso,
+    (select bool_and(x like E'sqlstate=55000\n%' and x like '%camion_archivado%' and x like E'%\nhint=Reactivalo o elegí otro camión.')
+       from unnest(array[v_a, v_b, v_c, v_d, v_e]) as t(x))
+      and v_n_viaje = 0 and v_go_antes = v_go_despues and v_vx_antes = v_vx_despues and v_gx_antes = v_gx_despues,
+    format('gasto: %s || viaje: %s || crear_viaje: %s || cambiar gasto: %s || actualizar viaje: %s || viaje creado=%s filas iguales=%s/%s/%s',
+      replace(v_a, E'\n', ' ; '), replace(v_b, E'\n', ' ; '), replace(v_c, E'\n', ' ; '), replace(v_d, E'\n', ' ; '), replace(v_e, E'\n', ' ; '),
+      v_n_viaje, v_go_antes = v_go_despues, v_vx_antes = v_vx_despues, v_gx_antes = v_gx_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.19 Los registros viejos conservan su camión archivado y se siguen editando: un UPDATE del monto de un gasto, actualizar_viaje_con_entregas reenviando el mismo camión archivado y un UPDATE directo del viaje funcionan y el camión no cambia';
+  v_a3 uuid := (public._test_get('s19_a3'))::uuid;
+  v_r1 int; v_r2 int; v_monto numeric; v_gcam uuid; v_origen text; v_obs text; v_vcam uuid;
+begin
+  update public.gastos set monto = 4100 where id = (public._test_get('s19_g_vn'))::uuid;
+  get diagnostics v_r1 = row_count;
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('s19_vn'))::uuid, p_fecha => current_date,
+    p_origen => 'Origen S19-N editado', p_destino => 'Destino S19-N', p_camion_id => v_a3,
+    p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => '[]'::jsonb);
+  update public.viajes set observaciones = 'editado con el camión archivado' where id = (public._test_get('s19_vn'))::uuid;
+  get diagnostics v_r2 = row_count;
+  select monto, camion_id into v_monto, v_gcam from public.gastos where id = (public._test_get('s19_g_vn'))::uuid;
+  select origen, observaciones, camion_id into v_origen, v_obs, v_vcam from public.viajes where id = (public._test_get('s19_vn'))::uuid;
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_r2 = 1 and v_monto = 4100 and v_gcam = v_a3
+      and v_origen = 'Origen S19-N editado' and v_obs = 'editado con el camión archivado' and v_vcam = v_a3,
+    format('gasto: filas=%s monto=%s camión=%s | viaje: filas=%s origen=%s obs=%s camión=%s', v_r1, v_monto, v_gcam, v_r2, v_origen, v_obs, v_vcam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.20 El default no adivina: un gasto con litros y sin camión en un viaje cuyo camión está archivado queda sin camión (no toma otro, que sería incoherente con el viaje)';
+  v_cam uuid; v_id uuid;
+begin
+  insert into public.gastos (categoria_id, monto, litros, viaje_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 5000, 50, (public._test_get('s19_vn'))::uuid)
+    returning id, camion_id into v_id, v_cam;
+  perform public._test_chk(c_caso, v_id is not null and v_cam is null, format('camión=%s', v_cam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.21 Reactivar es un UPDATE de activa a true (1 fila) y después el camión se vuelve a asignar; además A deja un camión AARCH archivado para los casos de B';
+  v_rows int; v_cam uuid; r record; v_rows_arch int;
+begin
+  update public.camiones set activa = true where id = (public._test_get('s19_a3'))::uuid;
+  get diagnostics v_rows = row_count;
+  insert into public.gastos (categoria_id, monto, camion_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 650, (public._test_get('s19_a3'))::uuid)
+    returning camion_id into v_cam;
+  select * into r from public.crear_camion('AG1');
+  perform public._test_set('s19_a_arch', r.camion_id::text);
+  update public.camiones set activa = false where id = r.camion_id;
+  get diagnostics v_rows_arch = row_count;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_cam = (public._test_get('s19_a3'))::uuid and r.creado and v_rows_arch = 1,
+    format('reactivar: filas=%s | gasto con el camión=%s | AARCH=%s archivado: filas=%s', v_rows, v_cam, r, v_rows_arch));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- ON DELETE RESTRICT de viajes_camion_fk y gastos_camion_fk (código distinto en PG17 y PG18: ver la nota de la sección).
+do $$
+declare
+  c_caso constant text := '19.22 Borrar un camión con viajes (viajes_camion_fk) o con gastos (gastos_camion_fk) falla por ON DELETE RESTRICT (23503 en PostgreSQL 17, 23001 en PostgreSQL 18, y el error nombra la FK) y el camión sigue; sin referencias se borra (también esos dos, después de quitarles el viaje y el gasto)';
+  v_a4 uuid; v_a5 uuid; v_a6 uuid; v_viaje uuid; v_gasto uuid;
+  v_s1 text; v_m1 text; v_c1 text; v_s2 text; v_m2 text; v_c2 text;
+  v_e4 boolean; v_e5 boolean; v_r6 int; v_r4 int; v_r5 int;
+begin
+  select r.camion_id into v_a4 from public.crear_camion('AD1') r;
+  select r.camion_id into v_a5 from public.crear_camion('AE1') r;
+  select r.camion_id into v_a6 from public.crear_camion('AF1') r;
+  insert into public.viajes (origen, destino, camion_id) values ('Origen S19-A4', 'Destino S19-A4', v_a4) returning id into v_viaje;
+  insert into public.gastos (categoria_id, monto, camion_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 300, v_a5) returning id into v_gasto;
+  begin
+    delete from public.camiones where id = v_a4;
+    v_s1 := 'no lanzó excepción';
+  exception when others then
+    get stacked diagnostics v_s1 = returned_sqlstate, v_m1 = message_text, v_c1 = constraint_name;
+  end;
+  begin
+    delete from public.camiones where id = v_a5;
+    v_s2 := 'no lanzó excepción';
+  exception when others then
+    get stacked diagnostics v_s2 = returned_sqlstate, v_m2 = message_text, v_c2 = constraint_name;
+  end;
+  select exists(select 1 from public.camiones where id = v_a4) into v_e4;
+  select exists(select 1 from public.camiones where id = v_a5) into v_e5;
+  delete from public.camiones where id = v_a6;
+  get diagnostics v_r6 = row_count;
+  -- Control positivo: sin el viaje y sin el gasto, los dos se borran.
+  delete from public.viajes where id = v_viaje;
+  delete from public.camiones where id = v_a4;
+  get diagnostics v_r4 = row_count;
+  delete from public.gastos where id = v_gasto;
+  delete from public.camiones where id = v_a5;
+  get diagnostics v_r5 = row_count;
+  perform public._test_chk(c_caso,
+    v_s1 in ('23503', '23001') and v_c1 = 'viajes_camion_fk' and v_m1 like '%viajes_camion_fk%'
+      and v_s2 in ('23503', '23001') and v_c2 = 'gastos_camion_fk' and v_m2 like '%gastos_camion_fk%'
+      and v_e4 and v_e5 and v_r6 = 1 and v_r4 = 1 and v_r5 = 1,
+    format('con viaje: %s %s (sigue=%s) :: %s | con gasto: %s %s (sigue=%s) :: %s | sin referencias: %s | después: %s y %s',
+      v_s1, v_c1, v_e4, v_m1, v_s2, v_c2, v_e5, v_m2, v_r6, v_r4, v_r5));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- El chofer de A: lee los camiones del tenant pero no los escribe.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '19.23 El chofer de A ve los camiones de A pero no los crea (crear_camion: 42501 "Solo el administrador"; INSERT directo: 42501), ni los archiva, edita o borra (0 filas, sin error); sí carga un gasto de combustible con camión en un viaje con ese camión';
+  v_rol public.rol_miembro; v_ve int; v_a text; v_b text; v_r1 int; v_r2 int; v_r3 int;
+  v_activa boolean; v_patente text; v_existe boolean; v_gcam uuid;
+begin
+  select rol into v_rol from public.miembros where user_id = (public._test_get('uid_a_chofer'))::uuid;
+  select count(*) into v_ve from public.camiones
+   where id in ((public._test_get('camion_a_id'))::uuid, (public._test_get('s19_a2'))::uuid,
+                (public._test_get('s19_a3'))::uuid, (public._test_get('s19_a_arch'))::uuid);
+  v_a := public._test_sqlstate($q$select * from public.crear_camion('ZZ9')$q$);
+  v_b := public._test_sqlstate($q$insert into public.camiones (patente) values ('ZZ9')$q$);
+  update public.camiones set activa = false where id = (public._test_get('s19_a2'))::uuid;
+  get diagnostics v_r1 = row_count;
+  update public.camiones set patente = 'ZZ9' where id = (public._test_get('s19_a2'))::uuid;
+  get diagnostics v_r2 = row_count;
+  delete from public.camiones where id = (public._test_get('s19_a_arch'))::uuid;
+  get diagnostics v_r3 = row_count;
+  select activa, patente into v_activa, v_patente from public.camiones where id = (public._test_get('s19_a2'))::uuid;
+  select exists(select 1 from public.camiones where id = (public._test_get('s19_a_arch'))::uuid) into v_existe;
+  insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 7000, 70, (public._test_get('s19_vx'))::uuid,
+            (public._test_get('camion_a_id'))::uuid)
+    returning camion_id into v_gcam;
+  perform public._test_chk(c_caso,
+    v_rol = 'chofer' and v_ve = 4 and v_a like '42501|%Solo el administrador%' and v_b like '42501|%'
+      and v_r1 = 0 and v_r2 = 0 and v_r3 = 0 and v_activa and v_patente = 'AB123CD' and v_existe
+      and v_gcam = (public._test_get('camion_a_id'))::uuid,
+    format('rol=%s ve=%s | crear_camion: %s | insert: %s | archivar=%s editar=%s borrar=%s | A2 activa=%s patente=%s AARCH existe=%s | gasto con camión=%s',
+      v_rol, v_ve, v_a, v_b, v_r1, v_r2, v_r3, v_activa, v_patente, v_existe, v_gcam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B: mismas patentes que A, sin oráculo, y no puede tocar ni usar los camiones de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '19.24 B usa patentes que ya tiene A: crear_camion("ab123cd") crea el suyo (creado = true; 0 y 0 porque B ya tenía el del setup) y un INSERT directo con AC456EF también funciona; B ve solo sus filas con esas patentes';
+  r record; v_tid uuid; v_tid2 uuid; v_n int; v_ajenas int;
+begin
+  select * into r from public.crear_camion('ab123cd');
+  perform public._test_set('s19_b2', r.camion_id::text);
+  select transportista_id into v_tid from public.camiones where id = r.camion_id;
+  insert into public.camiones (patente) values ('AC456EF') returning transportista_id into v_tid2;
+  select count(*), count(*) filter (where transportista_id <> (public._test_get('tenant_b_id'))::uuid) into v_n, v_ajenas
+    from public.camiones where patente in ('AB123CD', 'AC456EF');
+  perform public._test_chk(c_caso,
+    r.creado and r.viajes_asignados = 0 and r.gastos_asignados = 0 and r.activa
+      and v_tid = (public._test_get('tenant_b_id'))::uuid and v_tid2 = (public._test_get('tenant_b_id'))::uuid
+      and v_n = 2 and v_ajenas = 0,
+    format('crear_camion=%s tenant=%s | insert directo tenant=%s | filas vistas=%s ajenas=%s', r, v_tid, v_tid2, v_n, v_ajenas));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.25 B no ve los camiones de A (por id) y sus UPDATE y DELETE sobre ellos afectan 0 filas y sin error: archivar, reactivar el archivado, cambiar la patente, "mudarlo" al tenant de B y borrar';
+  a2 uuid := (public._test_get('s19_a2'))::uuid;
+  aarch uuid := (public._test_get('s19_a_arch'))::uuid;
+  v_ve int; v_r1 int; v_r2 int; v_r3 int; v_r4 int; v_r5 int;
+begin
+  select count(*) into v_ve from public.camiones where id in (a2, aarch, (public._test_get('s19_a3'))::uuid);
+  update public.camiones set activa = false where id = a2;
+  get diagnostics v_r1 = row_count;
+  update public.camiones set activa = true where id = aarch;
+  get diagnostics v_r2 = row_count;
+  update public.camiones set patente = 'HACKB' where id = a2;
+  get diagnostics v_r3 = row_count;
+  update public.camiones set transportista_id = (public._test_get('tenant_b_id'))::uuid where id = a2;
+  get diagnostics v_r4 = row_count;
+  delete from public.camiones where id = aarch;
+  get diagnostics v_r5 = row_count;
+  perform public._test_chk(c_caso,
+    v_ve = 0 and v_r1 = 0 and v_r2 = 0 and v_r3 = 0 and v_r4 = 0 and v_r5 = 0,
+    format('ve=%s | archivar=%s reactivar=%s patente=%s mudar=%s borrar=%s', v_ve, v_r1, v_r2, v_r3, v_r4, v_r5));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Sin oráculo de existencia: usar el camión de A (activo o archivado) da exactamente el mismo error que
+-- uno inexistente (23503 de la FK compuesta, nunca el 55000 de "archivado"). Se comparan código,
+-- constraint, mensaje, DETAIL y HINT con los uuids normalizados, como en 17.26.
+do $$
+declare
+  c_caso constant text := '19.26 El error de B al usar un camión de A (activo o archivado) en un gasto (INSERT y UPDATE) o en un viaje (INSERT directo y crear_viaje_con_entregas) es idéntico al de un camión inexistente (23503 de gastos_camion_fk o viajes_camion_fk; nunca 55000) y ninguna parte del error nombra a A: no sirve de oráculo de existencia ni de estado';
+  c_uuid constant text := '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  v_peajes text := public._test_get('categoria_global_peajes_id');
+  v_gb uuid; v_a text[]; v_b text[]; v_ok boolean; v_nombra_a boolean; v_fks boolean;
+begin
+  insert into public.gastos (categoria_id, monto) values (v_peajes::uuid, 450) returning id into v_gb;
+  v_a := array[
+    public._test_error_completo(format('insert into public.gastos (categoria_id, monto, camion_id) values (%L::uuid, 1, %L::uuid)', v_peajes, public._test_get('s19_a2'))),
+    public._test_error_completo(format('insert into public.gastos (categoria_id, monto, camion_id) values (%L::uuid, 1, %L::uuid)', v_peajes, public._test_get('s19_a_arch'))),
+    public._test_error_completo(format('update public.gastos set camion_id = %L::uuid where id = %L::uuid', public._test_get('s19_a2'), v_gb)),
+    public._test_error_completo(format('update public.gastos set camion_id = %L::uuid where id = %L::uuid', public._test_get('s19_a_arch'), v_gb)),
+    public._test_error_completo(format($q$insert into public.viajes (origen, destino, camion_id) values ('O', 'D', %L::uuid)$q$, public._test_get('s19_a_arch'))),
+    public._test_error_completo(format($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'O', p_destino => 'D', p_camion_id => %L::uuid)$q$, public._test_get('s19_a_arch')))
+  ];
+  v_b := array[
+    public._test_error_completo(format('insert into public.gastos (categoria_id, monto, camion_id) values (%L::uuid, 1, gen_random_uuid())', v_peajes)),
+    public._test_error_completo(format('insert into public.gastos (categoria_id, monto, camion_id) values (%L::uuid, 1, gen_random_uuid())', v_peajes)),
+    public._test_error_completo(format('update public.gastos set camion_id = gen_random_uuid() where id = %L::uuid', v_gb)),
+    public._test_error_completo(format('update public.gastos set camion_id = gen_random_uuid() where id = %L::uuid', v_gb)),
+    public._test_error_completo($q$insert into public.viajes (origen, destino, camion_id) values ('O', 'D', gen_random_uuid())$q$),
+    public._test_error_completo($q$select * from public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date, p_origen => 'O', p_destino => 'D', p_camion_id => gen_random_uuid())$q$)
+  ];
+  select bool_and(a like E'sqlstate=23503\n%' and regexp_replace(a, c_uuid, '<uuid>', 'gi') = regexp_replace(b, c_uuid, '<uuid>', 'gi'))
+    into v_ok
+    from unnest(v_a, v_b) as t(a, b);
+  select bool_and(x like E'%\nconstraint=gastos_camion_fk\n%') into v_fks from unnest(v_a[1:4]) as t(x);
+  v_fks := v_fks and (select bool_and(x like E'%\nconstraint=viajes_camion_fk\n%') from unnest(v_a[5:6]) as t(x));
+  select coalesce(bool_or(strpos(x, (public._test_get('tenant_a_id'))) > 0
+                          or strpos(x, (public._test_get('s19_a2'))) > 0
+                          or strpos(x, (public._test_get('s19_a_arch'))) > 0), false)
+    into v_nombra_a
+    from unnest(v_a || v_b) as t(x);
+  perform public._test_chk(c_caso, v_ok and v_fks and not v_nombra_a,
+    format('iguales=%s fks=%s nombra a A=%s | de A: %s || inexistentes: %s', v_ok, v_fks, v_nombra_a,
+      replace(array_to_string(v_a, ' // '), E'\n', ' ; '), replace(array_to_string(v_b, ' // '), E'\n', ' ; ')));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Un usuario autenticado sin tenant.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '19.27 Un usuario sin tenant no ve camiones ni puede crearlos (42501), ni por crear_camion ni por INSERT directo (ni mandando el transportista_id de A)';
+  v_n int; v_a text; v_b text; v_c text;
+begin
+  select count(*) into v_n from public.camiones;
+  v_a := public._test_sqlstate($q$select * from public.crear_camion('SINT1')$q$);
+  v_b := public._test_sqlstate($q$insert into public.camiones (patente) values ('SINT1')$q$);
+  v_c := public._test_sqlstate(format(
+    $q$insert into public.camiones (transportista_id, patente) values (%L::uuid, 'SINT1')$q$, public._test_get('tenant_a_id')));
+  perform public._test_chk(c_caso,
+    v_n = 0 and v_a like '42501|%' and v_b like '42501|%' and v_c like '42501|%',
+    format('vio %s | crear_camion: %s | insert: %s | con el tenant de A: %s', v_n, v_a, v_b, v_c));
+end
+$$;
+
+reset role;
+
+-- C (admin): el caso real de hoy, una cuenta con viajes y cargas sin camión que crea su primer camión.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_c_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '19.28 Primer camión de C con crear_camion("cc 123-dd"): creado = true y asigna los 3 viajes sin camión y los 2 gastos CON litros sin camión (también el que está en un viaje); el peaje sigue sin camión';
+  r record; v_viajes_sin int; v_viajes_cc int; v_l1 uuid; v_l2 uuid; v_p uuid;
+begin
+  select * into r from public.crear_camion('cc 123-dd', 'Mercedes');
+  perform public._test_set('s19_cc', r.camion_id::text);
+  select count(*) filter (where camion_id is null), count(*) filter (where camion_id = r.camion_id)
+    into v_viajes_sin, v_viajes_cc from public.viajes;
+  select camion_id into v_l1 from public.gastos where id = (public._test_get('s19_gc_l1'))::uuid;
+  select camion_id into v_l2 from public.gastos where id = (public._test_get('s19_gc_l2'))::uuid;
+  select camion_id into v_p from public.gastos where id = (public._test_get('s19_gc_p'))::uuid;
+  perform public._test_chk(c_caso,
+    r.creado and r.viajes_asignados = 3 and r.gastos_asignados = 2 and r.activa
+      and v_viajes_sin = 0 and v_viajes_cc = 3 and v_l1 = r.camion_id and v_l2 = r.camion_id and v_p is null,
+    format('crear_camion=%s | viajes sin camión=%s con CC=%s | GC_L1=%s GC_L2=%s GC_P=%s', r, v_viajes_sin, v_viajes_cc, v_l1, v_l2, v_p));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Un viaje sin camión por la función de la 007, ya con un solo camión activo en C (se mira en 19.29).
+do $$
+begin
+  perform public.crear_viaje_con_entregas(p_client_ref => gen_random_uuid(), p_fecha => current_date,
+                                          p_origen => 'Origen C5 (función)', p_destino => 'Destino C5');
+exception when others then
+  perform public._test_set('s19_error_datos_c', sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.29 Camión por defecto con EXACTAMENTE un camión activo (C): un viaje nuevo sin camión (INSERT directo o crear_viaje_con_entregas) y un gasto con litros sin camión reciben el de C; un peaje no; un camion_id = NULL explícito en un gasto con litros se vuelve a completar; y actualizar_viaje_con_entregas con NULL deja el viaje sin camión (al editar no hay default) sin tocar sus gastos';
+  v_cc uuid := (public._test_get('s19_cc'))::uuid;
+  v_vd uuid; v_vf uuid; v_gl uuid; v_gp uuid; v_rows int; v_l1 uuid; v_vc1 uuid; v_l2 uuid;
+begin
+  insert into public.viajes (origen, destino) values ('Origen C4', 'Destino C4') returning camion_id into v_vd;
+  select camion_id into v_vf from public.viajes where origen = 'Origen C5 (función)';
+  insert into public.gastos (categoria_id, monto, litros)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 8000, 80) returning camion_id into v_gl;
+  insert into public.gastos (categoria_id, monto)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 800) returning camion_id into v_gp;
+  update public.gastos set camion_id = null where id = (public._test_get('s19_gc_l1'))::uuid;
+  get diagnostics v_rows = row_count;
+  select camion_id into v_l1 from public.gastos where id = (public._test_get('s19_gc_l1'))::uuid;
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => (public._test_get('s19_vc1'))::uuid, p_fecha => current_date,
+    p_origen => 'Origen C1', p_destino => 'Destino C1', p_camion_id => null,
+    p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => '[]'::jsonb);
+  select camion_id into v_vc1 from public.viajes where id = (public._test_get('s19_vc1'))::uuid;
+  select camion_id into v_l2 from public.gastos where id = (public._test_get('s19_gc_l2'))::uuid;
+  perform public._test_chk(c_caso,
+    public._test_get('s19_error_datos_c') is null
+      and v_vd = v_cc and v_vf = v_cc and v_gl = v_cc and v_gp is null and v_rows = 1 and v_l1 = v_cc
+      and v_vc1 is null and v_l2 = v_cc,
+    format('error_datos=%s | viaje INSERT=%s viaje de la función=%s | gasto con litros=%s | peaje=%s | NULL explícito: filas=%s queda=%s | VC1 editado con NULL=%s y su gasto=%s',
+      public._test_get('s19_error_datos_c'), v_vd, v_vf, v_gl, v_gp, v_rows, v_l1, v_vc1, v_l2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.30 En C, el reintento de crear_camion("CC-123-DD") devuelve el mismo con creado = false, 0 y 0; un segundo camión no es el primero (0 y 0) y no asigna el viaje que quedó sin camión';
+  r1 record; r2 record; v_vc1 uuid; v_n int;
+begin
+  select * into r1 from public.crear_camion('CC-123-DD');
+  select * into r2 from public.crear_camion('CE1');
+  select camion_id into v_vc1 from public.viajes where id = (public._test_get('s19_vc1'))::uuid;
+  select count(*) into v_n from public.camiones;
+  perform public._test_chk(c_caso,
+    r1.camion_id = (public._test_get('s19_cc'))::uuid and r1.creado is false and r1.viajes_asignados = 0 and r1.gastos_asignados = 0
+      and r2.creado and r2.viajes_asignados = 0 and r2.gastos_asignados = 0 and v_vc1 is null and v_n = 2,
+    format('reintento=%s | segundo=%s | VC1=%s | camiones de C=%s', r1, r2, v_vc1, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- D (admin): el "primer camión" cuenta también los archivados.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_d_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '19.31 "Primer camión" cuenta los archivados: D crea su primer camión (sin nada que asignar) y lo archiva; un viaje y un gasto con litros cargados después quedan sin camión (no hay activo; la 010 todavía no exige camión para los litros); el segundo camión NO es el primero y no los asigna';
+  r1 record; r2 record; v_rows int; v_viaje uuid; v_gasto uuid; v_vcam uuid; v_gcam uuid;
+begin
+  select * into r1 from public.crear_camion('DD1');
+  update public.camiones set activa = false where id = r1.camion_id;
+  get diagnostics v_rows = row_count;
+  insert into public.viajes (origen, destino) values ('Origen D1', 'Destino D1') returning id into v_viaje;
+  insert into public.gastos (categoria_id, monto, litros)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 9000, 90) returning id into v_gasto;
+  perform public._test_set('s19_vd', v_viaje::text);
+  perform public._test_set('s19_gd', v_gasto::text);
+  select * into r2 from public.crear_camion('DD2');
+  select camion_id into v_vcam from public.viajes where id = v_viaje;
+  select camion_id into v_gcam from public.gastos where id = v_gasto;
+  perform public._test_chk(c_caso,
+    r1.creado and r1.viajes_asignados = 0 and r1.gastos_asignados = 0 and v_rows = 1
+      and r2.creado and r2.viajes_asignados = 0 and r2.gastos_asignados = 0 and v_vcam is null and v_gcam is null,
+    format('primero=%s archivado=%s | segundo=%s | viaje=%s gasto=%s', r1, v_rows, r2, v_vcam, v_gcam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: integridad general tras todo lo anterior.
+do $$
+declare
+  c_caso constant text := '19.32 Como postgres: ni crear_camion ni el default ni la propagación tocaron otros tenants: el viaje VNN de A (cargado sin camión con 3 activos) sigue sin camión, el viaje y el gasto de D siguen sin camión, y ningún viaje ni gasto de A, B o D apunta a un camión de C';
+  v_vnn uuid; v_vd uuid; v_gd uuid; v_cruce int;
+begin
+  select camion_id into v_vnn from public.viajes where id = (public._test_get('s19_vnn'))::uuid;
+  select camion_id into v_vd from public.viajes where id = (public._test_get('s19_vd'))::uuid;
+  select camion_id into v_gd from public.gastos where id = (public._test_get('s19_gd'))::uuid;
+  select (select count(*) from public.viajes v join public.camiones c on c.id = v.camion_id
+           where c.transportista_id = (public._test_get('s19_tenant_c'))::uuid and v.transportista_id <> c.transportista_id)
+       + (select count(*) from public.gastos g join public.camiones c on c.id = g.camion_id
+           where c.transportista_id = (public._test_get('s19_tenant_c'))::uuid and g.transportista_id <> c.transportista_id)
+    into v_cruce;
+  perform public._test_chk(c_caso,
+    v_vnn is null and v_vd is null and v_gd is null and v_cruce = 0,
+    format('VNN=%s viaje D=%s gasto D=%s cruces con C=%s', v_vnn, v_vd, v_gd, v_cruce));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '19.33 Como postgres: ningún viaje ni gasto de toda la base apunta a un camión de otro tenant ni a uno inexistente; todo gasto con viaje y camión cuyo viaje tiene camión coincide con él; todas las patentes están normalizadas y no se repiten por tenant (y hay camiones en 4 tenants y gastos con camión, para que el chequeo no sea vacío)';
+  v_v_cruz int; v_v_huerf int; v_g_cruz int; v_g_huerf int; v_incoh int; v_mal_pat int; v_dup int; v_tenants int; v_gcam int;
+begin
+  -- Se une solo por id (sin el tenant) a propósito: así un cruce entre tenants no se esconde detrás de la FK compuesta.
+  select count(*) into v_v_cruz from public.viajes v join public.camiones c on c.id = v.camion_id where c.transportista_id <> v.transportista_id;
+  select count(*) into v_v_huerf from public.viajes v where v.camion_id is not null and not exists (select 1 from public.camiones c where c.id = v.camion_id);
+  select count(*) into v_g_cruz from public.gastos g join public.camiones c on c.id = g.camion_id where c.transportista_id <> g.transportista_id;
+  select count(*) into v_g_huerf from public.gastos g where g.camion_id is not null and not exists (select 1 from public.camiones c where c.id = g.camion_id);
+  select count(*) into v_incoh from public.gastos g join public.viajes v on v.id = g.viaje_id
+   where g.camion_id is not null and v.camion_id is not null and g.camion_id <> v.camion_id;
+  select count(*) into v_mal_pat from public.camiones where patente !~ '^[A-Z0-9]{1,20}$';
+  select count(*) into v_dup from (select transportista_id, patente from public.camiones group by 1, 2 having count(*) > 1) d;
+  select count(distinct transportista_id) into v_tenants from public.camiones;
+  select count(*) into v_gcam from public.gastos where camion_id is not null;
+  perform public._test_chk(c_caso,
+    v_v_cruz = 0 and v_v_huerf = 0 and v_g_cruz = 0 and v_g_huerf = 0 and v_incoh = 0 and v_mal_pat = 0 and v_dup = 0
+      and v_tenants >= 4 and v_gcam > 0,
+    format('viajes: cruzados=%s huérfanos=%s | gastos: cruzados=%s huérfanos=%s incoherentes=%s | patentes mal=%s repetidas=%s | tenants con camiones=%s gastos con camión=%s',
+      v_v_cruz, v_v_huerf, v_g_cruz, v_g_huerf, v_incoh, v_mal_pat, v_dup, v_tenants, v_gcam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
 end
 $$;
 

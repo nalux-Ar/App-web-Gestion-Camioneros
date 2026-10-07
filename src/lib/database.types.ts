@@ -1,5 +1,5 @@
 // Generado con el MCP de Supabase (generate_typescript_types) sobre el
-// proyecto de Supabase del repo, después de las migraciones 001–009.
+// proyecto de Supabase del repo, después de las migraciones 001–010.
 // No editar a mano: regenerar cuando cambie el esquema.
 
 export type Json =
@@ -20,6 +20,7 @@ export type Database = {
     Tables: {
       camiones: {
         Row: {
+          activa: boolean
           anio: number | null
           created_at: string
           id: string
@@ -30,6 +31,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          activa?: boolean
           anio?: number | null
           created_at?: string
           id?: string
@@ -40,6 +42,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          activa?: boolean
           anio?: number | null
           created_at?: string
           id?: string
@@ -53,7 +56,7 @@ export type Database = {
           {
             foreignKeyName: "camiones_transportista_id_fkey"
             columns: ["transportista_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "transportistas"
             referencedColumns: ["id"]
           },
@@ -250,6 +253,7 @@ export type Database = {
       }
       gastos: {
         Row: {
+          camion_id: string | null
           categoria_id: string
           client_ref: string | null
           created_at: string
@@ -268,6 +272,7 @@ export type Database = {
           viaje_id: string | null
         }
         Insert: {
+          camion_id?: string | null
           categoria_id: string
           client_ref?: string | null
           created_at?: string
@@ -286,6 +291,7 @@ export type Database = {
           viaje_id?: string | null
         }
         Update: {
+          camion_id?: string | null
           categoria_id?: string
           client_ref?: string | null
           created_at?: string
@@ -304,6 +310,13 @@ export type Database = {
           viaje_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "gastos_camion_fk"
+            columns: ["transportista_id", "camion_id"]
+            isOneToOne: false
+            referencedRelation: "camiones"
+            referencedColumns: ["transportista_id", "id"]
+          },
           {
             foreignKeyName: "gastos_categoria_id_fkey"
             columns: ["categoria_id"]
@@ -482,6 +495,21 @@ export type Database = {
           p_user_id: string
         }
         Returns: undefined
+      }
+      crear_camion: {
+        Args: {
+          p_anio?: number
+          p_marca?: string
+          p_modelo?: string
+          p_patente: string
+        }
+        Returns: {
+          activa: boolean
+          camion_id: string
+          creado: boolean
+          gastos_asignados: number
+          viajes_asignados: number
+        }[]
       }
       crear_viaje_con_entregas: {
         Args: {
