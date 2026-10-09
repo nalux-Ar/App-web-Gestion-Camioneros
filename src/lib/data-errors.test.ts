@@ -244,6 +244,19 @@ describe('messagesByConstraint: un mensaje por constraint, para cualquier clase 
     for (const error of [FK_CAMION_GASTO, ARCHIVADO, NO_COINCIDE]) expect(isRetryableDataError(error, GUARDAR_GASTO_CONTEXT)).toBe(false);
   });
 
+  it('GUARDAR un gasto: litros sin camión (23514 de la 011) tiene su mensaje, no se reintenta y no se confunde con el del viaje', () => {
+    const LITROS_SIN_CAMION = new DataRequestError(
+      { code: '23514', message: 'new row for relation "gastos" violates check constraint "gastos_litros_camion_chk"' },
+      400,
+    );
+    const texto = mapDataError(LITROS_SIN_CAMION, GUARDAR_GASTO_CONTEXT);
+    expect(texto).toBe('La carga de combustible necesita un camión. Elige el camión y guarda de nuevo.');
+    expect(texto).not.toMatch(/_chk/);
+    expect(isRetryableDataError(LITROS_SIN_CAMION, GUARDAR_GASTO_CONTEXT)).toBe(false);
+    expect(mapDataError(NO_COINCIDE, GUARDAR_GASTO_CONTEXT)).not.toBe(texto);
+    expect(mapDataError(LITROS_SIN_CAMION, GUARDAR_GASTO_CONTEXT)).not.toBe(mapDataError(NO_COINCIDE, GUARDAR_GASTO_CONTEXT));
+  });
+
   it('el detalle de la FK del camión nombra "camiones" y no "viajes": no se confunde con la del viaje', () => {
     expect(mentionsConstraint(FK_CAMION_GASTO, GASTOS_VIAJE_FK)).toBe(false);
   });

@@ -1,4 +1,11 @@
-import { CAMION_ARCHIVADO, CAMION_ARCHIVADO_MESSAGE, GASTOS_CAMION_FK, GASTOS_CAMION_VIAJE } from '@/features/camiones/constants';
+import {
+  CAMION_ARCHIVADO,
+  CAMION_ARCHIVADO_MESSAGE,
+  GASTOS_CAMION_FK,
+  GASTOS_CAMION_VIAJE,
+  GASTOS_LITROS_CAMION,
+  LITROS_SIN_CAMION_MESSAGE,
+} from '@/features/camiones/constants';
 import type { DataErrorContext } from '@/lib/data-errors';
 import type { MetodoPago } from '@/lib/db';
 
@@ -64,6 +71,9 @@ export const GUARDAR_GASTO_CONTEXT: DataErrorContext = {
     [CAMION_ARCHIVADO]: CAMION_ARCHIVADO_MESSAGE,
     // 23514: el camión no es el del viaje (el viaje cambió de camión mientras tanto, desde otro dispositivo).
     [GASTOS_CAMION_VIAJE]: 'El camión no coincide con el del viaje: el viaje cambió de camión. Vuelve a elegir el viaje.',
+    // 23514 (migración 011): una carga con litros llegó sin camión y la base no pudo completarlo (con el front actual no se
+    // da: no deja guardar sin camión; puede pasar si la lista de camiones estaba vieja).
+    [GASTOS_LITROS_CAMION]: LITROS_SIN_CAMION_MESSAGE,
   },
   // 23503: el trigger rechaza una categoría que no es del transportista ni global (su mensaje no nombra ningún
   // constraint, así que es el caso "por defecto").

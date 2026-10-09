@@ -32,6 +32,8 @@ export const CAMIONES_PATENTE_NORMALIZADA = 'camiones_patente_normalizada_chk';
 export const CAMION_ARCHIVADO = 'camion_archivado';
 /** Gasto con un camión distinto del de su viaje (23514). */
 export const GASTOS_CAMION_VIAJE = 'gastos_camion_viaje_chk';
+/** Gasto con litros y sin camión que la base no pudo completar (23514, migración 011). */
+export const GASTOS_LITROS_CAMION = 'gastos_litros_camion_chk';
 /** FK compuesta gasto -> camión (23503: camión de otro tenant o inexistente, mismo error en los dos casos). */
 export const GASTOS_CAMION_FK = 'gastos_camion_fk';
 /** FK compuesta viaje -> camión (ídem). */
@@ -40,6 +42,7 @@ export const VIAJES_CAMION_FK = 'viajes_camion_fk';
 export const SOLO_ADMIN_CAMIONES_MESSAGE = 'Solo el administrador de la cuenta puede cargar o cambiar camiones.';
 export const PATENTE_REPETIDA_MESSAGE = 'Ya tienes un camión con esa patente.';
 export const CAMION_ARCHIVADO_MESSAGE = 'Ese camión está archivado. Elige otro camión o reactívalo desde Camiones.';
+export const LITROS_SIN_CAMION_MESSAGE = 'La carga de combustible necesita un camión. Elige el camión y guarda de nuevo.';
 
 /** Errores al GUARDAR un camión (alta por `crear_camion` o edición por UPDATE). */
 export const GUARDAR_CAMION_CONTEXT: DataErrorContext = {

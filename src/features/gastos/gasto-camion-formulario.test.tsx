@@ -678,6 +678,19 @@ describe('errores del camión al guardar', () => {
     expect(invalido(camionesKeys.list(T))).toBe(true);
   });
 
+  it('23514 gastos_litros_camion_chk (la carga llegó sin camión): mensaje propio sin "Reintentar" y se refresca SOLO la lista de camiones', async () => {
+    route.insertar = () => fail('23514', 'new row for relation "gastos" violates check constraint "gastos_litros_camion_chk"');
+    await mount();
+    await llenarCombustible();
+    await click(radioCamion('AB 123 CD'));
+    await guardar();
+    expect(bodyText()).toContain('La carga de combustible necesita un camión. Elige el camión y guarda de nuevo.');
+    expect(bodyText()).not.toContain('gastos_litros_camion_chk');
+    expect(buttonByText('Reintentar')).toBeUndefined();
+    expect(invalido(camionesKeys.list(T))).toBe(true);
+    expect(invalido(viajesKeys.recientes(T))).toBe(false);
+  });
+
   it('23503 gastos_camion_fk (el camión ya no existe): mensaje y se refresca SOLO la lista de camiones', async () => {
     route.insertar = () => fail('23503', 'insert or update on table "gastos" violates foreign key constraint "gastos_camion_fk"', 409);
     await mount();

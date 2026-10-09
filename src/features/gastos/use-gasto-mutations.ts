@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { camionesKeys } from '@/features/camiones/camiones-keys';
-import { CAMION_ARCHIVADO, GASTOS_CAMION_FK, GASTOS_CAMION_VIAJE } from '@/features/camiones/constants';
+import { CAMION_ARCHIVADO, GASTOS_CAMION_FK, GASTOS_CAMION_VIAJE, GASTOS_LITROS_CAMION } from '@/features/camiones/constants';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { isForeignKeyViolationOf, mentionsConstraint } from '@/lib/data-errors';
 import type { RowChanges } from '@/lib/db';
@@ -31,14 +31,14 @@ import { gastosKeys } from './gastos-keys';
  * Tras un error al guardar, lo que quedó viejo según el error:
  *  - el viaje ya no existe, o cambió de camión (el camión del gasto ya no coincide): la lista de viajes recientes del
  *    selector (trae el camión de cada viaje);
- *  - el camión ya no existe, se archivó o no coincide con el del viaje: la lista de camiones.
+ *  - el camión ya no existe, se archivó, no coincide con el del viaje o la carga llegó sin camión: la lista de camiones.
  * Si no, el selector seguiría ofreciendo lo viejo y el error se repetiría hasta recargar la página.
  */
 function invalidarViajesSiNoExiste(queryClient: QueryClient, tenantId: string, error: Error) {
   if (isForeignKeyViolationOf(error, GASTOS_VIAJE_FK) || mentionsConstraint(error, GASTOS_CAMION_VIAJE)) {
     void queryClient.invalidateQueries({ queryKey: viajesKeys.recientes(tenantId) });
   }
-  if ([GASTOS_CAMION_FK, CAMION_ARCHIVADO, GASTOS_CAMION_VIAJE].some((constraint) => mentionsConstraint(error, constraint))) {
+  if ([GASTOS_CAMION_FK, CAMION_ARCHIVADO, GASTOS_CAMION_VIAJE, GASTOS_LITROS_CAMION].some((constraint) => mentionsConstraint(error, constraint))) {
     void queryClient.invalidateQueries({ queryKey: camionesKeys.list(tenantId) });
   }
 }
