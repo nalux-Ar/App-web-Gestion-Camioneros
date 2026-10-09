@@ -5,19 +5,20 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 19 cubren además las migraciones 005 a 010, el vínculo
+-- secciones 11 a 20 cubren además las migraciones 005 a 011, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
--- (la 010: varios camiones por tenant).
+-- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
 -- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql, 003_rls.sql,
 -- 005_gastos_combustible.sql, 006_gastos_client_ref.sql,
 -- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql,
--- 009_clientes_client_ref.sql y 010_varios_camiones.sql
--- (las secciones 11 a 19 usan sus columnas y funciones; la 16 no necesita
+-- 009_clientes_client_ref.sql, 010_varios_camiones.sql y
+-- 011_litros_exigen_camion.sql
+-- (las secciones 11 a 20 usan sus columnas y funciones; la 16 no necesita
 -- ninguna migración propia; la 004 no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
@@ -42,7 +43,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 19 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 20 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -5163,6 +5164,12 @@ $$;
 -- coherencia solo se pueden probar con dos conexiones; acá se comprueba que
 -- estén en el código (19.4 y 19.5), no su efecto.
 
+-- Esta sección describe la 010 SOLA (gastos con litros y sin camión todavía
+-- permitidos). Si la 011 ya está aplicada, se suelta su constraint dentro de
+-- esta transacción de prueba (el ROLLBACK final lo devuelve); la sección 20 lo
+-- vuelve a crear con las sentencias de la 011.
+alter table public.gastos drop constraint if exists gastos_litros_camion_chk;
+
 select public._test_set('uid_c_admin', 'c0c0c0c0-0000-0000-0000-000000000019');
 select public._test_set('uid_d_admin', 'd0d0d0d0-0000-0000-0000-000000000019');
 
@@ -6223,6 +6230,614 @@ begin
       v_v_cruz, v_v_huerf, v_g_cruz, v_g_huerf, v_incoh, v_mal_pat, v_dup, v_tenants, v_gcam));
 exception when others then
   perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 20) Un gasto con litros exige camión: gastos_litros_camion_chk (migración 011)
+-- ---------------------------------------------------------------------
+-- Requiere 011_litros_exigen_camion.sql aplicada (y la 010, cuyo trigger
+-- trg_21_camion_por_defecto completa el camión cuando puede). Prueba la
+-- regla con 0, 1 y 2 o más camiones activos, en INSERT y en UPDATE, por rol y
+-- entre tenants; que el borrado de un viaje en dos pasos del front sigue
+-- andando con gastos de combustible (pendiente I4 de la auditoría); que el
+-- error es distinto del de coherencia gasto <-> viaje; y la lógica de la
+-- propia migración (relleno + VALIDATE que falla entero si queda algo sin
+-- resolver).
+--
+-- Dos maneras de correr esta sección:
+-- * En el archivo completo: la sección 19 describe la 010 SOLA y suelta el
+--   constraint al empezar. Por eso esta sección lo vuelve a crear con las
+--   sentencias de la 011 (relleno + ADD NOT VALID + VALIDATE) si falta, la
+--   011 está aplicada y la 19 corrió en esta misma transacción. Para saber
+--   que la 011 está aplicada aunque el constraint ya no esté, mira el
+--   comentario que la 011 deja en gastos.litros (sobrevive al DROP). Antes de
+--   validar borra los gastos con litros y sin camión que la 19 cargó a
+--   propósito cuando la regla no existía y que el relleno no resuelve
+--   (cuentas con varios camiones activos).
+-- * Sola (s20.sql), contra una base con la 011 aplicada: el constraint existe
+--   y los casos de estructura miran el real. Sola NUNCA recrea la regla: si
+--   falta en la base (aunque esté el comentario), los casos fallan.
+-- * Sin la 011 (ni constraint ni comentario): no se crea nada y los casos
+--   fallan solos, sin cortar el script.
+--
+-- Datos propios (se crean acá; de las secciones anteriores solo se usan los
+-- tenants, usuarios y categorías del setup y el helper _test_sqlstate de la
+-- sección 13):
+--   A: dos camiones nuevos (A tiene así 2 o más activos, con o sin la 19),
+--      un viaje VA1 con camión y un viaje VA0 sin camión.
+--   E: un tenant nuevo sin ningún camión.
+--   F: un tenant nuevo con exactamente un camión activo.
+--   M1, M2, M3: tenants creados como postgres solo para el caso 20.14.
+-- Los casos no dependen de cuántos camiones dejó la sección 19 en A o en B.
+-- No hay casos de ON DELETE RESTRICT en esta sección (si los hubiera, tendrían
+-- que aceptar 23503 de PostgreSQL 17 y 23001 de PostgreSQL 18).
+
+-- La regla, si hace falta (ver arriba). Como postgres.
+do $$
+declare v_existe boolean; v_marca boolean; v_tocadas int; v_borradas int;
+begin
+  select exists (select 1 from pg_constraint
+                  where conrelid = 'public.gastos'::regclass and conname = 'gastos_litros_camion_chk')
+    into v_existe;
+  select coalesce(col_description('public.gastos'::regclass,
+                    (select attnum from pg_attribute where attrelid = 'public.gastos'::regclass and attname = 'litros'))
+                  like '%gastos_litros_camion_chk%', false)
+    into v_marca;
+  if v_existe then
+    perform public._test_set('s20_modo', 'la 011 está aplicada y su constraint existe');
+  elsif v_marca and public._test_get('s19_tenant_c') is not null then
+    -- Solo si la sección 19 corrió en esta misma transacción (archivo
+    -- completo): sola, esta sección nunca recrea la regla, así un constraint
+    -- que falte de verdad en la base no queda tapado.
+    -- Las mismas sentencias de la 011.
+    update public.gastos set litros = litros where litros is not null and camion_id is null;
+    get diagnostics v_tocadas = row_count;
+    delete from public.gastos where litros is not null and camion_id is null;
+    get diagnostics v_borradas = row_count;
+    alter table public.gastos
+      add constraint gastos_litros_camion_chk check (litros is null or camion_id is not null) not valid;
+    comment on constraint gastos_litros_camion_chk on public.gastos is
+      'Un gasto con litros (combustible) exige camión: sin camión no entra en el rendimiento por camión. Si llega sin camión, el trigger trg_21_camion_por_defecto (010) lo completa cuando puede (camión del viaje si está activo, o el único camión activo de la cuenta); si no puede, 23514. Un gasto sin litros no exige camión.';
+    alter table public.gastos validate constraint gastos_litros_camion_chk;
+    perform public._test_set('s20_modo', format(
+      'archivo completo: la 19 soltó el constraint y se volvió a crear (relleno sobre %s gastos; %s de la 19 sin resolver, borrados)',
+      v_tocadas, v_borradas));
+  else
+    perform public._test_set('s20_modo', 'sin la 011');
+  end if;
+exception when others then
+  perform public._test_set('s20_error_regla', sqlerrm);
+end
+$$;
+
+select public._test_set('uid_e_admin', 'e0e0e0e0-0000-0000-0000-000000000020');
+select public._test_set('uid_f_admin', 'f0f0f0f0-0000-0000-0000-000000000020');
+
+insert into auth.users (instance_id, id, aud, role, email)
+values
+  ('00000000-0000-0000-0000-000000000000', (public._test_get('uid_e_admin'))::uuid, 'authenticated','authenticated','admin-e-s20@test.elan'),
+  ('00000000-0000-0000-0000-000000000000', (public._test_get('uid_f_admin'))::uuid, 'authenticated','authenticated','admin-f-s20@test.elan');
+
+-- E: un tenant sin camiones.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_e_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_tid uuid; v_v uuid;
+begin
+  v_tid := public.create_transportista('Transportes E (sección 20)');
+  perform public._test_set('s20_tenant_e', v_tid::text);
+  insert into public.viajes (origen, destino) values ('Origen E1', 'Destino E1') returning id into v_v;
+  perform public._test_set('s20_ve', v_v::text);
+exception when others then
+  perform public._test_set('s20_error_setup_e', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- F: un tenant con exactamente un camión activo.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_f_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_tid uuid; v_c uuid;
+begin
+  v_tid := public.create_transportista('Transportes F (sección 20)');
+  perform public._test_set('s20_tenant_f', v_tid::text);
+  select r.camion_id into v_c from public.crear_camion('F20') r;
+  perform public._test_set('s20_f1', v_c::text);
+exception when others then
+  perform public._test_set('s20_error_setup_f', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- A: dos camiones nuevos (2 o más activos) y dos viajes.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v_c1 uuid; v_c2 uuid; v_v uuid;
+begin
+  select r.camion_id into v_c1 from public.crear_camion('S20A1') r;
+  select r.camion_id into v_c2 from public.crear_camion('S20A2') r;
+  perform public._test_set('s20_a1', v_c1::text);
+  perform public._test_set('s20_a2', v_c2::text);
+  insert into public.viajes (origen, destino, camion_id) values ('Origen S20-1', 'Destino S20-1', v_c1) returning id into v_v;
+  perform public._test_set('s20_va1', v_v::text);
+  insert into public.viajes (origen, destino) values ('Origen S20-0', 'Destino S20-0') returning id into v_v;
+  perform public._test_set('s20_va0', v_v::text);
+exception when others then
+  perform public._test_set('s20_error_setup_a', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: los datos de la sección quedaron como se describe arriba.
+do $$
+declare
+  c_caso constant text := '20.0 setup: la regla está (aplicada por la 011, o recreada con sus sentencias en el archivo completo); E no tiene camiones, F tiene exactamente uno activo, A tiene 2 o más activos y VA0 quedó sin camión';
+  v_e int; v_f int; v_a int; v_va0 uuid; v_va1 uuid;
+begin
+  select count(*) into v_e from public.camiones where transportista_id = (public._test_get('s20_tenant_e'))::uuid;
+  select count(*) into v_f from public.camiones where transportista_id = (public._test_get('s20_tenant_f'))::uuid and activa;
+  select count(*) into v_a from public.camiones where transportista_id = (public._test_get('tenant_a_id'))::uuid and activa;
+  select camion_id into v_va0 from public.viajes where id = (public._test_get('s20_va0'))::uuid;
+  select camion_id into v_va1 from public.viajes where id = (public._test_get('s20_va1'))::uuid;
+  perform public._test_chk(c_caso,
+    public._test_get('s20_modo') <> 'sin la 011' and public._test_get('s20_error_regla') is null
+      and public._test_get('s20_error_setup_e') is null and public._test_get('s20_error_setup_f') is null
+      and public._test_get('s20_error_setup_a') is null
+      and v_e = 0 and v_f = 1 and v_a >= 2 and v_va0 is null and v_va1 = (public._test_get('s20_a1'))::uuid,
+    format('modo=%s error_regla=%s | errores setup E/F/A=%s/%s/%s | camiones E=%s activos F=%s activos A=%s | VA0=%s VA1=%s',
+      public._test_get('s20_modo'), public._test_get('s20_error_regla'),
+      public._test_get('s20_error_setup_e'), public._test_get('s20_error_setup_f'), public._test_get('s20_error_setup_a'),
+      v_e, v_f, v_a, v_va0, v_va1));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '20.1 Migración 011: gastos_litros_camion_chk es un CHECK de gastos, VALIDADO, con definición (litros IS NULL) OR (camion_id IS NOT NULL) y comentario; gastos.litros tiene el comentario que lo nombra';
+  v_tipo "char"; v_valido boolean; v_def text; v_com text; v_col text;
+begin
+  select c.contype, c.convalidated, pg_get_constraintdef(c.oid), obj_description(c.oid, 'pg_constraint')
+    into v_tipo, v_valido, v_def, v_com
+    from pg_constraint c
+   where c.conrelid = 'public.gastos'::regclass and c.conname = 'gastos_litros_camion_chk';
+  select col_description('public.gastos'::regclass, a.attnum) into v_col
+    from pg_attribute a where a.attrelid = 'public.gastos'::regclass and a.attname = 'litros';
+  perform public._test_chk(c_caso,
+    v_tipo = 'c' and v_valido and v_def = 'CHECK (((litros IS NULL) OR (camion_id IS NOT NULL)))'
+      and v_com is not null and v_col like '%gastos_litros_camion_chk%',
+    format('tipo=%s validado=%s def=%s comentario=%s | comentario de litros=%s', v_tipo, v_valido, v_def, v_com is not null, v_col));
+end
+$$;
+
+-- E (sin camiones).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_e_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '20.2 Orden de los CHECK (por nombre): con litros, odómetro negativo y sin camión sale gastos_km_odometro_chk (como en 11.2); tanque lleno sin litros sale gastos_tanque_lleno_litros_chk (como en 11.4); y con litros = 0 y sin camión sale gastos_litros_camion_chk antes que gastos_litros_chk';
+  v_a text; v_b text; v_c text;
+begin
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros, km_odometro) values (%L::uuid, 1000, 10, -1)',
+    public._test_get('categoria_global_combustible_id')));
+  v_b := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, km_odometro, tanque_lleno) values (%L::uuid, 1000, 123500, true)',
+    public._test_get('categoria_global_combustible_id')));
+  v_c := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros) values (%L::uuid, 1000, 0)',
+    public._test_get('categoria_global_combustible_id')));
+  perform public._test_chk(c_caso,
+    v_a like '23514|gastos_km_odometro_chk|%' and v_b like '23514|gastos_tanque_lleno_litros_chk|%'
+      and v_c like '23514|gastos_litros_camion_chk|%',
+    format('odómetro negativo: %s | tanque lleno sin litros: %s | litros 0: %s', v_a, v_b, v_c));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '20.3 Cuenta SIN camiones: un gasto con litros y sin camión falla con 23514 en gastos_litros_camion_chk (sin viaje y en un viaje sin camión) y no se crea nada; un peaje sin camión se carga normal';
+  v_a text; v_b text; v_n int; v_tid uuid; v_cam uuid; v_id uuid;
+begin
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros) values (%L::uuid, 2000, 20)',
+    public._test_get('categoria_global_combustible_id')));
+  v_b := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros, viaje_id) values (%L::uuid, 2000, 20, %L::uuid)',
+    public._test_get('categoria_global_combustible_id'), public._test_get('s20_ve')));
+  select count(*) into v_n from public.gastos where litros is not null;
+  insert into public.gastos (categoria_id, monto) values ((public._test_get('categoria_global_peajes_id'))::uuid, 300)
+    returning id, transportista_id, camion_id into v_id, v_tid, v_cam;
+  perform public._test_chk(c_caso,
+    v_a like '23514|gastos_litros_camion_chk|%' and v_b like '23514|gastos_litros_camion_chk|%' and v_n = 0
+      and v_id is not null and v_tid = (public._test_get('s20_tenant_e'))::uuid and v_cam is null,
+    format('sin viaje: %s | viaje sin camión: %s | gastos con litros de E=%s | peaje: tenant=%s camión=%s', v_a, v_b, v_n, v_tid, v_cam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- A (admin, 2 o más camiones activos).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '20.4 Con 2 o más camiones activos (el default no elige): litros sin camión ni viaje, o en un viaje sin camión, falla con 23514 en gastos_litros_camion_chk; con camión explícito se carga; en un viaje con camión activo toma el del viaje; un peaje sin camión se carga';
+  v_a text; v_b text; v_g2 uuid; v_c2 uuid; v_gv uuid; v_cv uuid; v_p uuid; v_cp uuid;
+begin
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros) values (%L::uuid, 3000, 30)',
+    public._test_get('categoria_global_combustible_id')));
+  v_b := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros, viaje_id) values (%L::uuid, 3000, 30, %L::uuid)',
+    public._test_get('categoria_global_combustible_id'), public._test_get('s20_va0')));
+  insert into public.gastos (categoria_id, monto, litros, km_odometro, tanque_lleno, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 3100, 31, 200000, true, (public._test_get('s20_a2'))::uuid)
+    returning id, camion_id into v_g2, v_c2;
+  perform public._test_set('s20_g_a2', v_g2::text);
+  insert into public.gastos (categoria_id, monto, litros, viaje_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 3200, 32, (public._test_get('s20_va1'))::uuid)
+    returning id, camion_id into v_gv, v_cv;
+  insert into public.gastos (categoria_id, monto) values ((public._test_get('categoria_global_peajes_id'))::uuid, 350)
+    returning id, camion_id into v_p, v_cp;
+  perform public._test_set('s20_p_a', v_p::text);
+  perform public._test_chk(c_caso,
+    v_a like '23514|gastos_litros_camion_chk|%' and v_b like '23514|gastos_litros_camion_chk|%'
+      and v_c2 = (public._test_get('s20_a2'))::uuid and v_cv = (public._test_get('s20_a1'))::uuid
+      and v_p is not null and v_cp is null,
+    format('sin camión ni viaje: %s | viaje sin camión: %s | explícito=%s | en VA1=%s | peaje camión=%s', v_a, v_b, v_c2, v_cv, v_cp));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '20.5 UPDATE con 2 o más activos: quitarle el camión a un gasto con litros falla con 23514 (gastos_litros_camion_chk) y la fila queda igual; cambiar otras columnas anda; quitar litros y camión a la vez (cambio a una categoría que no es combustible) anda; ponerle litros a un peaje sin camión falla con 23514 y la fila queda igual';
+  g uuid := (public._test_get('s20_g_a2'))::uuid;
+  p uuid := (public._test_get('s20_p_a'))::uuid;
+  v_g_antes jsonb; v_g_despues jsonb; v_p_antes jsonb; v_p_despues jsonb;
+  v_a text; v_d text; v_r1 int; v_r2 int; v_monto numeric; v_cam uuid; v_litros numeric; v_cam2 uuid;
+begin
+  select to_jsonb(x) into v_g_antes from public.gastos x where x.id = g;
+  select to_jsonb(x) into v_p_antes from public.gastos x where x.id = p;
+  v_a := public._test_sqlstate(format('update public.gastos set camion_id = null where id = %L::uuid', g));
+  select to_jsonb(x) into v_g_despues from public.gastos x where x.id = g;
+  update public.gastos set monto = 3150, descripcion = 'editado en 20.5' where id = g;
+  get diagnostics v_r1 = row_count;
+  select monto, camion_id into v_monto, v_cam from public.gastos where id = g;
+  update public.gastos
+     set categoria_id = (public._test_get('categoria_global_peajes_id'))::uuid,
+         litros = null, precio_por_litro = null, km_odometro = null, tanque_lleno = null, camion_id = null
+   where id = g;
+  get diagnostics v_r2 = row_count;
+  select litros, camion_id into v_litros, v_cam2 from public.gastos where id = g;
+  v_d := public._test_sqlstate(format('update public.gastos set litros = 10 where id = %L::uuid', p));
+  select to_jsonb(x) into v_p_despues from public.gastos x where x.id = p;
+  perform public._test_chk(c_caso,
+    v_a like '23514|gastos_litros_camion_chk|%' and v_g_antes = v_g_despues
+      and v_r1 = 1 and v_monto = 3150 and v_cam = (public._test_get('s20_a2'))::uuid
+      and v_r2 = 1 and v_litros is null and v_cam2 is null
+      and v_d like '23514|gastos_litros_camion_chk|%' and v_p_antes = v_p_despues,
+    format('quitar camión: %s (fila igual=%s) | otras columnas: filas=%s monto=%s camión=%s | a no combustible: filas=%s litros=%s camión=%s | litros a un peaje: %s (fila igual=%s)',
+      v_a, v_g_antes = v_g_despues, v_r1, v_monto, v_cam, v_r2, v_litros, v_cam2, v_d, v_p_antes = v_p_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '20.6 Borrar un viaje en dos pasos, como el front (desvincular sus gastos y después DELETE del viaje), sigue andando con gastos de combustible: viaje con camión, dos cargas con su camión y un peaje sin camión; los gastos quedan sin viaje, con sus litros y su camión (pendiente I4 de la auditoría)';
+  v_a1 uuid := (public._test_get('s20_a1'))::uuid;
+  v_v uuid; g1 uuid; g2 uuid; gp uuid; v_r1 int; v_r2 int; v_existe boolean; v_ok int; v_peaje uuid;
+begin
+  insert into public.viajes (origen, destino, camion_id) values ('Origen S20-I4a', 'Destino S20-I4a', v_a1) returning id into v_v;
+  insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 4000, 40, v_v, v_a1) returning id into g1;
+  insert into public.gastos (categoria_id, monto, litros, viaje_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 4100, 41, v_v) returning id into g2;
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 410, v_v) returning id into gp;
+  update public.gastos set viaje_id = null where viaje_id = v_v;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = v_v;
+  get diagnostics v_r2 = row_count;
+  select exists(select 1 from public.viajes where id = v_v) into v_existe;
+  select count(*) into v_ok from public.gastos
+   where id in (g1, g2) and viaje_id is null and litros is not null and camion_id = v_a1;
+  select camion_id into v_peaje from public.gastos where id = gp and viaje_id is null;
+  perform public._test_chk(c_caso,
+    v_r1 = 3 and v_r2 = 1 and not v_existe and v_ok = 2 and v_peaje is null
+      and exists(select 1 from public.gastos where id = gp),
+    format('desvincular=%s borrar=%s viaje existe=%s | cargas sin viaje con litros y camión=%s | peaje camión=%s', v_r1, v_r2, v_existe, v_ok, v_peaje));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '20.7 Borrar en dos pasos también anda con un viaje SIN camión cuyas cargas son de camiones distintos, y con un viaje con un camión distinto del de un gasto sin viaje que no se toca: todo queda con sus litros y su camión';
+  v_a1 uuid := (public._test_get('s20_a1'))::uuid;
+  v_a2 uuid := (public._test_get('s20_a2'))::uuid;
+  v5 uuid; v6 uuid; g3 uuid; g4 uuid; g6 uuid; g7 uuid; v_g7_antes jsonb; v_g7_despues jsonb;
+  v_r1 int; v_r2 int; v_r3 int; v_r4 int; v_ok int;
+begin
+  insert into public.viajes (origen, destino) values ('Origen S20-I4b', 'Destino S20-I4b') returning id into v5;
+  insert into public.viajes (origen, destino, camion_id) values ('Origen S20-I4c', 'Destino S20-I4c', v_a2) returning id into v6;
+  insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 5000, 50, v5, v_a1) returning id into g3;
+  insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 5100, 51, v5, v_a2) returning id into g4;
+  insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 5200, 52, v6, v_a2) returning id into g6;
+  insert into public.gastos (categoria_id, monto, litros, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 5300, 53, v_a1) returning id into g7;
+  select to_jsonb(x) into v_g7_antes from public.gastos x where x.id = g7;
+  update public.gastos set viaje_id = null where viaje_id = v5;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = v5;
+  get diagnostics v_r2 = row_count;
+  update public.gastos set viaje_id = null where viaje_id = v6;
+  get diagnostics v_r3 = row_count;
+  delete from public.viajes where id = v6;
+  get diagnostics v_r4 = row_count;
+  select count(*) into v_ok from public.gastos
+   where (id = g3 and camion_id = v_a1 or id in (g4, g6) and camion_id = v_a2)
+     and viaje_id is null and litros is not null;
+  select to_jsonb(x) into v_g7_despues from public.gastos x where x.id = g7;
+  perform public._test_chk(c_caso,
+    v_r1 = 2 and v_r2 = 1 and v_r3 = 1 and v_r4 = 1 and v_ok = 3 and v_g7_antes = v_g7_despues,
+    format('viaje sin camión: desvincular=%s borrar=%s | viaje con camión: desvincular=%s borrar=%s | cargas intactas=%s | gasto sin viaje igual=%s',
+      v_r1, v_r2, v_r3, v_r4, v_ok, v_g7_antes = v_g7_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '20.8 La coherencia gasto <-> viaje de la 010 sigue igual y con su propio error: una carga con un camión distinto del de su viaje falla con 23514 de gastos_camion_viaje_chk, que no es el de gastos_litros_camion_chk';
+  v_a text;
+begin
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros, viaje_id, camion_id) values (%L::uuid, 6000, 60, %L::uuid, %L::uuid)',
+    public._test_get('categoria_global_combustible_id'), public._test_get('s20_va1'), public._test_get('s20_a2')));
+  perform public._test_chk(c_caso,
+    v_a like '23514|%gastos_camion_viaje_chk%' and v_a not like '%gastos_litros_camion_chk%',
+    v_a);
+end
+$$;
+
+reset role;
+
+-- F (exactamente un camión activo).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_f_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '20.9 Con EXACTAMENTE un camión activo, un gasto con litros y sin camión no falla: el default de la 010 le pone ese camión; y un camion_id = NULL explícito en un UPDATE se vuelve a completar (sin error)';
+  v_f1 uuid := (public._test_get('s20_f1'))::uuid;
+  v_id uuid; v_cam uuid; v_rows int; v_cam2 uuid;
+begin
+  insert into public.gastos (categoria_id, monto, litros)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 7000, 70) returning id, camion_id into v_id, v_cam;
+  update public.gastos set camion_id = null where id = v_id;
+  get diagnostics v_rows = row_count;
+  select camion_id into v_cam2 from public.gastos where id = v_id;
+  perform public._test_chk(c_caso,
+    v_cam = v_f1 and v_rows = 1 and v_cam2 = v_f1,
+    format('al cargar=%s | NULL explícito: filas=%s queda=%s', v_cam, v_rows, v_cam2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- El chofer de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '20.10 El chofer de A carga combustible con camión (anda) y sin camión con 2 o más activos (23514 en gastos_litros_camion_chk)';
+  v_rol public.rol_miembro; v_cam uuid; v_a text;
+begin
+  select rol into v_rol from public.miembros where user_id = (public._test_get('uid_a_chofer'))::uuid;
+  insert into public.gastos (categoria_id, monto, litros, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 8000, 80, (public._test_get('s20_a1'))::uuid)
+    returning camion_id into v_cam;
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros) values (%L::uuid, 8100, 81)',
+    public._test_get('categoria_global_combustible_id')));
+  perform public._test_chk(c_caso,
+    v_rol = 'chofer' and v_cam = (public._test_get('s20_a1'))::uuid and v_a like '23514|gastos_litros_camion_chk|%',
+    format('rol=%s con camión=%s | sin camión: %s', v_rol, v_cam, v_a));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B: la regla es por fila; B no se ve afectada por lo que hace A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '20.11 B carga combustible con su camión y edita su gasto sin problema; con el camión de A falla la FK (23503 gastos_camion_fk), no la regla de litros; y B no tiene ningún gasto con litros sin camión';
+  v_id uuid; v_cam uuid; v_rows int; v_a text; v_n int;
+begin
+  insert into public.gastos (categoria_id, monto, litros, camion_id)
+    values ((public._test_get('categoria_global_combustible_id'))::uuid, 9000, 90, (public._test_get('camion_b_id'))::uuid)
+    returning id, camion_id into v_id, v_cam;
+  update public.gastos set monto = 9100 where id = v_id;
+  get diagnostics v_rows = row_count;
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros, camion_id) values (%L::uuid, 9200, 92, %L::uuid)',
+    public._test_get('categoria_global_combustible_id'), public._test_get('s20_a1')));
+  select count(*) into v_n from public.gastos where litros is not null and camion_id is null;
+  perform public._test_chk(c_caso,
+    v_cam = (public._test_get('camion_b_id'))::uuid and v_rows = 1 and v_a like '23503|gastos_camion_fk|%' and v_n = 0,
+    format('con su camión=%s editar=%s | con el de A: %s | con litros sin camión=%s', v_cam, v_rows, v_a, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Un usuario autenticado sin tenant.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '20.12 Un usuario sin tenant sigue sin poder cargar gastos (42501), con o sin camión: la regla nueva no cambia ese error';
+  v_a text; v_b text;
+begin
+  v_a := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros) values (%L::uuid, 1, 1)', public._test_get('categoria_global_combustible_id')));
+  v_b := public._test_sqlstate(format(
+    'insert into public.gastos (categoria_id, monto, litros, camion_id) values (%L::uuid, 1, 1, %L::uuid)',
+    public._test_get('categoria_global_combustible_id'), public._test_get('s20_a1')));
+  perform public._test_chk(c_caso, v_a like '42501|%' and v_b like '42501|%', format('sin camión: %s | con camión: %s', v_a, v_b));
+end
+$$;
+
+reset role;
+
+-- La lógica de la propia migración, como postgres, dentro de la transacción de
+-- prueba. Se reproduce el estado previo a la 011 (sin la regla y con gastos con
+-- litros sin camión cargados salteando el default, como los de antes de la
+-- 010), se corre el mismo relleno y el mismo ADD NOT VALID + VALIDATE.
+-- Si algo inesperado falla, el bloque entero se deshace (savepoint del
+-- EXCEPTION) y la regla queda como estaba.
+-- Sin JWT: postgres sin usuario es el contexto de confianza de la 002, que
+-- inserta con el transportista_id que manda (reset role no limpia el JWT).
+select set_config('request.jwt.claims', '', true);
+
+do $$
+declare
+  c_caso constant text := '20.13 Lógica de la 011: el relleno asigna el camión en la cuenta con UN activo (sin viaje) y el del viaje cuando está activo (cuenta con 2 activos); deja sin resolver la cuenta sin camiones, la de 2 activos sin viaje y el viaje con camión archivado; el VALIDATE falla con 23514 y no deja la regla a medias; resueltos a mano, la regla vuelve VALIDADA y con comentario';
+  v_comb uuid := (public._test_get('categoria_global_combustible_id'))::uuid;
+  m1 uuid := gen_random_uuid(); m2 uuid := gen_random_uuid(); m3 uuid := gen_random_uuid();
+  c_m1a uuid; c_m1b uuid; c_m2a uuid; c_m2b uuid; v_vm1 uuid; v_vm2 uuid;
+  g_m1 uuid; g_m1arch uuid; g_m2v uuid; g_m2 uuid; g_m3 uuid;
+  v_tocadas int; v_r_m1 uuid; v_r_m1arch uuid; v_r_m2v uuid; v_r_m2 uuid; v_r_m3 uuid;
+  v_state text; v_msg text; v_queda boolean; v_valida boolean; v_com text; v_trg "char";
+begin
+  insert into public.transportistas (id, nombre)
+    values (m1, 'M1 (sección 20)'), (m2, 'M2 (sección 20)'), (m3, 'M3 (sección 20)');
+  insert into public.camiones (transportista_id, patente) values (m1, 'M1A') returning id into c_m1a;
+  insert into public.camiones (transportista_id, patente) values (m1, 'M1B') returning id into c_m1b;
+  insert into public.camiones (transportista_id, patente) values (m2, 'M2A') returning id into c_m2a;
+  insert into public.camiones (transportista_id, patente) values (m2, 'M2B') returning id into c_m2b;
+  insert into public.viajes (transportista_id, origen, destino, camion_id) values (m1, 'O', 'D', c_m1b) returning id into v_vm1;
+  insert into public.viajes (transportista_id, origen, destino, camion_id) values (m2, 'O', 'D', c_m2b) returning id into v_vm2;
+  update public.camiones set activa = false where id = c_m1b;   -- M1 queda con UN activo (M1A); su viaje, con el archivado
+
+  -- Estado previo a la 011.
+  alter table public.gastos drop constraint gastos_litros_camion_chk;
+  alter table public.gastos disable trigger trg_21_camion_por_defecto;
+  insert into public.gastos (transportista_id, categoria_id, monto, litros) values (m1, v_comb, 1, 10) returning id into g_m1;
+  insert into public.gastos (transportista_id, categoria_id, monto, litros, viaje_id) values (m1, v_comb, 1, 10, v_vm1) returning id into g_m1arch;
+  insert into public.gastos (transportista_id, categoria_id, monto, litros, viaje_id) values (m2, v_comb, 1, 10, v_vm2) returning id into g_m2v;
+  insert into public.gastos (transportista_id, categoria_id, monto, litros) values (m2, v_comb, 1, 10) returning id into g_m2;
+  insert into public.gastos (transportista_id, categoria_id, monto, litros) values (m3, v_comb, 1, 10) returning id into g_m3;
+  alter table public.gastos enable trigger trg_21_camion_por_defecto;
+
+  -- El relleno de la 011 (la misma sentencia).
+  update public.gastos set litros = litros where litros is not null and camion_id is null;
+  get diagnostics v_tocadas = row_count;
+  select camion_id into v_r_m1 from public.gastos where id = g_m1;
+  select camion_id into v_r_m1arch from public.gastos where id = g_m1arch;
+  select camion_id into v_r_m2v from public.gastos where id = g_m2v;
+  select camion_id into v_r_m2 from public.gastos where id = g_m2;
+  select camion_id into v_r_m3 from public.gastos where id = g_m3;
+
+  -- ADD NOT VALID + VALIDATE: con filas sin resolver, falla entero.
+  begin
+    alter table public.gastos
+      add constraint gastos_litros_camion_chk check (litros is null or camion_id is not null) not valid;
+    alter table public.gastos validate constraint gastos_litros_camion_chk;
+    v_state := 'no falló';
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  end;
+  select exists(select 1 from pg_constraint where conrelid = 'public.gastos'::regclass and conname = 'gastos_litros_camion_chk')
+    into v_queda;
+
+  -- Resolución a mano (las tres maneras del encabezado de la 011).
+  update public.gastos set viaje_id = null, camion_id = c_m1a where id = g_m1arch;  -- (a) un camión activo, sin el viaje del archivado
+  update public.gastos set camion_id = c_m2a where id = g_m2;                       -- (a)
+  delete from public.gastos where id = g_m3;                                        -- (c)
+
+  -- La regla otra vez, igual que en la migración.
+  alter table public.gastos
+    add constraint gastos_litros_camion_chk check (litros is null or camion_id is not null) not valid;
+  comment on constraint gastos_litros_camion_chk on public.gastos is
+    'Un gasto con litros (combustible) exige camión: sin camión no entra en el rendimiento por camión. Si llega sin camión, el trigger trg_21_camion_por_defecto (010) lo completa cuando puede (camión del viaje si está activo, o el único camión activo de la cuenta); si no puede, 23514. Un gasto sin litros no exige camión.';
+  alter table public.gastos validate constraint gastos_litros_camion_chk;
+  select c.convalidated, obj_description(c.oid, 'pg_constraint') into v_valida, v_com
+    from pg_constraint c where c.conrelid = 'public.gastos'::regclass and c.conname = 'gastos_litros_camion_chk';
+  select t.tgenabled into v_trg from pg_trigger t
+   where t.tgrelid = 'public.gastos'::regclass and t.tgname = 'trg_21_camion_por_defecto';
+
+  perform public._test_chk(c_caso,
+    v_tocadas = 5 and v_r_m1 = c_m1a and v_r_m2v = c_m2b
+      and v_r_m1arch is null and v_r_m2 is null and v_r_m3 is null
+      and v_state = '23514' and v_msg like '%gastos_litros_camion_chk%' and not v_queda
+      and v_valida and v_com is not null and v_trg = 'O',
+    format('relleno sobre %s | M1 sin viaje=%s M1 viaje con archivado=%s M2 en viaje=%s M2 sin viaje=%s M3=%s | VALIDATE: %s %s (regla tras el fallo=%s) | después: validada=%s comentario=%s trigger=%s',
+      v_tocadas, v_r_m1 = c_m1a, v_r_m1arch, v_r_m2v = c_m2b, v_r_m2, v_r_m3, v_state, v_msg, v_queda, v_valida, v_com is not null, v_trg));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Como postgres: integridad final.
+do $$
+declare
+  c_caso constant text := '20.14 Como postgres: ningún gasto de toda la base tiene litros sin camión, la regla está validada y el trigger de default sigue habilitado (y hay gastos con litros, para que el chequeo no sea vacío)';
+  v_mal int; v_con_litros int; v_valida boolean; v_trg "char";
+begin
+  select count(*) into v_mal from public.gastos where litros is not null and camion_id is null;
+  select count(*) into v_con_litros from public.gastos where litros is not null;
+  select c.convalidated into v_valida from pg_constraint c
+   where c.conrelid = 'public.gastos'::regclass and c.conname = 'gastos_litros_camion_chk';
+  select t.tgenabled into v_trg from pg_trigger t
+   where t.tgrelid = 'public.gastos'::regclass and t.tgname = 'trg_21_camion_por_defecto';
+  perform public._test_chk(c_caso,
+    v_mal = 0 and v_con_litros > 0 and v_valida and v_trg = 'O',
+    format('con litros sin camión=%s (de %s con litros) | regla validada=%s | trigger=%s', v_mal, v_con_litros, v_valida, v_trg));
 end
 $$;
 
