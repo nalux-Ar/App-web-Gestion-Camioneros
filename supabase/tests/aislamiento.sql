@@ -5,20 +5,21 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 20 cubren además las migraciones 005 a 011, el vínculo
+-- secciones 11 a 21 cubren además las migraciones 005 a 012, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
--- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión).
+-- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión;
+-- la 012: el camión activo de cada usuario).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
 -- DESPUÉS de aplicar 001_schema.sql, 002_functions.sql, 003_rls.sql,
 -- 005_gastos_combustible.sql, 006_gastos_client_ref.sql,
 -- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql,
--- 009_clientes_client_ref.sql, 010_varios_camiones.sql y
--- 011_litros_exigen_camion.sql
--- (las secciones 11 a 20 usan sus columnas y funciones; la 16 no necesita
+-- 009_clientes_client_ref.sql, 010_varios_camiones.sql,
+-- 011_litros_exigen_camion.sql y 012_camion_activo.sql
+-- (las secciones 11 a 21 usan sus columnas y funciones; la 16 no necesita
 -- ninguna migración propia; la 004 no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
@@ -43,7 +44,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 20 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 21 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -168,7 +169,7 @@ select public._test_set('tenant_b_id', id::text) from ins;
 
 reset role;
 
--- Chofer de A: insertado directo por postgres (no hay flujo de invitación todavía).
+-- Chofer de A: insertado directo por postgres (no hay flujo de invitación ni lo habrá: el modelo es una cuenta = una persona).
 insert into public.miembros (user_id, transportista_id, rol)
 values ((public._test_get('uid_a_chofer'))::uuid, (public._test_get('tenant_a_id'))::uuid, 'chofer');
 
@@ -6838,6 +6839,684 @@ begin
   perform public._test_chk(c_caso,
     v_mal = 0 and v_con_litros > 0 and v_valida and v_trg = 'O',
     format('con litros sin camión=%s (de %s con litros) | regla validada=%s | trigger=%s', v_mal, v_con_litros, v_valida, v_trg));
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 21) Camión activo por usuario: miembros.camion_activo_id (migración 012)
+-- ---------------------------------------------------------------------
+-- Requiere 012_camion_activo.sql aplicada. Cada usuario elige su camión
+-- activo con un UPDATE de su propia fila de miembros (como tema y
+-- color_acento). Esta sección prueba la estructura (columna, FK compuesta con
+-- ON DELETE SET NULL de esa columna sola, índice, GRANT por columna y
+-- trigger), que cada uno escribe solo su fila y solo esa columna, que no se
+-- puede apuntar a un camión de otra cuenta (con el mismo error que uno
+-- inexistente), las reglas del camión archivado (rechazo solo cuando el valor
+-- cambia), el SET NULL al borrar un camión y que create_transportista y
+-- cambiar_rol_miembro siguen igual.
+--
+-- Corre igual en el archivo completo y sola (s21.sql): no depende de cuántos
+-- camiones dejaron las secciones 19 y 20, porque crea los suyos. Sin la 012,
+-- los casos fallan solos sin cortar el script.
+--
+-- Datos propios (se crean acá; de las secciones anteriores solo se usan los
+-- tenants y usuarios del setup -el admin y el chofer de A, que la sección 5
+-- deja como chofer, y el admin de B- y los helpers _test_sqlstate de la
+-- sección 13 y _test_error_completo de la 17):
+--   A: camiones A1, A2, AX (se archiva y se reactiva) y AD (se borra).
+--   B: camiones B1 y BX (archivado).
+--   G: un usuario nuevo que da de alta su cuenta con create_transportista.
+-- updated_at: dentro de la transacción del test now() no avanza, así que no
+-- se puede ver cambiar; 21.4 comprueba que trg_20_set_updated_at de miembros
+-- dispara en cualquier UPDATE (sin lista de columnas), incluido el del camión
+-- activo.
+-- No hay casos de ON DELETE RESTRICT en esta sección (si los hubiera, tendrían
+-- que aceptar 23503 de PostgreSQL 17 y 23001 de PostgreSQL 18).
+
+-- Datos propios de A (admin).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v uuid;
+begin
+  select r.camion_id into v from public.crear_camion('S21A1') r;
+  perform public._test_set('s21_a1', v::text);
+  select r.camion_id into v from public.crear_camion('S21A2') r;
+  perform public._test_set('s21_a2', v::text);
+  select r.camion_id into v from public.crear_camion('S21AX') r;
+  perform public._test_set('s21_ax', v::text);
+  select r.camion_id into v from public.crear_camion('S21AD') r;
+  perform public._test_set('s21_ad', v::text);
+exception when others then
+  perform public._test_set('s21_error_setup_a', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Datos propios de B (admin).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v uuid;
+begin
+  select r.camion_id into v from public.crear_camion('S21B1') r;
+  perform public._test_set('s21_b1', v::text);
+  select r.camion_id into v from public.crear_camion('S21BX') r;
+  perform public._test_set('s21_bx', v::text);
+  update public.camiones set activa = false where id = v;
+exception when others then
+  perform public._test_set('s21_error_setup_b', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: los datos de la sección quedaron como se describe arriba.
+do $$
+declare
+  c_caso constant text := '21.0 setup: A tiene sus 4 camiones nuevos activos y un admin y un chofer; B tiene B1 activo y BX archivado y un solo miembro; los tres usuarios de prueba arrancan sin camión activo';
+  v_ta uuid := (public._test_get('tenant_a_id'))::uuid;
+  v_tb uuid := (public._test_get('tenant_b_id'))::uuid;
+  v_adm int; v_cho int; v_mb int; v_ca int; v_cb int; v_bx boolean; v_sin int;
+begin
+  select count(*) filter (where rol = 'admin' and user_id = (public._test_get('uid_a_admin'))::uuid),
+         count(*) filter (where rol = 'chofer' and user_id = (public._test_get('uid_a_chofer'))::uuid)
+    into v_adm, v_cho from public.miembros where transportista_id = v_ta;
+  select count(*) into v_mb from public.miembros where transportista_id = v_tb;
+  select count(*) into v_ca from public.camiones
+   where transportista_id = v_ta and activa
+     and id in ((public._test_get('s21_a1'))::uuid, (public._test_get('s21_a2'))::uuid,
+                (public._test_get('s21_ax'))::uuid, (public._test_get('s21_ad'))::uuid);
+  select count(*) into v_cb from public.camiones
+   where transportista_id = v_tb and id in ((public._test_get('s21_b1'))::uuid, (public._test_get('s21_bx'))::uuid);
+  select not activa into v_bx from public.camiones where id = (public._test_get('s21_bx'))::uuid;
+  -- to_jsonb: sin la 012 la columna no existe y esto da NULL en vez de cortar el script.
+  select count(*) into v_sin from public.miembros m
+   where m.user_id in ((public._test_get('uid_a_admin'))::uuid, (public._test_get('uid_a_chofer'))::uuid,
+                       (public._test_get('uid_b_admin'))::uuid)
+     and to_jsonb(m) ->> 'camion_activo_id' is null;
+  perform public._test_chk(c_caso,
+    public._test_get('s21_error_setup_a') is null and public._test_get('s21_error_setup_b') is null
+      and v_adm = 1 and v_cho = 1 and v_mb = 1 and v_ca = 4 and v_cb = 2 and v_bx and v_sin = 3,
+    format('errores A/B=%s/%s | A: admin=%s chofer=%s camiones=%s | B: miembros=%s camiones=%s BX archivado=%s | sin camión activo=%s',
+      public._test_get('s21_error_setup_a'), public._test_get('s21_error_setup_b'), v_adm, v_cho, v_ca, v_mb, v_cb, v_bx, v_sin));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Como postgres: las piezas de la migración 012.
+do $$
+declare
+  c_caso constant text := '21.1 Migración 012: miembros.camion_activo_id existe, es uuid, admite NULL, no tiene default y tiene comentario';
+  v_tipo text; v_notnull boolean; v_default boolean; v_comentario text;
+begin
+  select a.atttypid::regtype::text, a.attnotnull, a.atthasdef, col_description(a.attrelid, a.attnum)
+    into v_tipo, v_notnull, v_default, v_comentario
+    from pg_attribute a
+   where a.attrelid = 'public.miembros'::regclass and a.attname = 'camion_activo_id' and not a.attisdropped;
+  perform public._test_chk(c_caso,
+    v_tipo = 'uuid' and v_notnull is false and v_default is false and v_comentario is not null,
+    format('tipo=%s not_null=%s default=%s comentario=%s', v_tipo, v_notnull, v_default, v_comentario is not null));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '21.2 Migración 012: miembros_camion_activo_fk es MATCH SIMPLE (transportista_id, camion_activo_id) -> camiones (transportista_id, id), validada, con ON DELETE SET NULL de camion_activo_id SOLAMENTE (nunca transportista_id); miembros_camion_activo_idx indexa (transportista_id, camion_activo_id) where camion_activo_id is not null';
+  v_cols text[]; v_ref text; v_refcols text[]; v_del "char"; v_setcols text[]; v_match "char"; v_upd "char"; v_valida boolean;
+  v_idx text[]; v_pred text; v_unico boolean; v_idx_valido boolean;
+begin
+  select (select array_agg(a.attname::text order by k.ord)
+            from unnest(c.conkey) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum),
+         c.confrelid::regclass::text,
+         (select array_agg(a.attname::text order by k.ord)
+            from unnest(c.confkey) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum),
+         c.confdeltype,
+         (select array_agg(a.attname::text order by k.ord)
+            from unnest(c.confdelsetcols) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum),
+         c.confmatchtype, c.confupdtype, c.convalidated
+    into v_cols, v_ref, v_refcols, v_del, v_setcols, v_match, v_upd, v_valida
+    from pg_constraint c
+   where c.conrelid = 'public.miembros'::regclass and c.conname = 'miembros_camion_activo_fk' and c.contype = 'f';
+  select (select array_agg(a.attname::text order by k.ord)
+            from unnest(i.indkey::int2[]) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum),
+         pg_get_expr(i.indpred, i.indrelid), i.indisunique, i.indisvalid
+    into v_idx, v_pred, v_unico, v_idx_valido
+    from pg_index i join pg_class c on c.oid = i.indexrelid
+   where i.indrelid = 'public.miembros'::regclass and c.relname = 'miembros_camion_activo_idx';
+  perform public._test_chk(c_caso,
+    v_cols = array['transportista_id', 'camion_activo_id']::text[] and v_ref = 'camiones'
+      and v_refcols = array['transportista_id', 'id']::text[] and v_del = 'n'
+      and v_setcols = array['camion_activo_id']::text[] and v_match = 's' and v_upd = 'a' and v_valida
+      and v_idx = array['transportista_id', 'camion_activo_id']::text[] and v_pred = '(camion_activo_id IS NOT NULL)'
+      and v_unico is false and v_idx_valido,
+    format('FK %s -> %s %s on delete=%s set null de=%s match=%s on update=%s validada=%s | índice=%s predicado=%s único=%s válido=%s',
+      v_cols, v_ref, v_refcols, v_del, v_setcols, v_match, v_upd, v_valida, v_idx, v_pred, v_unico, v_idx_valido));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '21.3 Migración 012: authenticated tiene UPDATE en miembros SOLO sobre (tema, color_acento, camion_activo_id) -ni rol, ni user_id, ni transportista_id, ni updated_at, ni la tabla entera-, ningún INSERT; anon no tiene UPDATE en ninguna columna; el SELECT de authenticated sigue';
+  v_upd text[]; v_ins int; v_anon int; v_tabla boolean; v_select boolean;
+begin
+  select array_agg(a.attname::text order by a.attname) into v_upd
+    from pg_attribute a
+   where a.attrelid = 'public.miembros'::regclass and a.attnum > 0 and not a.attisdropped
+     and has_column_privilege('authenticated', 'public.miembros', a.attname, 'UPDATE');
+  select count(*) into v_ins from pg_attribute a
+   where a.attrelid = 'public.miembros'::regclass and a.attnum > 0 and not a.attisdropped
+     and has_column_privilege('authenticated', 'public.miembros', a.attname, 'INSERT');
+  select count(*) into v_anon from pg_attribute a
+   where a.attrelid = 'public.miembros'::regclass and a.attnum > 0 and not a.attisdropped
+     and has_column_privilege('anon', 'public.miembros', a.attname, 'UPDATE');
+  select has_table_privilege('authenticated', 'public.miembros', 'UPDATE'),
+         has_table_privilege('authenticated', 'public.miembros', 'SELECT')
+    into v_tabla, v_select;
+  perform public._test_chk(c_caso,
+    v_upd = array['camion_activo_id', 'color_acento', 'tema']::text[] and v_ins = 0 and v_anon = 0
+      and v_tabla is false and v_select,
+    format('UPDATE de authenticated en=%s | INSERT en %s columnas | UPDATE de anon en %s columnas | UPDATE de tabla=%s SELECT=%s',
+      v_upd, v_ins, v_anon, v_tabla, v_select));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '21.4 Migración 012: fn_validar_camion_activo es SECURITY INVOKER con search_path fijo y sin EXECUTE para anon, authenticated ni public; trg_15_validar_camion_activo es BEFORE INSERT OR UPDATE OF camion_activo_id (solo esa columna), FOR EACH ROW y habilitado; los BEFORE UPDATE de miembros disparan 10 -> 15 -> 20 y trg_20_set_updated_at no tiene lista de columnas (también avanza updated_at al cambiar el camión activo)';
+  v_fn oid; v_invoker boolean; v_path boolean; v_anon boolean; v_auth boolean; v_public boolean;
+  v_trg int; v_cols text[]; v_orden text[]; v_upd_cols int;
+begin
+  select p.oid, not p.prosecdef, coalesce(p.proconfig::text like '%search_path=public%', false),
+         has_function_privilege('anon', p.oid, 'execute'),
+         has_function_privilege('authenticated', p.oid, 'execute'),
+         has_function_privilege('public', p.oid, 'execute')
+    into v_fn, v_invoker, v_path, v_anon, v_auth, v_public
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace and p.proname = 'fn_validar_camion_activo';
+  -- tgtype: 1 = FOR EACH ROW, 2 = BEFORE, 4 = INSERT, 8 = DELETE, 16 = UPDATE, 32 = TRUNCATE.
+  select (select array_agg(a.attname::text order by k.ord)
+            from unnest(t.tgattr::int2[]) with ordinality as k(attnum, ord)
+            join pg_attribute a on a.attrelid = t.tgrelid and a.attnum = k.attnum)
+    into v_cols
+    from pg_trigger t
+   where t.tgrelid = 'public.miembros'::regclass and t.tgname = 'trg_15_validar_camion_activo'
+     and t.tgfoid = v_fn and not t.tgisinternal and t.tgenabled = 'O'
+     and (t.tgtype & 1) = 1 and (t.tgtype & 2) = 2 and (t.tgtype & 4) = 4 and (t.tgtype & 16) = 16
+     and (t.tgtype & (8 | 32)) = 0;
+  v_trg := case when found then 1 else 0 end;
+  select array_agg(t.tgname::text order by t.tgname) into v_orden
+    from pg_trigger t
+   where t.tgrelid = 'public.miembros'::regclass and not t.tgisinternal and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16;
+  select cardinality(t.tgattr::int2[]) into v_upd_cols
+    from pg_trigger t where t.tgrelid = 'public.miembros'::regclass and t.tgname = 'trg_20_set_updated_at';
+  perform public._test_chk(c_caso,
+    v_fn is not null and v_invoker and v_path and v_anon is false and v_auth is false and v_public is false
+      and v_trg = 1 and v_cols = array['camion_activo_id']::text[]
+      and v_orden = array['trg_10_bloquear_cambio_rol', 'trg_15_validar_camion_activo', 'trg_20_set_updated_at']::text[]
+      and v_upd_cols = 0,
+    format('función=%s invoker=%s search_path=%s EXECUTE anon=%s authenticated=%s public=%s | trigger ok=%s columnas=%s | BEFORE UPDATE en orden: %s | columnas de trg_20=%s',
+      v_fn is not null, v_invoker, v_path, v_anon, v_auth, v_public, v_trg, v_cols, v_orden, v_upd_cols));
+end
+$$;
+
+-- A (admin): elige, repite, quita; no toca filas ajenas, ni camiones de otra cuenta, ni otras columnas.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.5 El admin de A elige su camión activo con un UPDATE de su fila (1 fila), lo lee de vuelta y no cambia ninguna otra columna (rol, tema, color_acento, transportista_id, user_id)';
+  v_admin uuid := (public._test_get('uid_a_admin'))::uuid;
+  v_antes jsonb; v_despues jsonb; v_rows int; v_cam uuid;
+begin
+  select to_jsonb(m) - 'camion_activo_id' - 'updated_at' into v_antes from public.miembros m where m.user_id = v_admin;
+  update public.miembros set camion_activo_id = (public._test_get('s21_a1'))::uuid where user_id = v_admin;
+  get diagnostics v_rows = row_count;
+  select camion_activo_id into v_cam from public.miembros where user_id = v_admin;
+  select to_jsonb(m) - 'camion_activo_id' - 'updated_at' into v_despues from public.miembros m where m.user_id = v_admin;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_cam = (public._test_get('s21_a1'))::uuid and v_antes is not null and v_antes = v_despues,
+    format('filas=%s camión activo=%s resto igual=%s', v_rows, v_cam, v_antes = v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '21.6 Volver a mandar el mismo camión anda (1 fila, sin cambio), quitarlo (NULL) anda, y volver a elegirlo también';
+  v_admin uuid := (public._test_get('uid_a_admin'))::uuid;
+  v_a1 uuid := (public._test_get('s21_a1'))::uuid;
+  v_r1 int; v_r2 int; v_r3 int; v_c1 uuid; v_c2 uuid; v_c3 uuid;
+begin
+  update public.miembros set camion_activo_id = v_a1 where user_id = v_admin;
+  get diagnostics v_r1 = row_count;
+  select camion_activo_id into v_c1 from public.miembros where user_id = v_admin;
+  update public.miembros set camion_activo_id = null where user_id = v_admin;
+  get diagnostics v_r2 = row_count;
+  select camion_activo_id into v_c2 from public.miembros where user_id = v_admin;
+  update public.miembros set camion_activo_id = v_a1 where user_id = v_admin;
+  get diagnostics v_r3 = row_count;
+  select camion_activo_id into v_c3 from public.miembros where user_id = v_admin;
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_c1 = v_a1 and v_r2 = 1 and v_c2 is null and v_r3 = 1 and v_c3 = v_a1,
+    format('mismo: filas=%s queda=%s | NULL: filas=%s queda=%s | otra vez: filas=%s queda=%s', v_r1, v_c1, v_r2, v_c2, v_r3, v_c3));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Sin oráculo de existencia: un camión de otra cuenta (activo o archivado) da exactamente el mismo error que
+-- uno inexistente (23503 de la FK compuesta, nunca el 55000 de "archivado"). Se comparan código, constraint,
+-- mensaje, DETAIL y HINT con los uuids normalizados, como en 17.26 y 19.26.
+do $$
+declare
+  c_caso constant text := '21.7 El admin no puede escribir la fila del chofer de su cuenta (0 filas, sin error) y no puede elegir un camión de otra cuenta (activo o archivado): el error es idéntico al de un camión inexistente (23503 de miembros_camion_activo_fk; nunca 55000), no nombra a B, y su fila queda igual';
+  c_uuid constant text := '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  v_admin text := public._test_get('uid_a_admin');
+  v_cho_antes jsonb; v_cho_despues jsonb; v_rows int; v_antes jsonb; v_despues jsonb;
+  v_a text[]; v_b text[]; v_ok boolean; v_nombra boolean;
+begin
+  select to_jsonb(m) into v_cho_antes from public.miembros m where m.user_id = (public._test_get('uid_a_chofer'))::uuid;
+  update public.miembros set camion_activo_id = (public._test_get('s21_a2'))::uuid
+   where user_id = (public._test_get('uid_a_chofer'))::uuid;
+  get diagnostics v_rows = row_count;
+  select to_jsonb(m) into v_cho_despues from public.miembros m where m.user_id = (public._test_get('uid_a_chofer'))::uuid;
+  select to_jsonb(m) into v_antes from public.miembros m where m.user_id = v_admin::uuid;
+  v_a := array[
+    public._test_error_completo(format('update public.miembros set camion_activo_id = %L::uuid where user_id = %L::uuid', public._test_get('s21_b1'), v_admin)),
+    public._test_error_completo(format('update public.miembros set camion_activo_id = %L::uuid where user_id = %L::uuid', public._test_get('s21_bx'), v_admin))
+  ];
+  v_b := array[
+    public._test_error_completo(format('update public.miembros set camion_activo_id = gen_random_uuid() where user_id = %L::uuid', v_admin)),
+    public._test_error_completo(format('update public.miembros set camion_activo_id = gen_random_uuid() where user_id = %L::uuid', v_admin))
+  ];
+  select to_jsonb(m) into v_despues from public.miembros m where m.user_id = v_admin::uuid;
+  select bool_and(a like E'sqlstate=23503\nconstraint=miembros_camion_activo_fk\n%'
+                  and regexp_replace(a, c_uuid, '<uuid>', 'gi') = regexp_replace(b, c_uuid, '<uuid>', 'gi'))
+    into v_ok
+    from unnest(v_a, v_b) as t(a, b);
+  select coalesce(bool_or(strpos(x, (public._test_get('tenant_b_id'))) > 0
+                          or strpos(x, (public._test_get('s21_b1'))) > 0
+                          or strpos(x, (public._test_get('s21_bx'))) > 0), false)
+    into v_nombra
+    from unnest(v_a || v_b) as t(x);
+  perform public._test_chk(c_caso,
+    v_rows = 0 and v_cho_antes is not null and v_cho_antes = v_cho_despues
+      and v_ok and not v_nombra and v_antes is not null and v_antes = v_despues,
+    format('fila del chofer: filas=%s igual=%s | iguales=%s nombra a B=%s fila propia igual=%s | de B: %s || inexistentes: %s',
+      v_rows, v_cho_antes = v_cho_despues, v_ok, v_nombra, v_antes = v_despues,
+      replace(array_to_string(v_a, ' // '), E'\n', ' ; '), replace(array_to_string(v_b, ' // '), E'\n', ' ; ')));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '21.8 En su fila, el usuario no puede cambiar rol, transportista_id, user_id ni updated_at (42501) y la fila queda igual: es el efecto completo (GRANT por columna más los triggers de 002); que el GRANT sea el correcto lo comprueba 21.3';
+  v_admin text := public._test_get('uid_a_admin');
+  v_antes jsonb; v_despues jsonb; v_a text; v_b text; v_c text; v_d text;
+begin
+  select to_jsonb(m) into v_antes from public.miembros m where m.user_id = v_admin::uuid;
+  v_a := public._test_sqlstate(format($q$update public.miembros set rol = 'chofer' where user_id = %L::uuid$q$, v_admin));
+  v_b := public._test_sqlstate(format('update public.miembros set transportista_id = %L::uuid where user_id = %L::uuid', public._test_get('tenant_b_id'), v_admin));
+  v_c := public._test_sqlstate(format('update public.miembros set user_id = gen_random_uuid() where user_id = %L::uuid', v_admin));
+  v_d := public._test_sqlstate(format('update public.miembros set updated_at = now() where user_id = %L::uuid', v_admin));
+  select to_jsonb(m) into v_despues from public.miembros m where m.user_id = v_admin::uuid;
+  perform public._test_chk(c_caso,
+    v_a like '42501|%' and v_b like '42501|%' and v_c like '42501|%' and v_d like '42501|%'
+      and v_antes is not null and v_antes = v_despues,
+    format('rol: %s | transportista_id: %s | user_id: %s | updated_at: %s | fila igual=%s', v_a, v_b, v_c, v_d, v_antes = v_despues));
+end
+$$;
+
+reset role;
+
+-- El chofer de A: elige su propio camión activo.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.9 El chofer de A elige su propio camión activo (AX, 1 fila) y lo lee; no puede escribir la fila del admin (0 filas), que sigue con A1';
+  v_cho uuid := (public._test_get('uid_a_chofer'))::uuid;
+  v_r1 int; v_r2 int; v_cam uuid; v_cam_admin uuid; v_rol public.rol_miembro;
+begin
+  select rol into v_rol from public.miembros where user_id = v_cho;
+  update public.miembros set camion_activo_id = (public._test_get('s21_ax'))::uuid where user_id = v_cho;
+  get diagnostics v_r1 = row_count;
+  update public.miembros set camion_activo_id = (public._test_get('s21_a2'))::uuid
+   where user_id = (public._test_get('uid_a_admin'))::uuid;
+  get diagnostics v_r2 = row_count;
+  select camion_activo_id into v_cam from public.miembros where user_id = v_cho;
+  select camion_activo_id into v_cam_admin from public.miembros where user_id = (public._test_get('uid_a_admin'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rol = 'chofer' and v_r1 = 1 and v_cam = (public._test_get('s21_ax'))::uuid
+      and v_r2 = 0 and v_cam_admin = (public._test_get('s21_a1'))::uuid,
+    format('rol=%s | propia: filas=%s camión=%s | la del admin: filas=%s camión del admin=%s', v_rol, v_r1, v_cam, v_r2, v_cam_admin));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- A (admin): archiva AX y no lo puede elegir.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.10 Un camión archivado no se puede elegir como camión activo: 55000 con el texto camion_archivado y el hint "Reactivalo o elegí otro camión." (los de la 010), y la fila queda igual';
+  v_admin text := public._test_get('uid_a_admin');
+  v_rows int; v_antes jsonb; v_despues jsonb; v_e text;
+begin
+  update public.camiones set activa = false where id = (public._test_get('s21_ax'))::uuid;
+  get diagnostics v_rows = row_count;
+  select to_jsonb(m) into v_antes from public.miembros m where m.user_id = v_admin::uuid;
+  v_e := public._test_error_completo(format('update public.miembros set camion_activo_id = %L::uuid where user_id = %L::uuid',
+    public._test_get('s21_ax'), v_admin));
+  select to_jsonb(m) into v_despues from public.miembros m where m.user_id = v_admin::uuid;
+  perform public._test_chk(c_caso,
+    v_rows = 1 and v_e like E'sqlstate=55000\n%' and v_e like '%camion_archivado%'
+      and v_e like E'%\nhint=Reactivalo o elegí otro camión.' and v_antes is not null and v_antes = v_despues,
+    format('archivar: filas=%s | %s | fila igual=%s', v_rows, replace(v_e, E'\n', ' ; '), v_antes = v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- El chofer de A: su camión activo (AX) se archivó DESPUÉS de elegirlo.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.11 Si el camión activo se archiva DESPUÉS de elegirlo, nada se rompe: reenviar el mismo camión y cambiar el tema andan (el puntero se conserva), cambiar a otro camión activo anda, y volver al archivado da 55000 con la fila igual';
+  v_cho text := public._test_get('uid_a_chofer');
+  v_r1 int; v_r2 int; v_r3 int; v_c1 uuid; v_c2 uuid; v_c3 uuid; v_e text; v_antes jsonb; v_despues jsonb;
+begin
+  update public.miembros set camion_activo_id = (public._test_get('s21_ax'))::uuid where user_id = v_cho::uuid;
+  get diagnostics v_r1 = row_count;
+  select camion_activo_id into v_c1 from public.miembros where user_id = v_cho::uuid;
+  update public.miembros set tema = case when tema = 'dark' then 'light' else 'dark' end where user_id = v_cho::uuid;
+  get diagnostics v_r2 = row_count;
+  select camion_activo_id into v_c2 from public.miembros where user_id = v_cho::uuid;
+  update public.miembros set camion_activo_id = (public._test_get('s21_a2'))::uuid where user_id = v_cho::uuid;
+  get diagnostics v_r3 = row_count;
+  select camion_activo_id into v_c3 from public.miembros where user_id = v_cho::uuid;
+  select to_jsonb(m) into v_antes from public.miembros m where m.user_id = v_cho::uuid;
+  v_e := public._test_sqlstate(format('update public.miembros set camion_activo_id = %L::uuid where user_id = %L::uuid',
+    public._test_get('s21_ax'), v_cho));
+  select to_jsonb(m) into v_despues from public.miembros m where m.user_id = v_cho::uuid;
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_c1 = (public._test_get('s21_ax'))::uuid and v_r2 = 1 and v_c2 = (public._test_get('s21_ax'))::uuid
+      and v_r3 = 1 and v_c3 = (public._test_get('s21_a2'))::uuid
+      and v_e like '55000|%camion_archivado%' and v_antes is not null and v_antes = v_despues,
+    format('mismo archivado: filas=%s queda=%s | tema: filas=%s camión=%s | a A2: filas=%s queda=%s | volver al archivado: %s (fila igual=%s)',
+      v_r1, v_c1, v_r2, v_c2, v_r3, v_c3, v_e, v_antes = v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- A (admin): reactiva AX.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.12 Reactivar un camión (UPDATE de activa) no toca ninguna fila de miembros y lo vuelve elegible: después el admin lo elige sin error';
+  v_admin uuid := (public._test_get('uid_a_admin'))::uuid;
+  v_cho_antes jsonb; v_cho_despues jsonb; v_r1 int; v_r2 int; v_cam uuid;
+begin
+  select to_jsonb(m) into v_cho_antes from public.miembros m where m.user_id = (public._test_get('uid_a_chofer'))::uuid;
+  update public.camiones set activa = true where id = (public._test_get('s21_ax'))::uuid;
+  get diagnostics v_r1 = row_count;
+  select to_jsonb(m) into v_cho_despues from public.miembros m where m.user_id = (public._test_get('uid_a_chofer'))::uuid;
+  update public.miembros set camion_activo_id = (public._test_get('s21_ax'))::uuid where user_id = v_admin;
+  get diagnostics v_r2 = row_count;
+  select camion_activo_id into v_cam from public.miembros where user_id = v_admin;
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_cho_antes is not null and v_cho_antes = v_cho_despues and v_r2 = 1 and v_cam = (public._test_get('s21_ax'))::uuid,
+    format('reactivar: filas=%s fila del chofer igual=%s | elegirlo: filas=%s queda=%s', v_r1, v_cho_antes = v_cho_despues, v_r2, v_cam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- El chofer de A elige AD (el admin lo borra en 21.15).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+begin
+  update public.miembros set camion_activo_id = (public._test_get('s21_ad'))::uuid
+   where user_id = (public._test_get('uid_a_chofer'))::uuid;
+exception when others then
+  perform public._test_set('s21_error_chofer_ad', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B: elige el suyo y no ve ni toca las filas de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.13 B elige su propio camión (B1); ve una sola fila de miembros (la suya) y ninguna de A, ni por cuenta ni por usuario; su UPDATE sobre la fila del admin de A afecta 0 filas';
+  v_r1 int; v_cam uuid; v_ve int; v_ajenas int; v_de_a int; v_r2 int;
+begin
+  update public.miembros set camion_activo_id = (public._test_get('s21_b1'))::uuid
+   where user_id = (public._test_get('uid_b_admin'))::uuid;
+  get diagnostics v_r1 = row_count;
+  select camion_activo_id into v_cam from public.miembros where user_id = (public._test_get('uid_b_admin'))::uuid;
+  select count(*), count(*) filter (where transportista_id <> (public._test_get('tenant_b_id'))::uuid) into v_ve, v_ajenas
+    from public.miembros;
+  select count(*) into v_de_a from public.miembros
+   where transportista_id = (public._test_get('tenant_a_id'))::uuid
+      or user_id in ((public._test_get('uid_a_admin'))::uuid, (public._test_get('uid_a_chofer'))::uuid);
+  update public.miembros set camion_activo_id = null where user_id = (public._test_get('uid_a_admin'))::uuid;
+  get diagnostics v_r2 = row_count;
+  perform public._test_chk(c_caso,
+    v_r1 = 1 and v_cam = (public._test_get('s21_b1'))::uuid and v_ve = 1 and v_ajenas = 0 and v_de_a = 0 and v_r2 = 0,
+    format('propia: filas=%s camión=%s | ve=%s ajenas=%s de A=%s | UPDATE sobre A=%s', v_r1, v_cam, v_ve, v_ajenas, v_de_a, v_r2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Un usuario autenticado sin tenant.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.14 Un usuario sin tenant no ve ninguna fila de miembros y su UPDATE del camión activo (sin filtro o sobre el admin de A) afecta 0 filas, sin error';
+  v_n int; v_r1 int; v_r2 int;
+begin
+  select count(*) into v_n from public.miembros;
+  update public.miembros set camion_activo_id = (public._test_get('s21_a1'))::uuid;
+  get diagnostics v_r1 = row_count;
+  update public.miembros set camion_activo_id = null where user_id = (public._test_get('uid_a_admin'))::uuid;
+  get diagnostics v_r2 = row_count;
+  perform public._test_chk(c_caso, v_n = 0 and v_r1 = 0 and v_r2 = 0, format('ve=%s | UPDATE sin filtro=%s sobre A=%s', v_n, v_r1, v_r2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- A (admin): borra AD, que es el camión activo del chofer.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.15 Borrar un camión (AD, sin viajes ni gastos) deja en NULL el camión activo de quien lo tenía (el chofer), aunque el admin que borra no pueda escribir esa fila, sin tocar su rol, tema, color ni cuenta; la fila del admin (AX) no cambia';
+  v_cho uuid := (public._test_get('uid_a_chofer'))::uuid;
+  v_admin uuid := (public._test_get('uid_a_admin'))::uuid;
+  v_cam_antes uuid; v_resto_antes jsonb; v_resto_despues jsonb; v_cam_despues uuid; v_admin_antes jsonb; v_admin_despues jsonb; v_rows int;
+begin
+  select camion_activo_id, to_jsonb(m) - 'camion_activo_id' - 'updated_at' into v_cam_antes, v_resto_antes
+    from public.miembros m where m.user_id = v_cho;
+  select to_jsonb(m) into v_admin_antes from public.miembros m where m.user_id = v_admin;
+  delete from public.camiones where id = (public._test_get('s21_ad'))::uuid;
+  get diagnostics v_rows = row_count;
+  select camion_activo_id, to_jsonb(m) - 'camion_activo_id' - 'updated_at' into v_cam_despues, v_resto_despues
+    from public.miembros m where m.user_id = v_cho;
+  select to_jsonb(m) into v_admin_despues from public.miembros m where m.user_id = v_admin;
+  perform public._test_chk(c_caso,
+    public._test_get('s21_error_chofer_ad') is null
+      and v_cam_antes = (public._test_get('s21_ad'))::uuid and v_rows = 1 and v_cam_despues is null
+      and v_resto_antes is not null and v_resto_antes = v_resto_despues
+      and v_admin_antes is not null and v_admin_antes = v_admin_despues
+      and (v_admin_despues ->> 'camion_activo_id')::uuid = (public._test_get('s21_ax'))::uuid,
+    format('error al elegir AD=%s | chofer: antes=%s borrar=%s después=%s resto igual=%s | admin igual=%s (camión %s)',
+      public._test_get('s21_error_chofer_ad'), v_cam_antes, v_rows, v_cam_despues, v_resto_antes = v_resto_despues,
+      v_admin_antes = v_admin_despues, v_admin_despues ->> 'camion_activo_id'));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: el chofer vuelve a tener un camión activo (A2) para 21.16.
+do $$
+begin
+  update public.miembros set camion_activo_id = (public._test_get('s21_a2'))::uuid
+   where user_id = (public._test_get('uid_a_chofer'))::uuid;
+exception when others then
+  perform public._test_set('s21_error_chofer_a2', sqlerrm);
+end
+$$;
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.16 cambiar_rol_miembro sigue andando y no toca el camión activo: el chofer pasa a admin y vuelve a chofer, y conserva A2';
+  v_cho uuid := (public._test_get('uid_a_chofer'))::uuid;
+  v_rol1 public.rol_miembro; v_cam1 uuid; v_rol2 public.rol_miembro; v_cam2 uuid;
+begin
+  perform public.cambiar_rol_miembro(v_cho, 'admin');
+  select rol, camion_activo_id into v_rol1, v_cam1 from public.miembros where user_id = v_cho;
+  perform public.cambiar_rol_miembro(v_cho, 'chofer');
+  select rol, camion_activo_id into v_rol2, v_cam2 from public.miembros where user_id = v_cho;
+  perform public._test_chk(c_caso,
+    public._test_get('s21_error_chofer_a2') is null
+      and v_rol1 = 'admin' and v_cam1 = (public._test_get('s21_a2'))::uuid
+      and v_rol2 = 'chofer' and v_cam2 = (public._test_get('s21_a2'))::uuid,
+    format('error al preparar=%s | a admin: rol=%s camión=%s | a chofer: rol=%s camión=%s',
+      public._test_get('s21_error_chofer_a2'), v_rol1, v_cam1, v_rol2, v_cam2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- G: un usuario nuevo da de alta su cuenta.
+select public._test_set('uid_g_admin', '90909090-0000-0000-0000-000000000021');
+
+insert into auth.users (instance_id, id, aud, role, email)
+values ('00000000-0000-0000-0000-000000000000', (public._test_get('uid_g_admin'))::uuid, 'authenticated','authenticated','admin-g-s21@test.elan');
+
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_g_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '21.17 create_transportista sigue creando el miembro admin, ahora con camion_activo_id NULL';
+  v_tid uuid; v_fila jsonb;
+begin
+  v_tid := public.create_transportista('Transportes G (sección 21)');
+  select to_jsonb(m) into v_fila from public.miembros m where m.user_id = (public._test_get('uid_g_admin'))::uuid;
+  perform public._test_chk(c_caso,
+    v_tid is not null and v_fila ->> 'rol' = 'admin' and (v_fila ->> 'transportista_id')::uuid = v_tid
+      and v_fila ? 'camion_activo_id' and v_fila ->> 'camion_activo_id' is null,
+    format('tenant=%s fila=%s', v_tid, v_fila));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres (sin RLS): el trigger busca el camión dentro de la cuenta de la fila, no solo por RLS.
+do $$
+declare
+  c_caso constant text := '21.18 Como postgres (sin RLS), apuntar la fila del admin de A al camión ARCHIVADO de B (o al activo) da 23503 de miembros_camion_activo_fk, no el 55000: el trigger nunca mira camiones de otra cuenta; la fila queda igual';
+  v_admin text := public._test_get('uid_a_admin');
+  v_antes jsonb; v_despues jsonb; v_a text; v_b text;
+begin
+  select to_jsonb(m) into v_antes from public.miembros m where m.user_id = v_admin::uuid;
+  v_a := public._test_sqlstate(format('update public.miembros set camion_activo_id = %L::uuid where user_id = %L::uuid', public._test_get('s21_bx'), v_admin));
+  v_b := public._test_sqlstate(format('update public.miembros set camion_activo_id = %L::uuid where user_id = %L::uuid', public._test_get('s21_b1'), v_admin));
+  select to_jsonb(m) into v_despues from public.miembros m where m.user_id = v_admin::uuid;
+  perform public._test_chk(c_caso,
+    v_a like '23503|miembros_camion_activo_fk|%' and v_b like '23503|miembros_camion_activo_fk|%'
+      and v_antes is not null and v_antes = v_despues,
+    format('archivado de B: %s | activo de B: %s | fila igual=%s', v_a, v_b, v_antes = v_despues));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '21.19 Como postgres: ningún miembro de toda la base apunta a un camión de otra cuenta ni a uno inexistente, y cada usuario de prueba quedó con lo suyo (admin de A: AX; chofer de A: A2; admin de B: B1; G: ninguno)';
+  v_cruz int; v_huerf int; v_admin uuid; v_cho uuid; v_b uuid; v_g text;
+begin
+  -- Se une solo por id (sin el tenant) a propósito: así un cruce entre cuentas no se esconde detrás de la FK compuesta.
+  select count(*) into v_cruz from public.miembros m join public.camiones c on c.id = m.camion_activo_id
+   where c.transportista_id <> m.transportista_id;
+  select count(*) into v_huerf from public.miembros m
+   where m.camion_activo_id is not null and not exists (select 1 from public.camiones c where c.id = m.camion_activo_id);
+  select camion_activo_id into v_admin from public.miembros where user_id = (public._test_get('uid_a_admin'))::uuid;
+  select camion_activo_id into v_cho from public.miembros where user_id = (public._test_get('uid_a_chofer'))::uuid;
+  select camion_activo_id into v_b from public.miembros where user_id = (public._test_get('uid_b_admin'))::uuid;
+  select coalesce(camion_activo_id::text, 'ninguno') into v_g from public.miembros where user_id = (public._test_get('uid_g_admin'))::uuid;
+  perform public._test_chk(c_caso,
+    v_cruz = 0 and v_huerf = 0 and v_admin = (public._test_get('s21_ax'))::uuid and v_cho = (public._test_get('s21_a2'))::uuid
+      and v_b = (public._test_get('s21_b1'))::uuid and v_g = 'ninguno',
+    format('cruzados=%s huérfanos=%s | admin A=%s chofer A=%s admin B=%s G=%s', v_cruz, v_huerf, v_admin, v_cho, v_b, v_g));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
 end
 $$;
 

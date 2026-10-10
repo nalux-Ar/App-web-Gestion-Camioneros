@@ -1,5 +1,5 @@
 // Generado con el MCP de Supabase (generate_typescript_types) sobre el
-// proyecto de Supabase del repo, después de las migraciones 001–010.
+// proyecto de Supabase del repo, después de las migraciones 001–012.
 // No editar a mano: regenerar cuando cambie el esquema.
 
 export type Json =
@@ -342,6 +342,7 @@ export type Database = {
       }
       miembros: {
         Row: {
+          camion_activo_id: string | null
           color_acento: string
           created_at: string
           id: string
@@ -352,6 +353,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          camion_activo_id?: string | null
           color_acento?: string
           created_at?: string
           id?: string
@@ -362,6 +364,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          camion_activo_id?: string | null
           color_acento?: string
           created_at?: string
           id?: string
@@ -372,6 +375,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "miembros_camion_activo_fk"
+            columns: ["transportista_id", "camion_activo_id"]
+            isOneToOne: false
+            referencedRelation: "camiones"
+            referencedColumns: ["transportista_id", "id"]
+          },
           {
             foreignKeyName: "miembros_transportista_id_fkey"
             columns: ["transportista_id"]
