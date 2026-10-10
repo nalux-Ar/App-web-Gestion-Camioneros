@@ -44,7 +44,10 @@ export interface GastoFormValues {
   metodoPago: '' | MetodoPago;
   // Solo se usan con la categoría Combustible. Se CONSERVAN si el usuario
   // cambia de categoría y vuelve, pero no se envían (ver `validateGastoForm`).
-  /** El camión elegido ('' = ninguno). Solo cuenta cuando hay que ELEGIR (ver `decidirCamion`). */
+  /**
+   * El camión elegido EN PANTALLA ('' = no se tocó: vale el precompletado de la decisión, si lo hay). Solo cuenta cuando
+   * hay que ELEGIR (ver `decidirCamion` y `camionElegido`).
+   */
   camionId: string;
   litros: string;
   kmOdometro: string;

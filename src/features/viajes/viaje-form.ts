@@ -52,8 +52,10 @@ export interface ViajeFormValues {
   origen: string;
   destino: string;
   /**
-   * El camión elegido ('' = ninguno). Solo cuenta cuando hay que ELEGIR (2 o más camiones activos, o un camión archivado
-   * que el viaje ya tenía): con uno solo se asigna solo y sin camiones no hay nada que elegir (ver `decidirCamion`).
+   * El camión elegido EN PANTALLA ('' = no se tocó). Solo cuenta cuando hay que ELEGIR (2 o más camiones activos, o un
+   * camión archivado que el viaje ya tenía): con '' vale el precompletado de la decisión (el camión activo en un viaje
+   * nuevo, el que ya tenía en uno editado), si lo hay. Con uno solo se asigna solo y sin camiones no hay nada que elegir
+   * (ver `decidirCamion` y `camionElegido`).
    */
   camionId: string;
   kmModo: KmModo;

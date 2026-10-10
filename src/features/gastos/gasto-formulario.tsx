@@ -66,7 +66,9 @@ import { useActualizarGasto, useCrearGasto, useEliminarGasto } from './use-gasto
 const FIELD_DOM_IDS: Record<GastoFormField, string> = {
   categoriaId: 'gasto-categoria-0', // primera opción del grupo de botones
   monto: 'gasto-monto',
-  // Prefijo: el control real depende de la decisión (botones, lista o bloque); ver `domIdDelCamion`.
+  // Prefijo: el control real depende de la decisión (botones `gasto-camion-0`, lista `gasto-camion` o bloque
+  // `gasto-camion-bloque`; la línea "Camión: …" es `gasto-camion-linea` y nunca recibe el foco de un error); ver
+  // `domIdDelCamion`.
   camionId: 'gasto-camion',
   litros: 'gasto-litros',
   kmOdometro: 'gasto-km',
@@ -122,9 +124,13 @@ interface GastoFormularioProps {
  * esos campos desaparecen y al guardar se mandan en NULL (también en el UPDATE).
  *
  * Camión (solo Combustible: con litros hace falta camión; ver `decidirCamion`): si el gasto va en un viaje con camión, va
- * ESE camión, bloqueado y visible; si no, con uno solo activo se asigna solo, con dos o más se elige con un toque (sin
- * preselección) y sin ninguno se carga uno ahí mismo ("+ Nuevo camión", solo el administrador). Un gasto que ya tenía un
- * camión archivado lo conserva. Si la lista de camiones no carga, la carga de combustible no se guarda.
+ * ESE camión, bloqueado y visible; si no, con uno solo activo se asigna solo y se muestra ("Camión: AB 123 CD", sin
+ * control); con dos o más, una carga NUEVA llega precompletada con el camión activo de la persona (si es válido) y una
+ * EDITADA con el que ya tenía: se ve la línea con "Cambiar" (cambia solo esta carga, nunca el camión activo); sin
+ * precompletado se elige con un toque; y sin ninguno activo se carga uno ahí mismo ("+ Nuevo camión", solo el
+ * administrador). Un gasto que ya tenía un camión archivado lo conserva. Si la lista de camiones no carga, la carga de
+ * combustible no se guarda. Al pasar a "Sin viaje" queda elegido el camión del viaje que tenía (B3 de la auditoría de la
+ * 5b: va como valor del formulario, así que gana sobre el precompletado).
  */
 export function GastoFormulario({
   categorias,
@@ -208,9 +214,17 @@ export function GastoFormulario({
   );
   const viajeElegidoOpcion = values.viajeId === '' ? null : (viajes.find((viaje) => viaje.id === values.viajeId) ?? null);
   const camionDelViaje = viajeElegidoOpcion?.camion_id ?? null;
+  // El camión activo de la persona (Etapa 5c) precompleta solo una carga NUEVA; `decidirCamion` lo valida contra la lista.
   const decisionCamion =
     fuel && camiones
-      ? decidirCamion({ camiones, original: gasto?.camion_id ?? null, camionDelViaje, contexto: 'combustible' })
+      ? decidirCamion({
+          camiones,
+          original: gasto?.camion_id ?? null,
+          camionDelViaje,
+          contexto: 'combustible',
+          modo: editando ? 'edicion' : 'nuevo',
+          camionActivoId: member?.camionActivoId ?? null,
+        })
       : null;
   const resolucionCamion: ResolucionCamion = !fuel
     ? { ok: true, camionId: null }

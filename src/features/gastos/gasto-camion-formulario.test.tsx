@@ -1,6 +1,6 @@
 import { act, useMemo, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, type InitialEntry } from 'react-router';
+import { Link, MemoryRouter, Route, Routes, type InitialEntry } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -70,7 +70,9 @@ const CATS: Categoria[] = [
   { id: PEAJES_ID, nombre: 'Peajes', activa: true, transportista_id: null },
 ];
 let ROL: 'admin' | 'chofer' = 'admin';
-const miembro = () => ({ rol: ROL, tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', transportistas: { nombre: 'Transportes A' } });
+/** El camión activo guardado de la persona (Etapa 5c): cada prueba lo fija; por defecto, ninguno. */
+let CAMION_ACTIVO: string | null = null;
+const miembro = () => ({ rol: ROL, tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', camion_activo_id: CAMION_ACTIVO, transportistas: { nombre: 'Transportes A' } });
 
 const cid = (n: number) => `c0000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 type Fila = { id: string; patente: string; marca: string | null; modelo: string | null; anio: number | null; activa: boolean };
@@ -197,7 +199,14 @@ async function mount(entry: InitialEntry = '/gastos/nuevo') {
                 <Routes>
                   <Route path="/gastos/nuevo" element={<GastoFormPage modo="nuevo" />} />
                   <Route path="/gastos/:id/editar" element={<GastoFormPage modo="editar" />} />
-                  <Route path="/gastos" element={<div id="lista-de-gastos" />} />
+                  <Route
+                    path="/gastos"
+                    element={
+                      <div id="lista-de-gastos">
+                        <Link to="/gastos/nuevo">Otra carga</Link>
+                      </div>
+                    }
+                  />
                   <Route path="/viajes/:id" element={<div id="detalle-del-viaje" />} />
                 </Routes>
               </RequireMember>
@@ -220,6 +229,11 @@ const radiosCamion = () => [...document.querySelectorAll<HTMLInputElement>('inpu
 const radioCamion = (texto: string) => radiosCamion().find((r) => r.closest('label')?.textContent?.includes(texto));
 const errorCamion = () => byId('gasto-camion-error')?.textContent ?? '';
 const inputPatente = () => byId<HTMLInputElement>('gasto-camion-nuevo-patente');
+/** La línea "Camión: AB 123 CD" (Etapa 5c), o null si no se muestra. */
+const lineaCamion = () => byId('gasto-camion-linea')?.textContent ?? null;
+const botonCambiar = () => buttons().find((b) => b.textContent === 'Cambiar') ?? null;
+const ayudaCamion = () => byId('gasto-camion-ayuda')?.textContent ?? null;
+const hintCamion = () => byId('gasto-camion-hint')?.textContent ?? null;
 
 async function click(el: HTMLElement | null | undefined) {
   if (!el) throw new Error('no se encontró el elemento a tocar');
@@ -227,6 +241,9 @@ async function click(el: HTMLElement | null | undefined) {
     el.click();
   });
   await settle(5);
+}
+async function abrirCambiar() {
+  await click(botonCambiar());
 }
 async function typeText(el: HTMLInputElement | null, value: string) {
   if (!el) throw new Error('no se encontró el campo');
@@ -262,6 +279,7 @@ const T = 'tenant-a';
 beforeEach(() => {
   h.calls.length = 0;
   ROL = 'admin';
+  CAMION_ACTIVO = null;
   resetRoutes();
   installResponder();
   localStorage.clear();
@@ -618,9 +636,12 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
 // Editar
 // ---------------------------------------------------------------------------
 describe('editar una carga de combustible', () => {
-  it('con su camión: preseleccionado y se manda el mismo', async () => {
+  it('con su camión: precompletado (la línea con SU camión y "Cambiar") y se manda el mismo', async () => {
     route.detalle = () => ok(gastoDetalle({ camion_id: B.id }));
     await mount(EDITAR);
+    expect(lineaCamion()).toBe('Camión: ABC 123');
+    expect(radiosCamion()).toHaveLength(0);
+    await abrirCambiar();
     expect(radioCamion('ABC 123')!.checked).toBe(true);
     await guardar();
     expect(payloadOf(updatesGasto()[0]!, 'update')).toMatchObject({ camion_id: B.id });
@@ -630,7 +651,10 @@ describe('editar una carga de combustible', () => {
     route.camiones = () => ok([A, B, X]);
     route.detalle = () => ok(gastoDetalle({ camion_id: X.id }));
     await mount(EDITAR);
+    expect(lineaCamion()).toBe('Camión: XY 987 ZW (archivado)');
+    await abrirCambiar();
     expect(radiosCamion().map((r) => r.closest('label')!.textContent)).toEqual(['XY 987 ZW (archivado)', 'AB 123 CD', 'ABC 123']);
+    expect(radioCamion('XY 987 ZW')!.checked).toBe(true);
     await guardar();
     expect(payloadOf(updatesGasto()[0]!, 'update').camion_id).toBe(X.id);
   });
@@ -722,5 +746,180 @@ describe('errores del camión al guardar', () => {
     expect(bodyText()).toContain('El viaje elegido ya no existe. Elige otro o déjalo sin viaje.');
     expect(invalido(viajesKeys.recientes(T))).toBe(true);
     expect(invalido(camionesKeys.list(T))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Etapa 5c: el camión activo precompleta las cargas NUEVAS
+// ---------------------------------------------------------------------------
+describe('carga de combustible nueva: el camión activo (Etapa 5c)', () => {
+  it('con un camión activo válido y 2 activos: precompletada, visible ("Camión: …" + "Cambiar") con la ayuda, y va ese', async () => {
+    CAMION_ACTIVO = B.id;
+    await mount();
+    await llenarCombustible();
+    expect(lineaCamion()).toBe('Camión: ABC 123');
+    expect(radiosCamion()).toHaveLength(0);
+    expect(botonCambiar()!.getAttribute('aria-expanded')).toBe('false');
+    expect(ayudaCamion()).toBe('Es tu camión activo. Si lo cambias aquí, solo cambia en este registro.');
+    // Dentro del bloque Combustible, antes de los litros.
+    expect(byId('gasto-camion-linea')!.compareDocumentPosition(byId('gasto-litros')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: B.id, litros: 40 });
+  });
+
+  it('"Cambiar" afecta SOLO a esta carga: se manda el elegido, el camión activo guardado no se toca y la próxima vuelve a precompletarse', async () => {
+    CAMION_ACTIVO = B.id;
+    await mount();
+    await llenarCombustible();
+    await abrirCambiar();
+    expect(radioCamion('ABC 123')!.checked).toBe(true);
+    await click(radioCamion('AB 123 CD'));
+    expect(lineaCamion()).toBe('Camión: AB 123 CD');
+    expect(document.activeElement).toBe(botonCambiar());
+    expect(ayudaCamion()).toBeNull();
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(A.id);
+    expect(h.calls.some((c) => c.target === 'miembros' && c.ops.some((o) => o.m === 'update'))).toBe(false);
+    await act(async () => root.unmount());
+    container.remove();
+    await mount();
+    await llenarCombustible();
+    expect(lineaCamion()).toBe('Camión: ABC 123');
+  });
+
+  it('"Cambiar" afecta solo a ESA carga también dentro de la misma sesión: la siguiente carga nueva vuelve a llegar con el camión activo', async () => {
+    CAMION_ACTIVO = B.id;
+    await mount();
+    await llenarCombustible();
+    await abrirCambiar();
+    await click(radioCamion('AB 123 CD'));
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(A.id);
+    await click([...document.querySelectorAll('a')].find((a) => a.textContent === 'Otra carga'));
+    await settle(4);
+    await llenarCombustible();
+    expect(lineaCamion()).toBe('Camión: ABC 123');
+  });
+
+  it('el camión activo guardado está ARCHIVADO (obsoleto): sin preselección, con la sugerencia de Inicio, y sin elegir no se guarda', async () => {
+    CAMION_ACTIVO = X.id;
+    route.camiones = () => ok([A, B, X]);
+    await mount();
+    await llenarCombustible();
+    expect(lineaCamion()).toBeNull();
+    expect(radiosCamion().map((r) => r.closest('label')!.textContent)).toEqual(['AB 123 CD', 'ABC 123']);
+    expect(radiosCamion().some((r) => r.checked)).toBe(false);
+    expect(hintCamion()).toBe('Puedes dejar un camión activo en Inicio para no elegirlo cada vez.');
+    await guardar();
+    expect(errorCamion()).toBe(CAMION_FALTA_MESSAGE);
+    expect(document.activeElement).toBe(byId('gasto-camion-0'));
+    expect(inserts()).toHaveLength(0);
+  });
+
+  it('el camión activo guardado ya no existe (obsoleto): igual que sin camión activo', async () => {
+    CAMION_ACTIVO = cid(77);
+    await mount();
+    await llenarCombustible();
+    expect(lineaCamion()).toBeNull();
+    expect(hintCamion()).toBe('Puedes dejar un camión activo en Inicio para no elegirlo cada vez.');
+  });
+
+  it('1 solo camión activo: la línea SIN "Cambiar" y va ese', async () => {
+    route.camiones = () => ok([A, X]);
+    CAMION_ACTIVO = X.id;
+    await mount();
+    await llenarCombustible();
+    expect(lineaCamion()).toBe('Camión: AB 123 CD');
+    expect(botonCambiar()).toBeNull();
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(A.id);
+  });
+
+  it('5 o más con camión activo: la línea; "Cambiar" despliega la lista con el actual elegido', async () => {
+    CAMION_ACTIVO = D.id;
+    route.camiones = () => ok([A, B, C, D, E]);
+    await mount();
+    await llenarCombustible();
+    expect(lineaCamion()).toBe('Camión: DD 444 DD');
+    await abrirCambiar();
+    const select = byId<HTMLSelectElement>('gasto-camion')!;
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe(D.id);
+    await act(async () => {
+      select.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    await selectValue(select, B.id);
+    expect(byId('gasto-camion')).toBeNull();
+    expect(lineaCamion()).toBe('Camión: ABC 123');
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(B.id);
+  });
+
+  it('un viaje con camión manda: bloqueado con el del viaje aunque el camión activo sea otro', async () => {
+    CAMION_ACTIVO = A.id;
+    await mount();
+    await llenarCombustible();
+    expect(lineaCamion()).toBe('Camión: AB 123 CD');
+    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    expect(lineaCamion()).toBeNull();
+    expect(botonCambiar()).toBeNull();
+    expect(bodyText()).toContain('Camión del viaje: ABC 123');
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: B.id, viaje_id: V_B.id });
+  });
+
+  it('B3 con camión activo: al pasar a "Sin viaje" queda el camión del viaje (gana sobre el precompletado)', async () => {
+    CAMION_ACTIVO = A.id;
+    await mount();
+    await llenarCombustible();
+    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), '');
+    expect(lineaCamion()).toBe('Camión: ABC 123');
+    expect(ayudaCamion()).toBeNull(); // no es el camión activo
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: B.id, viaje_id: null });
+  });
+
+  it('una carga EDITADA conserva su camión: el camión activo no la pisa', async () => {
+    CAMION_ACTIVO = A.id;
+    route.detalle = () => ok(gastoDetalle({ camion_id: B.id }));
+    await mount(EDITAR);
+    expect(lineaCamion()).toBe('Camión: ABC 123');
+    expect(ayudaCamion()).toBeNull();
+    await guardar();
+    expect(payloadOf(updatesGasto()[0]!, 'update').camion_id).toBe(B.id);
+  });
+
+  it('una carga VIEJA editada con litros y sin camión, 2 activos: NO se precompleta con el camión activo; hay que elegir', async () => {
+    CAMION_ACTIVO = A.id;
+    await mount(EDITAR);
+    expect(lineaCamion()).toBeNull();
+    expect(radiosCamion().some((r) => r.checked)).toBe(false);
+    expect(hintCamion()).toBeNull(); // la sugerencia de Inicio es solo para cargas nuevas
+    await guardar();
+    expect(errorCamion()).toBe(CAMION_FALTA_MESSAGE);
+    expect(document.activeElement).toBe(byId('gasto-camion-0'));
+    expect(updatesGasto()).toHaveLength(0);
+  });
+
+  it('los errores de la base siguen igual con el camión precompletado (23503 gastos_camion_fk)', async () => {
+    CAMION_ACTIVO = A.id;
+    route.insertar = () => fail('23503', 'insert or update on table "gastos" violates foreign key constraint "gastos_camion_fk"', 409);
+    await mount();
+    await llenarCombustible();
+    await guardar();
+    expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(A.id);
+    expect(bodyText()).toContain('El camión elegido ya no existe. Elige otro.');
+    expect(invalido(camionesKeys.list(T))).toBe(true);
+  });
+
+  it('PRIMER camión cargado en línea: después se ve en la línea (1 activo, sin "Cambiar")', async () => {
+    route.camiones = () => ok([]);
+    await mount();
+    await llenarCombustible();
+    await typeText(inputPatente(), 'AB123CD');
+    await click(buttonByText('Cargar camión'));
+    expect(lineaCamion()).toBe('Camión: AB 123 CD');
+    expect(botonCambiar()).toBeNull();
   });
 });

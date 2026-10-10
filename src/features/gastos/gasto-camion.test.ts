@@ -66,11 +66,17 @@ describe('validateGastoForm: el camión', () => {
       [{ id: CAMION, patente: 'AB123CD', marca: null, modelo: null, anio: null, activa: true }],
       [{ id: CAMION, patente: 'AB123CD', marca: null, modelo: null, anio: null, activa: false }],
     ];
+    // Etapa 5c: también con el camión activo guardado (válido, archivado o nada) y en alta o edición.
     for (const lista of camiones) {
       for (const valor of ['', CAMION]) {
-        const camion = resolverCamion(decidirCamion({ camiones: lista, original: null, contexto: 'combustible' }), valor);
-        const r = validateGastoForm(base({ camionId: valor }), { ...ctx, camion });
-        if (r.ok) expect(r.columns.camion_id, JSON.stringify({ lista, valor })).not.toBeNull();
+        for (const modo of ['nuevo', 'edicion'] as const) {
+          for (const camionActivoId of [null, CAMION]) {
+            const decision = decidirCamion({ camiones: lista, original: null, contexto: 'combustible', modo, camionActivoId });
+            const camion = resolverCamion(decision, valor);
+            const r = validateGastoForm(base({ camionId: valor }), { ...ctx, camion });
+            if (r.ok) expect(r.columns.camion_id, JSON.stringify({ lista, valor, modo, camionActivoId })).not.toBeNull();
+          }
+        }
       }
     }
   });

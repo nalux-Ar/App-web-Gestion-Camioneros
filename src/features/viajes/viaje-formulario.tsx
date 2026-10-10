@@ -21,6 +21,7 @@ import { useCamiones, useGastosAMover } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente, type DesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { combinarClientes, type ClienteOpcion } from '@/features/clientes/cliente-nombre';
 import { useClientes } from '@/features/clientes/use-clientes';
+import { useMember } from '@/features/member/use-member';
 import { useTenantId } from '@/features/member/use-tenant-id';
 import { mapDataError, RecordNotFoundError } from '@/lib/data-errors';
 import { MIN_FECHA, todayLocal } from '@/lib/dates';
@@ -89,9 +90,12 @@ interface ViajeFormularioProps {
  * este guardado lo pisa.
  *
  * Camión (ver `decidirCamion`): sin camiones activos no se muestra nada y el viaje va sin camión; con uno solo, se asigna
- * solo; con dos o más se elige con un toque, sin preselección. Al editar se conserva el que el viaje ya tenía (aunque esté
- * archivado) salvo que se elija otro. Si la lista de camiones no carga, no se guarda ("Falta cargar tus camiones"). Si al
- * editar cambia el camión y el viaje tiene gastos con otro camión, la base los mueve al nuevo: el botón lo dice antes.
+ * solo y se muestra ("Camión: AB 123 CD", sin control); con dos o más, un viaje NUEVO llega precompletado con el camión
+ * activo de la persona (si es válido) y uno EDITADO con el que ya tenía (aunque esté archivado): se ve la línea con
+ * "Cambiar", que cambia el camión solo de este viaje (nunca el camión activo). Sin precompletado (sin camión activo válido,
+ * o un viaje viejo sin camión) se elige con un toque. Si la lista de camiones no carga, no se guarda ("Falta cargar tus
+ * camiones"). Si al editar cambia el camión y el viaje tiene gastos con otro camión, la base los mueve al nuevo: el botón
+ * lo dice antes.
  */
 export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeCliente = null }: ViajeFormularioProps) {
   const navigate = useNavigate();
@@ -146,7 +150,17 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
   const camionesQuery = useCamiones({ fresca: true });
   const camionesCargados = camionesQuery.data?.items;
   const original = viaje?.camion_id ?? null;
-  const decisionCamion = camionesCargados ? decidirCamion({ camiones: camionesCargados, original, contexto: 'viaje' }) : null;
+  // El camión activo de la persona (Etapa 5c) precompleta solo un viaje NUEVO; `decidirCamion` lo valida contra la lista.
+  const { member } = useMember();
+  const decisionCamion = camionesCargados
+    ? decidirCamion({
+        camiones: camionesCargados,
+        original,
+        contexto: 'viaje',
+        modo: editando ? 'edicion' : 'nuevo',
+        camionActivoId: member?.camionActivoId ?? null,
+      })
+    : null;
   const resolucionCamion: ResolucionCamion = decisionCamion
     ? resolverCamion(decisionCamion, values.camionId)
     : { ok: false, message: CAMIONES_SIN_CARGAR_MESSAGE };
