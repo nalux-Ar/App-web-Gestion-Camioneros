@@ -65,7 +65,7 @@ const fail = (code: string, message: string, status = 409): Resp => ({ data: nul
 const sinRed = (): Resp => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
 
 let ROL: 'admin' | 'chofer' = 'admin';
-const miembro = () => ({ rol: ROL, tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', transportistas: { nombre: 'Transportes A' } });
+const miembro = () => ({ rol: ROL, tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', camion_activo_id: null, transportistas: { nombre: 'Transportes A' } });
 
 const C_A = 'c0000000-0000-4000-8000-000000000001';
 const C_B = 'c0000000-0000-4000-8000-000000000002';
@@ -794,12 +794,15 @@ describe('tarjeta "Carga tu camión" en Inicio', () => {
     expect(bodyText()).not.toContain('Carga tu camión');
   });
 
-  it('chofer: no aparece y ni siquiera pide los camiones', async () => {
+  it('chofer: no aparece (aunque la lista, que ahora también lee la tarjeta del camión activo, venga vacía)', async () => {
+    // Etapa 5c: la tarjeta del camión activo de Inicio lee la lista de camiones para cualquier miembro (sin ramas por rol:
+    // una cuenta = una persona), así que ya no se puede exigir que Inicio no pida la lista con un chofer. Lo que sigue
+    // valiendo es que "Carga tu camión" no se le muestra.
     ROL = 'chofer';
     LISTA = [];
     await mount('/');
+    expect(callsTo('camiones').length).toBeGreaterThan(0);
     expect(bodyText()).not.toContain('Carga tu camión');
-    expect(callsTo('camiones')).toHaveLength(0);
   });
 
   it('si la lista no carga, no aparece (no se adivina)', async () => {

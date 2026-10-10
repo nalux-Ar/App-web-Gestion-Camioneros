@@ -13,6 +13,7 @@ import { useMember } from '@/features/member/use-member';
 import { mapDataError } from '@/lib/data-errors';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { descripcionCamion, type CamionDeLista } from './camion';
+import { resolverCamionActivo } from './camion-activo';
 import { RUTA_NUEVO_CAMION, leerAvisoCamiones, rutaEditarCamion, textoAvisoCamiones } from './camion-navegacion';
 import { CAMIONES_LIMIT } from './constants';
 import { formatearPatente } from './patente';
@@ -51,6 +52,12 @@ export function CamionesPage() {
   const todos = camionesQuery.data?.items;
   const activos = (todos ?? []).filter((camion) => camion.activa);
   const archivados = (todos ?? []).filter((camion) => !camion.activa);
+  // El camión activo de la persona (Etapa 5c), validado contra la lista: se marca solo si hay 2 o más activos (con uno
+  // solo no hay nada que distinguir) y solo si es válido (uno archivado o que ya no existe no se marca).
+  const activoValido =
+    todos !== undefined && activos.length >= 2
+      ? resolverCamionActivo({ camiones: todos, camionActivoId: member?.camionActivoId ?? null }).camion
+      : null;
 
   const nuevoCamion = esAdmin ? (
     <Button asChild size="lg">
@@ -108,7 +115,7 @@ export function CamionesPage() {
           ) : (
             <ul className="space-y-2">
               {activos.map((camion) => (
-                <FilaCamion key={camion.id} camion={camion} esAdmin={esAdmin} />
+                <FilaCamion key={camion.id} camion={camion} esAdmin={esAdmin} esCamionActivo={camion.id === activoValido?.id} />
               ))}
             </ul>
           )}
@@ -170,16 +177,26 @@ export function CamionesPage() {
   );
 }
 
-/** Una fila: la patente con espacios y, debajo, marca, modelo y año. Para el administrador es un enlace a la edición. */
-function FilaCamion({ camion, esAdmin }: { camion: CamionDeLista; esAdmin: boolean }) {
+/**
+ * Una fila: la patente con espacios y, debajo, marca, modelo y año. Para el administrador es un enlace a la edición.
+ * `esCamionActivo`: la etiqueta "Camión activo" (texto, no solo color: borde y fondo del color de acento, letra normal).
+ */
+function FilaCamion({ camion, esAdmin, esCamionActivo = false }: { camion: CamionDeLista; esAdmin: boolean; esCamionActivo?: boolean }) {
   const descripcion = descripcionCamion(camion);
   const contenido = (
     <>
       <Truck className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="font-semibold tabular-nums">
-          {formatearPatente(camion.patente)}
-          {camion.activa ? null : <span className="font-normal text-muted-foreground"> (archivado)</span>}
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold tabular-nums">
+          <span>
+            {formatearPatente(camion.patente)}
+            {camion.activa ? null : <span className="font-normal text-muted-foreground"> (archivado)</span>}
+          </span>
+          {esCamionActivo ? (
+            <span className="rounded-full border border-primary/50 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground">
+              Camión activo
+            </span>
+          ) : null}
         </p>
         {descripcion ? <p className="break-words text-sm text-muted-foreground">{descripcion}</p> : null}
       </div>

@@ -90,6 +90,7 @@ function installResponder(onUpdate: (call: Call) => unknown) {
         tema: 'dark',
         color_acento: '#F59E0B',
         transportista_id: u.tenantId,
+        camion_activo_id: null,
         transportistas: { nombre: db.tenants[u.tenantId].nombre },
       });
     }
@@ -227,7 +228,10 @@ describe('tarjeta Nombre: estructura y accesibilidad', () => {
     await mount('user-a');
 
     const titles = [...document.querySelectorAll('[data-slot="card-title"]')].map((e) => e.textContent);
-    expect(titles.slice(0, 4)).toEqual(['Tu cuenta', 'Nombre', 'Camiones', 'Tema']);
+    // En este árbol Inicio va antes que Configuración: con un camión activo, Inicio muestra "Tu camión" (Etapa 5c).
+    expect(titles[0]).toBe('Tu camión');
+    const desde = titles.indexOf('Tu cuenta');
+    expect(titles.slice(desde, desde + 4)).toEqual(['Tu cuenta', 'Nombre', 'Camiones', 'Tema']);
     expect(bodyText()).toContain('Es el nombre de tu cuenta: aparece en el encabezado y en el saludo del inicio.');
     expect(bodyText()).toContain('Tu cuenta y cómo se ve la app para ti.');
     expect(bodyText()).not.toContain('Elige cómo se ve la app para ti.');
