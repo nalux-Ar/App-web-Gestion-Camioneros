@@ -38,6 +38,11 @@ export const GASTOS_LITROS_CAMION = 'gastos_litros_camion_chk';
 export const GASTOS_CAMION_FK = 'gastos_camion_fk';
 /** FK compuesta viaje -> camión (ídem). */
 export const VIAJES_CAMION_FK = 'viajes_camion_fk';
+/**
+ * FK compuesta miembro -> camión activo (23503, migración 012): el camión elegido como activo no existe o es de otra
+ * cuenta (mismo error en los dos casos: no sirve de oráculo de existencia).
+ */
+export const MIEMBROS_CAMION_ACTIVO_FK = 'miembros_camion_activo_fk';
 
 export const SOLO_ADMIN_CAMIONES_MESSAGE = 'Solo el administrador de la cuenta puede cargar o cambiar camiones.';
 export const PATENTE_REPETIDA_MESSAGE = 'Ya tienes un camión con esa patente.';
@@ -61,4 +66,21 @@ export const GUARDAR_CAMION_CONTEXT: DataErrorContext = {
 /** Errores al ARCHIVAR o REACTIVAR un camión. */
 export const ARCHIVAR_CAMION_CONTEXT: DataErrorContext = {
   notFound: 'No pudimos cambiar ese camión: puede que ya no exista o que no tengas permiso.',
+};
+
+export const CAMION_ELEGIDO_NO_EXISTE_MESSAGE = 'El camión elegido ya no existe. Elige otro.';
+/** 0 filas al guardar el camión activo: la fila propia de `miembros` no apareció (sesión vieja). Reintentar da lo mismo. */
+export const CAMION_ACTIVO_NO_GUARDADO_MESSAGE = 'No pudimos guardar el camión activo. Recarga la página y vuelve a intentarlo.';
+
+/**
+ * Errores al CAMBIAR el camión activo (UPDATE de la fila propia de `miembros`, migración 012). Ninguno de estos se arregla
+ * reintentando con lo mismo (sin "Reintentar"): un camión archivado (55000, solo cuando el valor cambia), uno que ya no
+ * existe o es de otra cuenta (23503) o 0 filas. Red, timeout o servidor sí son reintentables.
+ */
+export const CAMBIAR_CAMION_ACTIVO_CONTEXT: DataErrorContext = {
+  messagesByConstraint: {
+    [CAMION_ARCHIVADO]: CAMION_ARCHIVADO_MESSAGE,
+    [MIEMBROS_CAMION_ACTIVO_FK]: CAMION_ELEGIDO_NO_EXISTE_MESSAGE,
+  },
+  notFound: CAMION_ACTIVO_NO_GUARDADO_MESSAGE,
 };

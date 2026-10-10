@@ -56,6 +56,7 @@ const MIEMBRO = {
   tema: 'dark',
   color_acento: '#F59E0B',
   transportista_id: 'tenant-a',
+  camion_activo_id: null,
   transportistas: { nombre: 'Transportes A' },
 };
 

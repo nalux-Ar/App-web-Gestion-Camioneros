@@ -14,6 +14,13 @@ export interface MemberInfo {
   colorAcento: string;
   transportistaId: string;
   transportistaNombre: string;
+  /**
+   * El camión activo que guardó este usuario (`miembros.camion_activo_id`, migración 012): una preferencia, como el tema.
+   * Es solo un PUNTERO: puede apuntar a un camión que después se archivó (la base no lo borra al archivar). Antes de usarlo
+   * hay que validarlo contra la lista de camiones (`resolverCamionActivo`). `null` = ninguno elegido (o un valor que no es
+   * un uuid válido).
+   */
+  camionActivoId: string | null;
 }
 
 /**
@@ -42,6 +49,12 @@ export interface MemberContextValue {
    * el nombre de una cuenta en el contexto de otra).
    */
   updateLocalTransportistaNombre: (transportistaId: string, nombre: string) => void;
+  /**
+   * Refleja en `member.camionActivoId` el camión activo que la base ya confirmó (guardado pesimista: nunca antes). Misma
+   * guarda que `updateLocalTransportistaNombre`: solo actúa si el miembro actual sigue siendo de ESE transportista, y si el
+   * valor es el mismo no cambia nada (no hay re-render).
+   */
+  updateLocalCamionActivo: (transportistaId: string, camionId: string | null) => void;
 }
 
 export const MemberContext = createContext<MemberContextValue | null>(null);

@@ -54,7 +54,7 @@ import { queryClient } from '@/lib/query-client';
 type Resp = { data: unknown; error: { message: string; code: string } | null; status: number };
 const ok = (data: unknown): Resp => ({ data, error: null, status: 200 });
 
-const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', transportistas: { nombre: 'Transportes A' } };
+const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', camion_activo_id: null, transportistas: { nombre: 'Transportes A' } };
 const VIAJE = 'b0000000-0000-4000-8000-000000000001';
 const CLIENTE = 'a0000000-0000-4000-8000-000000000001';
 const DEV = 'f0000000-0000-4000-8000-000000000001';

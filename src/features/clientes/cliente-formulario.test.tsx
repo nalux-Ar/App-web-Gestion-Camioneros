@@ -55,7 +55,7 @@ const fail = (code: string, message: string): Resp => ({ data: null, error: { co
 const sinRed = (): Resp => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
 const refDuplicado = () => fail('23505', 'duplicate key value violates unique constraint "clientes_transportista_client_ref_uidx"');
 
-const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', transportistas: { nombre: 'Transportes A' } };
+const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', camion_activo_id: null, transportistas: { nombre: 'Transportes A' } };
 const C_ALMACEN = 'a0000000-0000-4000-8000-000000000001';
 const C_BODEGA = 'a0000000-0000-4000-8000-000000000002';
 const C_NUEVO = 'a0000000-0000-4000-8000-0000000000aa';

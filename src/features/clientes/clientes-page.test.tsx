@@ -45,7 +45,7 @@ type Resp = { data: unknown; error: { message: string; code: string } | null; st
 const ok = (data: unknown): Resp => ({ data, error: null, status: 200 });
 const sinRed = (): Resp => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
 
-const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', transportistas: { nombre: 'Transportes A' } };
+const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', camion_activo_id: null, transportistas: { nombre: 'Transportes A' } };
 const id = (n: number) => `a0000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 // Desordenados a propósito (la base ordena por `nombre` con mayúsculas primero): la pantalla los ordena en español.
 const CLIENTES = [

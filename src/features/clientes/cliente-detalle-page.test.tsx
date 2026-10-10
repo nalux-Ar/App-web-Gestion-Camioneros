@@ -45,7 +45,7 @@ type Resp = { data: unknown; error: { message: string; code: string } | null; st
 const ok = (data: unknown): Resp => ({ data, error: null, status: 200 });
 const sinRed = (): Resp => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
 
-const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', transportistas: { nombre: 'Transportes A' } };
+const MIEMBRO = { rol: 'admin', tema: 'dark', color_acento: '#F59E0B', transportista_id: 'tenant-a', camion_activo_id: null, transportistas: { nombre: 'Transportes A' } };
 const CLIENTE_ID = 'a0000000-0000-4000-8000-000000000001';
 const V_1 = 'b0000000-0000-4000-8000-000000000001';
 const V_2 = 'b0000000-0000-4000-8000-000000000002';

@@ -13,14 +13,25 @@ import { clearCachedThemePreference, writeCachedThemePreference } from '@/lib/th
 import { useAuth } from '@/features/auth/use-auth';
 import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
 import type { Enums } from '@/lib/database.types';
+import { isUuid } from '@/lib/uuid';
 import { MemberContext, type MemberContextValue, type MemberInfo, type MemberStatus } from './member-context';
+
+/** Columnas de la ÚNICA lectura de `miembros` al arrancar (el camión activo viaja acá: no hay un pedido aparte). */
+const MEMBER_COLUMNS = 'rol, tema, color_acento, transportista_id, camion_activo_id, transportistas(nombre)' as const;
 
 interface RawMemberRow {
   rol: Enums<'rol_miembro'>;
   tema: string;
   color_acento: string;
   transportista_id: string;
+  /** `unknown` y opcional a propósito: se valida acá (uuid o nada) y una fila sin la columna se lee como "ninguno". */
+  camion_activo_id?: unknown;
   transportistas: { nombre: string } | null;
+}
+
+/** El camión activo tal como se guarda en el estado: un uuid válido (en minúsculas, como los ids de la lista) o `null`. */
+function normalizeCamionActivoId(value: unknown): string | null {
+  return isUuid(value) ? value.toLowerCase() : null;
 }
 
 function normalizeMember(row: RawMemberRow): MemberInfo {
@@ -30,6 +41,7 @@ function normalizeMember(row: RawMemberRow): MemberInfo {
     colorAcento: hexToHslTriplet(row.color_acento) ? row.color_acento : DEFAULT_ACCENT,
     transportistaId: row.transportista_id,
     transportistaNombre: row.transportistas?.nombre ?? '',
+    camionActivoId: normalizeCamionActivoId(row.camion_activo_id),
   };
 }
 
@@ -100,7 +112,7 @@ export function MemberProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error: queryError } = await supabase
         .from('miembros')
-        .select('rol, tema, color_acento, transportista_id, transportistas(nombre)')
+        .select(MEMBER_COLUMNS)
         .eq('user_id', userId)
         .maybeSingle();
 
@@ -177,9 +189,28 @@ export function MemberProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  // Igual que el nombre: contra el estado más reciente (`prev`), solo en el miembro de ESE transportista y sin tocar nada si
+  // el valor ya es el mismo. Normaliza igual que la lectura (uuid en minúsculas o `null`).
+  const updateLocalCamionActivo = useCallback((transportistaId: string, camionId: string | null) => {
+    const normalizado = normalizeCamionActivoId(camionId);
+    setMember((prev) =>
+      prev && prev.transportistaId === transportistaId && prev.camionActivoId !== normalizado
+        ? { ...prev, camionActivoId: normalizado }
+        : prev,
+    );
+  }, []);
+
   const value = useMemo<MemberContextValue>(
-    () => ({ member, status, error, refetch: fetchMember, updateLocalPreferences, updateLocalTransportistaNombre }),
-    [member, status, error, fetchMember, updateLocalPreferences, updateLocalTransportistaNombre],
+    () => ({
+      member,
+      status,
+      error,
+      refetch: fetchMember,
+      updateLocalPreferences,
+      updateLocalTransportistaNombre,
+      updateLocalCamionActivo,
+    }),
+    [member, status, error, fetchMember, updateLocalPreferences, updateLocalTransportistaNombre, updateLocalCamionActivo],
   );
 
   return <MemberContext.Provider value={value}>{children}</MemberContext.Provider>;
