@@ -5,12 +5,13 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 21 cubren además las migraciones 005 a 012, el vínculo
+-- secciones 11 a 22 cubren además las migraciones 005 a 013, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
 -- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión;
--- la 012: el camión activo de cada usuario).
+-- la 012: el camión activo de cada usuario), y el endurecimiento de la 013 (el
+-- id de una fila existente no se puede cambiar).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
@@ -18,8 +19,9 @@
 -- 005_gastos_combustible.sql, 006_gastos_client_ref.sql,
 -- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql,
 -- 009_clientes_client_ref.sql, 010_varios_camiones.sql,
--- 011_litros_exigen_camion.sql y 012_camion_activo.sql
--- (las secciones 11 a 21 usan sus columnas y funciones; la 16 no necesita
+-- 011_litros_exigen_camion.sql, 012_camion_activo.sql y
+-- 013_bloquear_cambio_de_id.sql
+-- (las secciones 11 a 22 usan sus columnas y funciones; la 16 no necesita
 -- ninguna migración propia; la 004 no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
@@ -44,7 +46,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 21 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 22 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -7515,6 +7517,546 @@ begin
     v_cruz = 0 and v_huerf = 0 and v_admin = (public._test_get('s21_ax'))::uuid and v_cho = (public._test_get('s21_a2'))::uuid
       and v_b = (public._test_get('s21_b1'))::uuid and v_g = 'ninguno',
     format('cruzados=%s huérfanos=%s | admin A=%s chofer A=%s admin B=%s G=%s', v_cruz, v_huerf, v_admin, v_cho, v_b, v_g));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 22) El id de una fila existente no cambia (migración 013, hallazgo H1)
+-- ---------------------------------------------------------------------
+-- Requiere 013_bloquear_cambio_de_id.sql aplicada. Antes de la 013, un
+-- usuario podía cambiar el id de sus propias filas por UPDATE: si el uuid
+-- nuevo ya existía en esa tabla en cualquier cuenta, la base respondía 23505
+-- (la PK) y si no, el cambio andaba. Era un oráculo de existencia entre
+-- cuentas. Esta sección prueba, en las 7 tablas que usan
+-- trg_20_bloquear_cambio_transportista_id, que cualquier cambio de id da el
+-- MISMO error 42501 sin datos (uuid inexistente, de otra cuenta, de otra fila
+-- propia o NULL), que la fila queda igual, que el rechazo llega antes que la
+-- unicidad, los CHECK y las FK, que vale para todos los roles (también
+-- postgres), que los UPDATE normales y "set id = id" siguen andando, y que
+-- miembros y transportistas siguen cerrados por su GRANT por columna.
+--
+-- Corre igual en el archivo completo y sola (s22.sql): crea sus propios datos
+-- en las 7 tablas para A (dos filas por tabla) y para B (una). Sin la 013, los
+-- casos que dependen de ella fallan solos sin cortar el script.
+--
+-- Datos propios (se crean acá; de las secciones anteriores solo se usan los
+-- tenants, usuarios y categorías del setup y los helpers _test_sqlstate de la
+-- sección 13 y _test_error_completo de la 17). Las claves siguen el patrón
+-- s22_a_<tabla>_1, s22_a_<tabla>_2 y s22_b_<tabla>, para recorrer las tablas
+-- con SQL dinámico.
+-- No hay casos de ON DELETE RESTRICT en esta sección (si los hubiera, tendrían
+-- que aceptar 23503 de PostgreSQL 17 y 23001 de PostgreSQL 18).
+
+-- Helper de esta sección (SECURITY INVOKER: corre con el rol activo). Para una
+-- tabla, intenta cambiar el id de la fila s22_a_<tabla>_1 por el de la fila de
+-- B, por el de la otra fila propia, por NULL y por un uuid nuevo (este último
+-- al final: sin la 013 es el único que puede andar, y así no ensucia a los
+-- otros intentos); compara cada error con el esperado, completo y textual, y
+-- controla que ninguno contenga un uuid. Después comprueba que la fila quedó
+-- igual y que un UPDATE normal (p_cambio) y "set id = id" afectan 1 fila.
+create or replace function public._test_s22_cambio_id(p_tabla text, p_cambio text)
+returns jsonb language plpgsql as $$
+declare
+  c_esperado constant text := E'sqlstate=42501\nconstraint=\nmessage=No se puede cambiar el id de un registro existente\ndetail=\nhint=';
+  c_uuid constant text := '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  v_id uuid := (public._test_get('s22_a_' || p_tabla || '_1'))::uuid;
+  v_antes jsonb; v_despues jsonb; v_e text[]; v_ok boolean; v_uuid boolean; v_r1 int; v_r2 int;
+begin
+  execute format('select to_jsonb(t) from public.%I t where t.id = $1', p_tabla) into v_antes using v_id;
+  v_e := array[
+    public._test_error_completo(format('update public.%I set id = %L::uuid where id = %L::uuid', p_tabla, public._test_get('s22_b_' || p_tabla), v_id)),
+    public._test_error_completo(format('update public.%I set id = %L::uuid where id = %L::uuid', p_tabla, public._test_get('s22_a_' || p_tabla || '_2'), v_id)),
+    public._test_error_completo(format('update public.%I set id = null where id = %L::uuid', p_tabla, v_id)),
+    public._test_error_completo(format('update public.%I set id = gen_random_uuid() where id = %L::uuid', p_tabla, v_id))
+  ];
+  execute format('select to_jsonb(t) from public.%I t where t.id = $1', p_tabla) into v_despues using v_id;
+  select bool_and(x = c_esperado), coalesce(bool_or(x ~* c_uuid), false) into v_ok, v_uuid from unnest(v_e) as t(x);
+  execute format('update public.%I set %s where id = $1', p_tabla, p_cambio) using v_id;
+  get diagnostics v_r1 = row_count;
+  execute format('update public.%I set id = id where id = $1', p_tabla) using v_id;
+  get diagnostics v_r2 = row_count;
+  return jsonb_build_object(
+    'ok', coalesce(v_ok and not v_uuid and v_antes is not null and v_antes = v_despues and v_r1 = 1 and v_r2 = 1, false),
+    'detalle', format('los 4 errores = el esperado: %s | alguno con un uuid: %s | fila igual: %s | UPDATE normal: %s fila(s) | set id = id: %s fila(s) || de B: %s // otra propia: %s // NULL: %s // nuevo: %s',
+      v_ok, v_uuid, v_antes = v_despues, v_r1, v_r2,
+      replace(v_e[1], E'\n', ' ; '), replace(v_e[2], E'\n', ' ; '), replace(v_e[3], E'\n', ' ; '), replace(v_e[4], E'\n', ' ; ')));
+end;
+$$;
+
+-- Datos propios de A (admin): dos filas en cada una de las 7 tablas.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v uuid; c1 uuid; c2 uuid; v1 uuid; v2 uuid;
+  v_peajes uuid := (public._test_get('categoria_global_peajes_id'))::uuid;
+begin
+  select r.camion_id into v from public.crear_camion('S22A1') r;
+  perform public._test_set('s22_a_camiones_1', v::text);
+  select r.camion_id into v from public.crear_camion('S22A2') r;
+  perform public._test_set('s22_a_camiones_2', v::text);
+  insert into public.clientes (nombre) values ('Cliente S22 A1') returning id into c1;
+  insert into public.clientes (nombre) values ('Cliente S22 A2') returning id into c2;
+  perform public._test_set('s22_a_clientes_1', c1::text);
+  perform public._test_set('s22_a_clientes_2', c2::text);
+  insert into public.viajes (origen, destino) values ('Origen S22-A1', 'Destino S22-A1') returning id into v1;
+  insert into public.viajes (origen, destino) values ('Origen S22-A2', 'Destino S22-A2') returning id into v2;
+  perform public._test_set('s22_a_viajes_1', v1::text);
+  perform public._test_set('s22_a_viajes_2', v2::text);
+  insert into public.entregas (viaje_id, cliente_id) values (v1, c1) returning id into v;
+  perform public._test_set('s22_a_entregas_1', v::text);
+  insert into public.entregas (viaje_id, cliente_id) values (v2, c2) returning id into v;
+  perform public._test_set('s22_a_entregas_2', v::text);
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion) values (v1, c1, 'otro', 'Devolución S22 A1') returning id into v;
+  perform public._test_set('s22_a_devoluciones_1', v::text);
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion) values (v2, c2, 'otro', 'Devolución S22 A2') returning id into v;
+  perform public._test_set('s22_a_devoluciones_2', v::text);
+  insert into public.categorias_gasto (nombre) values ('Categoría S22 A1') returning id into v;
+  perform public._test_set('s22_a_categorias_gasto_1', v::text);
+  insert into public.categorias_gasto (nombre) values ('Categoría S22 A2') returning id into v;
+  perform public._test_set('s22_a_categorias_gasto_2', v::text);
+  insert into public.gastos (categoria_id, monto, descripcion) values (v_peajes, 220, 'Gasto S22 A1') returning id into v;
+  perform public._test_set('s22_a_gastos_1', v::text);
+  insert into public.gastos (categoria_id, monto, descripcion) values (v_peajes, 221, 'Gasto S22 A2') returning id into v;
+  perform public._test_set('s22_a_gastos_2', v::text);
+exception when others then
+  perform public._test_set('s22_error_setup_a', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Datos propios de B (admin): una fila en cada una de las 7 tablas.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare v uuid; cb uuid; vb uuid;
+begin
+  select r.camion_id into v from public.crear_camion('S22B1') r;
+  perform public._test_set('s22_b_camiones', v::text);
+  insert into public.clientes (nombre) values ('Cliente S22 B') returning id into cb;
+  perform public._test_set('s22_b_clientes', cb::text);
+  insert into public.viajes (origen, destino) values ('Origen S22-B', 'Destino S22-B') returning id into vb;
+  perform public._test_set('s22_b_viajes', vb::text);
+  insert into public.entregas (viaje_id, cliente_id) values (vb, cb) returning id into v;
+  perform public._test_set('s22_b_entregas', v::text);
+  insert into public.devoluciones (viaje_id, cliente_id, motivo, descripcion) values (vb, cb, 'otro', 'Devolución S22 B') returning id into v;
+  perform public._test_set('s22_b_devoluciones', v::text);
+  insert into public.categorias_gasto (nombre) values ('Categoría S22 B') returning id into v;
+  perform public._test_set('s22_b_categorias_gasto', v::text);
+  insert into public.gastos (categoria_id, monto, descripcion)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 230, 'Gasto S22 B') returning id into v;
+  perform public._test_set('s22_b_gastos', v::text);
+exception when others then
+  perform public._test_set('s22_error_setup_b', sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: el id de la fila de miembros del admin de B (para 22.15).
+select public._test_set('s22_b_miembro',
+  (select id::text from public.miembros where user_id = (public._test_get('uid_b_admin'))::uuid));
+
+-- Como postgres: los datos de la sección quedaron como se describe arriba.
+do $$
+declare
+  c_caso constant text := '22.0 setup: A tiene sus dos filas y B la suya en cada una de las 7 tablas (camiones, categorias_gasto, clientes, devoluciones, entregas, gastos y viajes), cada una en su cuenta';
+  v_ta uuid := (public._test_get('tenant_a_id'))::uuid;
+  v_tb uuid := (public._test_get('tenant_b_id'))::uuid;
+  v_t text; v_n int; v_mal text[] := '{}';
+begin
+  foreach v_t in array array['camiones', 'categorias_gasto', 'clientes', 'devoluciones', 'entregas', 'gastos', 'viajes'] loop
+    execute format('select count(*) from public.%I where transportista_id = $1 and id in ($2, $3)', v_t) into v_n
+      using v_ta, (public._test_get('s22_a_' || v_t || '_1'))::uuid, (public._test_get('s22_a_' || v_t || '_2'))::uuid;
+    if v_n <> 2 then v_mal := v_mal || ('A ' || v_t); end if;
+    execute format('select count(*) from public.%I where transportista_id = $1 and id = $2', v_t) into v_n
+      using v_tb, (public._test_get('s22_b_' || v_t))::uuid;
+    if v_n <> 1 then v_mal := v_mal || ('B ' || v_t); end if;
+  end loop;
+  perform public._test_chk(c_caso,
+    public._test_get('s22_error_setup_a') is null and public._test_get('s22_error_setup_b') is null
+      and public._test_get('s22_b_miembro') is not null and cardinality(v_mal) = 0,
+    format('errores A/B=%s/%s | miembro de B=%s | faltan=%s',
+      public._test_get('s22_error_setup_a'), public._test_get('s22_error_setup_b'), public._test_get('s22_b_miembro'), v_mal));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Como postgres: las piezas de la migración 013.
+do $$
+declare
+  c_caso constant text := '22.1 Migración 013: fn_bloquear_cambio_transportista_id sigue SECURITY INVOKER, con search_path fijo, sin EXECUTE para anon, authenticated ni public y con comentario, y chequea transportista_id e id con "is distinct from"; la usan exactamente las 7 tablas, con trg_20_bloquear_cambio_transportista_id BEFORE UPDATE FOR EACH ROW, sin lista de columnas y habilitado';
+  v_fn oid; v_invoker boolean; v_path boolean; v_anon boolean; v_auth boolean; v_public boolean; v_com boolean;
+  v_chk_tid boolean; v_chk_id boolean; v_tablas text[]; v_bien int;
+begin
+  select p.oid, not p.prosecdef, coalesce(p.proconfig::text like '%search_path=public%', false),
+         has_function_privilege('anon', p.oid, 'execute'),
+         has_function_privilege('authenticated', p.oid, 'execute'),
+         has_function_privilege('public', p.oid, 'execute'),
+         obj_description(p.oid, 'pg_proc') is not null,
+         p.prosrc ~* 'new\.transportista_id\s+is\s+distinct\s+from\s+old\.transportista_id',
+         p.prosrc ~* 'new\.id\s+is\s+distinct\s+from\s+old\.id'
+    into v_fn, v_invoker, v_path, v_anon, v_auth, v_public, v_com, v_chk_tid, v_chk_id
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace and p.proname = 'fn_bloquear_cambio_transportista_id';
+  select array_agg(t.tgrelid::regclass::text order by t.tgrelid::regclass::text) into v_tablas
+    from pg_trigger t where t.tgfoid = v_fn and not t.tgisinternal;
+  -- tgtype 19 = FOR EACH ROW (1) + BEFORE (2) + UPDATE (16), nada más.
+  select count(*) into v_bien
+    from pg_trigger t
+   where t.tgfoid = v_fn and not t.tgisinternal and t.tgname = 'trg_20_bloquear_cambio_transportista_id'
+     and t.tgtype = 19 and t.tgenabled = 'O' and cardinality(t.tgattr::int2[]) = 0;
+  perform public._test_chk(c_caso,
+    v_fn is not null and v_invoker and v_path and v_anon is false and v_auth is false and v_public is false and v_com
+      and v_chk_tid and v_chk_id
+      and v_tablas = array['camiones', 'categorias_gasto', 'clientes', 'devoluciones', 'entregas', 'gastos', 'viajes']::text[]
+      and v_bien = 7,
+    format('función=%s invoker=%s search_path=%s EXECUTE anon=%s authenticated=%s public=%s comentario=%s | chequea transportista_id=%s id=%s | tablas=%s | trg_20 bien=%s/7',
+      v_fn is not null, v_invoker, v_path, v_anon, v_auth, v_public, v_com, v_chk_tid, v_chk_id, v_tablas, v_bien));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '22.2 Orden: en las 7 tablas, ningún BEFORE UPDATE corre antes que trg_20 salvo trg_15_validar_categoria_gasto en gastos, y ninguno de los que corren antes mira new.id (su respuesta no puede depender del uuid nuevo)';
+  v_antes text[]; v_usa_id int;
+begin
+  select array_agg(t.tgrelid::regclass::text || ':' || t.tgname::text order by 1) into v_antes
+    from pg_trigger t
+   where not t.tgisinternal and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16
+     and t.tgrelid::regclass::text in ('camiones', 'categorias_gasto', 'clientes', 'devoluciones', 'entregas', 'gastos', 'viajes')
+     and t.tgname < 'trg_20_bloquear_cambio_transportista_id';
+  select count(*) into v_usa_id
+    from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+   where not t.tgisinternal and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16
+     and t.tgrelid::regclass::text in ('camiones', 'categorias_gasto', 'clientes', 'devoluciones', 'entregas', 'gastos', 'viajes')
+     and t.tgname < 'trg_20_bloquear_cambio_transportista_id'
+     and p.prosrc ~* 'new\.id\M';
+  perform public._test_chk(c_caso,
+    v_antes = array['gastos:trg_15_validar_categoria_gasto']::text[] and v_usa_id = 0,
+    format('BEFORE UPDATE antes de trg_20=%s | de esos, los que miran new.id=%s', v_antes, v_usa_id));
+end
+$$;
+
+-- A (admin): en cada tabla, ningún cambio de id; los UPDATE normales y "set id = id" siguen andando.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare c_caso constant text := '22.3 camiones: cambiar el id (por uno inexistente, por el de un camión de B, por el de otro camión propio o por NULL) da siempre el mismo 42501 sin datos, nunca 23505, y la fila queda igual; editar otra columna y "set id = id" andan (1 fila)'; r jsonb;
+begin
+  r := public._test_s22_cambio_id('camiones', $c$marca = 'Marca S22'$c$);
+  perform public._test_chk(c_caso, (r ->> 'ok')::boolean, r ->> 'detalle');
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '22.4 categorias_gasto: cambiar el id de una categoría propia (por uno inexistente, por el de una categoría de B, por el de otra propia o por NULL) da siempre el mismo 42501 sin datos, nunca 23505, y la fila queda igual; editar otra columna y "set id = id" andan (1 fila)'; r jsonb;
+begin
+  r := public._test_s22_cambio_id('categorias_gasto', $c$nombre = 'Categoría S22 A1 editada'$c$);
+  perform public._test_chk(c_caso, (r ->> 'ok')::boolean, r ->> 'detalle');
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '22.5 clientes: cambiar el id (por uno inexistente, por el de un cliente de B, por el de otro cliente propio o por NULL) da siempre el mismo 42501 sin datos, nunca 23505, y la fila queda igual; editar otra columna y "set id = id" andan (1 fila)'; r jsonb;
+begin
+  r := public._test_s22_cambio_id('clientes', $c$direccion = 'Dirección S22'$c$);
+  perform public._test_chk(c_caso, (r ->> 'ok')::boolean, r ->> 'detalle');
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '22.6 devoluciones: cambiar el id (por uno inexistente, por el de una devolución de B, por el de otra propia o por NULL) da siempre el mismo 42501 sin datos, nunca 23505, y la fila queda igual; editar otra columna y "set id = id" andan (1 fila)'; r jsonb;
+begin
+  r := public._test_s22_cambio_id('devoluciones', $c$descripcion = 'Devolución S22 A1 editada'$c$);
+  perform public._test_chk(c_caso, (r ->> 'ok')::boolean, r ->> 'detalle');
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '22.7 entregas: cambiar el id (por uno inexistente, por el de una entrega de B, por el de otra propia o por NULL) da siempre el mismo 42501 sin datos, nunca 23505, y la fila queda igual; editar otra columna y "set id = id" andan (1 fila)'; r jsonb;
+begin
+  r := public._test_s22_cambio_id('entregas', $c$incidencias = 'Incidencia S22'$c$);
+  perform public._test_chk(c_caso, (r ->> 'ok')::boolean, r ->> 'detalle');
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '22.8 gastos: cambiar el id (por uno inexistente, por el de un gasto de B, por el de otro propio o por NULL) da siempre el mismo 42501 sin datos, nunca 23505, y la fila queda igual; editar otra columna y "set id = id" andan (1 fila)'; r jsonb;
+begin
+  r := public._test_s22_cambio_id('gastos', $c$descripcion = 'Gasto S22 A1 editado'$c$);
+  perform public._test_chk(c_caso, (r ->> 'ok')::boolean, r ->> 'detalle');
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '22.9 viajes: cambiar el id (por uno inexistente, por el de un viaje de B, por el de otro viaje propio o por NULL) da siempre el mismo 42501 sin datos, nunca 23505, y la fila queda igual; editar otra columna y "set id = id" andan (1 fila)'; r jsonb;
+begin
+  r := public._test_s22_cambio_id('viajes', $c$observaciones = 'Observación S22'$c$);
+  perform public._test_chk(c_caso, (r ->> 'ok')::boolean, r ->> 'detalle');
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- El rechazo llega ANTES que la unicidad (PK), los CHECK y las FK: con el id de otra cuenta como destino, el
+-- error es 42501 aunque el mismo UPDATE también rompa un CHECK o una FK. En gastos, trg_15 (categoría) corre
+-- antes que trg_20, pero su respuesta no depende del id: es la misma con el id de B que con uno nuevo.
+do $$
+declare
+  c_caso constant text := '22.10 Orden de evaluación: cambiar el id por el de una fila de B junto con un nombre vacío (CHECK) en clientes, o con un camión de B (FK) en viajes, da 42501 (no 23514, 23503 ni el 23505 de la PK); en gastos, con una categoría inválida, trg_15 responde el mismo 23503 con el id de B que con uno nuevo (no depende del id)';
+  c_esperado constant text := E'sqlstate=42501\nconstraint=\nmessage=No se puede cambiar el id de un registro existente\ndetail=\nhint=';
+  v_cli text; v_via text; v_g1 text; v_g2 text; v_c_antes jsonb; v_c_despues jsonb; v_v_antes jsonb; v_v_despues jsonb;
+begin
+  select to_jsonb(t) into v_c_antes from public.clientes t where t.id = (public._test_get('s22_a_clientes_2'))::uuid;
+  select to_jsonb(t) into v_v_antes from public.viajes t where t.id = (public._test_get('s22_a_viajes_2'))::uuid;
+  v_cli := public._test_error_completo(format($q$update public.clientes set id = %L::uuid, nombre = '' where id = %L::uuid$q$,
+    public._test_get('s22_b_clientes'), public._test_get('s22_a_clientes_2')));
+  v_via := public._test_error_completo(format('update public.viajes set id = %L::uuid, camion_id = %L::uuid where id = %L::uuid',
+    public._test_get('s22_b_viajes'), public._test_get('s22_b_camiones'), public._test_get('s22_a_viajes_2')));
+  v_g1 := public._test_error_completo(format('update public.gastos set id = %L::uuid, categoria_id = %L::uuid where id = %L::uuid',
+    public._test_get('s22_b_gastos'), public._test_get('s22_b_categorias_gasto'), public._test_get('s22_a_gastos_2')));
+  v_g2 := public._test_error_completo(format('update public.gastos set id = gen_random_uuid(), categoria_id = %L::uuid where id = %L::uuid',
+    public._test_get('s22_b_categorias_gasto'), public._test_get('s22_a_gastos_2')));
+  select to_jsonb(t) into v_c_despues from public.clientes t where t.id = (public._test_get('s22_a_clientes_2'))::uuid;
+  select to_jsonb(t) into v_v_despues from public.viajes t where t.id = (public._test_get('s22_a_viajes_2'))::uuid;
+  perform public._test_chk(c_caso,
+    v_cli = c_esperado and v_via = c_esperado and v_g1 like E'sqlstate=23503\n%' and v_g1 = v_g2
+      and v_c_antes is not null and v_c_antes = v_c_despues and v_v_antes is not null and v_v_antes = v_v_despues,
+    format('clientes: %s || viajes: %s || gastos con el id de B: %s || gastos con uno nuevo: %s || filas iguales=%s/%s',
+      replace(v_cli, E'\n', ' ; '), replace(v_via, E'\n', ' ; '), replace(v_g1, E'\n', ' ; '), replace(v_g2, E'\n', ' ; '),
+      v_c_antes = v_c_despues, v_v_antes = v_v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- El chofer de A.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_chofer'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '22.11 El chofer de A tampoco puede cambiar el id de un cliente de A (el mismo 42501, con el id de B o con uno nuevo) y su UPDATE del id de un camión afecta 0 filas (la policy de camiones es solo para el admin); las filas quedan iguales';
+  c_esperado constant text := E'sqlstate=42501\nconstraint=\nmessage=No se puede cambiar el id de un registro existente\ndetail=\nhint=';
+  v_rol public.rol_miembro; v_a text; v_b text; v_r int; v_c_antes jsonb; v_c_despues jsonb; v_cam_antes jsonb; v_cam_despues jsonb;
+begin
+  select rol into v_rol from public.miembros where user_id = (public._test_get('uid_a_chofer'))::uuid;
+  select to_jsonb(t) into v_c_antes from public.clientes t where t.id = (public._test_get('s22_a_clientes_1'))::uuid;
+  select to_jsonb(t) into v_cam_antes from public.camiones t where t.id = (public._test_get('s22_a_camiones_1'))::uuid;
+  v_a := public._test_error_completo(format('update public.clientes set id = %L::uuid where id = %L::uuid',
+    public._test_get('s22_b_clientes'), public._test_get('s22_a_clientes_1')));
+  v_b := public._test_error_completo(format('update public.clientes set id = gen_random_uuid() where id = %L::uuid',
+    public._test_get('s22_a_clientes_1')));
+  update public.camiones set id = gen_random_uuid() where id = (public._test_get('s22_a_camiones_1'))::uuid;
+  get diagnostics v_r = row_count;
+  select to_jsonb(t) into v_c_despues from public.clientes t where t.id = (public._test_get('s22_a_clientes_1'))::uuid;
+  select to_jsonb(t) into v_cam_despues from public.camiones t where t.id = (public._test_get('s22_a_camiones_1'))::uuid;
+  perform public._test_chk(c_caso,
+    v_rol = 'chofer' and v_a = c_esperado and v_b = c_esperado and v_r = 0
+      and v_c_antes is not null and v_c_antes = v_c_despues and v_cam_antes is not null and v_cam_antes = v_cam_despues,
+    format('rol=%s | cliente con el id de B: %s || con uno nuevo: %s || camión: %s fila(s) | filas iguales=%s/%s',
+      v_rol, replace(v_a, E'\n', ' ; '), replace(v_b, E'\n', ' ; '), v_r, v_c_antes = v_c_despues, v_cam_antes = v_cam_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B (otra cuenta).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_b_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '22.12 B no puede tocar el id de un cliente de A (0 filas, sin error), no puede darle a su propio cliente el id de un cliente de A (el mismo 42501, no 23505) y tampoco mudarlo a la cuenta de A (42501 de transportista_id; si el UPDATE cambia la cuenta y el id a la vez, sale ese mismo, que se chequea primero); su fila queda igual';
+  c_esperado constant text := E'sqlstate=42501\nconstraint=\nmessage=No se puede cambiar el id de un registro existente\ndetail=\nhint=';
+  v_r int; v_a text; v_t text; v_ti text; v_antes jsonb; v_despues jsonb;
+begin
+  select to_jsonb(t) into v_antes from public.clientes t where t.id = (public._test_get('s22_b_clientes'))::uuid;
+  update public.clientes set id = gen_random_uuid() where id = (public._test_get('s22_a_clientes_1'))::uuid;
+  get diagnostics v_r = row_count;
+  v_a := public._test_error_completo(format('update public.clientes set id = %L::uuid where id = %L::uuid',
+    public._test_get('s22_a_clientes_1'), public._test_get('s22_b_clientes')));
+  v_t := public._test_sqlstate(format('update public.clientes set transportista_id = %L::uuid where id = %L::uuid',
+    public._test_get('tenant_a_id'), public._test_get('s22_b_clientes')));
+  v_ti := public._test_sqlstate(format('update public.clientes set transportista_id = %L::uuid, id = gen_random_uuid() where id = %L::uuid',
+    public._test_get('tenant_a_id'), public._test_get('s22_b_clientes')));
+  select to_jsonb(t) into v_despues from public.clientes t where t.id = (public._test_get('s22_b_clientes'))::uuid;
+  perform public._test_chk(c_caso,
+    v_r = 0 and v_a = c_esperado and v_t like '42501|%No se puede cambiar el transportista_id%'
+      and v_ti like '42501|%No se puede cambiar el transportista_id%'
+      and v_antes is not null and v_antes = v_despues,
+    format('sobre el de A: %s fila(s) | id de A en el propio: %s || mudarlo: %s || mudarlo y cambiar el id: %s | fila igual=%s',
+      v_r, replace(v_a, E'\n', ' ; '), v_t, v_ti, v_antes = v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Un usuario autenticado sin tenant.
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '22.13 Un usuario sin tenant no ve filas y su UPDATE del id (sobre un cliente de A o sin filtro, en clientes y en gastos) afecta 0 filas, sin error, igual que antes de la 013';
+  v_r1 int; v_r2 int; v_r3 int; v_n int;
+begin
+  select count(*) into v_n from public.clientes;
+  update public.clientes set id = gen_random_uuid() where id = (public._test_get('s22_a_clientes_1'))::uuid;
+  get diagnostics v_r1 = row_count;
+  update public.clientes set id = gen_random_uuid();
+  get diagnostics v_r2 = row_count;
+  update public.gastos set id = gen_random_uuid();
+  get diagnostics v_r3 = row_count;
+  perform public._test_chk(c_caso, v_n = 0 and v_r1 = 0 and v_r2 = 0 and v_r3 = 0,
+    format('ve=%s | UPDATE sobre el de A=%s sin filtro=%s gastos=%s', v_n, v_r1, v_r2, v_r3));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres, sin JWT: la regla vale para todos (no hay excepción de "contexto de confianza").
+select set_config('request.jwt.claims', '', true);
+
+do $$
+declare
+  c_caso constant text := '22.14 Como postgres (sin RLS ni JWT), cambiar el id de una fila de A en cualquiera de las 7 tablas (por uno nuevo o por el de la fila de B) también da el mismo 42501 y la fila queda igual: no hay excepción para postgres';
+  c_esperado constant text := E'sqlstate=42501\nconstraint=\nmessage=No se puede cambiar el id de un registro existente\ndetail=\nhint=';
+  v_t text; v_id uuid; v_antes jsonb; v_despues jsonb; v_e1 text; v_e2 text; v_mal text[] := '{}';
+begin
+  foreach v_t in array array['camiones', 'categorias_gasto', 'clientes', 'devoluciones', 'entregas', 'gastos', 'viajes'] loop
+    v_id := (public._test_get('s22_a_' || v_t || '_1'))::uuid;
+    execute format('select to_jsonb(t) from public.%I t where t.id = $1', v_t) into v_antes using v_id;
+    v_e1 := public._test_error_completo(format('update public.%I set id = %L::uuid where id = %L::uuid', v_t, public._test_get('s22_b_' || v_t), v_id));
+    v_e2 := public._test_error_completo(format('update public.%I set id = gen_random_uuid() where id = %L::uuid', v_t, v_id));
+    execute format('select to_jsonb(t) from public.%I t where t.id = $1', v_t) into v_despues using v_id;
+    if not (v_e1 = c_esperado and v_e2 = c_esperado and v_antes is not null and v_antes = v_despues) then
+      v_mal := v_mal || format('%s: %s // %s (fila igual=%s)', v_t, replace(v_e1, E'\n', ' ; '), replace(v_e2, E'\n', ' ; '), v_antes = v_despues);
+    end if;
+  end loop;
+  perform public._test_chk(c_caso, cardinality(v_mal) = 0, format('tablas mal=%s', v_mal));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- A (admin): miembros y transportistas se cierran por otro lado (GRANT por columna).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_a_admin'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '22.15 miembros y transportistas no usan este trigger: ahí el id ya estaba cerrado por el GRANT por columna (42501 de permiso, antes de ejecutar), el mismo error con un uuid nuevo que con el de B, y las filas quedan iguales';
+  v_m1 text; v_m2 text; v_t1 text; v_t2 text; v_m_antes jsonb; v_m_despues jsonb; v_t_antes jsonb; v_t_despues jsonb;
+begin
+  select to_jsonb(m) into v_m_antes from public.miembros m where m.user_id = (public._test_get('uid_a_admin'))::uuid;
+  select to_jsonb(t) into v_t_antes from public.transportistas t where t.id = (public._test_get('tenant_a_id'))::uuid;
+  v_m1 := public._test_error_completo(format('update public.miembros set id = gen_random_uuid() where user_id = %L::uuid', public._test_get('uid_a_admin')));
+  v_m2 := public._test_error_completo(format('update public.miembros set id = %L::uuid where user_id = %L::uuid', public._test_get('s22_b_miembro'), public._test_get('uid_a_admin')));
+  v_t1 := public._test_error_completo(format('update public.transportistas set id = gen_random_uuid() where id = %L::uuid', public._test_get('tenant_a_id')));
+  v_t2 := public._test_error_completo(format('update public.transportistas set id = %L::uuid where id = %L::uuid', public._test_get('tenant_b_id'), public._test_get('tenant_a_id')));
+  select to_jsonb(m) into v_m_despues from public.miembros m where m.user_id = (public._test_get('uid_a_admin'))::uuid;
+  select to_jsonb(t) into v_t_despues from public.transportistas t where t.id = (public._test_get('tenant_a_id'))::uuid;
+  perform public._test_chk(c_caso,
+    v_m1 like E'sqlstate=42501\n%' and v_m1 = v_m2 and v_t1 like E'sqlstate=42501\n%' and v_t1 = v_t2
+      and v_m_antes is not null and v_m_antes = v_m_despues and v_t_antes is not null and v_t_antes = v_t_despues,
+    format('miembros: %s || %s || transportistas: %s || %s || filas iguales=%s/%s',
+      replace(v_m1, E'\n', ' ; '), replace(v_m2, E'\n', ' ; '), replace(v_t1, E'\n', ' ; '), replace(v_t2, E'\n', ' ; '),
+      v_m_antes = v_m_despues, v_t_antes = v_t_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '22.16 Los flujos que reescriben filas siguen andando con la 013: crear_viaje_con_entregas, actualizar_viaje_con_entregas (conserva el id de la entrega que se edita y agrega otra), crear_camion, y el borrado de un viaje en dos pasos (desvincular sus gastos y borrarlo)';
+  v_ref uuid := gen_random_uuid();
+  v_v uuid; v_creado boolean; v_e1 uuid; v_n int; v_n1 int; v_cam uuid; v_cc boolean; v_g uuid; v_r1 int; v_r2 int; v_g_ok boolean;
+begin
+  select r.viaje_id, r.creado into v_v, v_creado
+    from public.crear_viaje_con_entregas(p_client_ref => v_ref, p_fecha => current_date,
+           p_origen => 'Origen S22-F', p_destino => 'Destino S22-F',
+           p_entregas => jsonb_build_array(jsonb_build_object('cliente_id', public._test_get('s22_a_clientes_1')))) r;
+  select e.id into v_e1 from public.entregas e where e.viaje_id = v_v;
+  perform public.actualizar_viaje_con_entregas(
+    p_viaje_id => v_v, p_fecha => current_date, p_origen => 'Origen S22-F2', p_destino => 'Destino S22-F2', p_camion_id => null,
+    p_km_inicial => null, p_km_final => null, p_km_recorridos => null, p_observaciones => null, p_ingreso => null,
+    p_entregas => jsonb_build_array(
+      jsonb_build_object('id', v_e1, 'cliente_id', public._test_get('s22_a_clientes_1'), 'incidencias', 'editada'),
+      jsonb_build_object('cliente_id', public._test_get('s22_a_clientes_2'))));
+  select count(*), count(*) filter (where e.id = v_e1 and e.incidencias = 'editada') into v_n, v_n1
+    from public.entregas e where e.viaje_id = v_v;
+  select r.camion_id, r.creado into v_cam, v_cc from public.crear_camion('S22F1') r;
+  insert into public.gastos (categoria_id, monto, viaje_id)
+    values ((public._test_get('categoria_global_peajes_id'))::uuid, 240, v_v) returning id into v_g;
+  update public.gastos set viaje_id = null where viaje_id = v_v;
+  get diagnostics v_r1 = row_count;
+  delete from public.viajes where id = v_v;
+  get diagnostics v_r2 = row_count;
+  select exists(select 1 from public.gastos where id = v_g and viaje_id is null) into v_g_ok;
+  perform public._test_chk(c_caso,
+    v_creado and v_e1 is not null and v_n = 2 and v_n1 = 1 and v_cam is not null and v_cc and v_r1 = 1 and v_r2 = 1 and v_g_ok,
+    format('crear viaje: creado=%s | actualizar: entregas=%s (la editada conserva su id=%s) | crear_camion: creado=%s | desvincular=%s borrar=%s gasto conservado=%s',
+      v_creado, v_n, v_n1, v_cc, v_r1, v_r2, v_g_ok));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres: integridad final.
+do $$
+declare
+  c_caso constant text := '22.17 Como postgres: todas las filas de la sección siguen con su id y en su cuenta (A: dos por tabla; B: una), después de todos los intentos de cambiarles el id';
+  v_ta uuid := (public._test_get('tenant_a_id'))::uuid;
+  v_tb uuid := (public._test_get('tenant_b_id'))::uuid;
+  v_t text; v_n int; v_mal text[] := '{}';
+begin
+  foreach v_t in array array['camiones', 'categorias_gasto', 'clientes', 'devoluciones', 'entregas', 'gastos', 'viajes'] loop
+    execute format('select count(*) from public.%I where transportista_id = $1 and id in ($2, $3)', v_t) into v_n
+      using v_ta, (public._test_get('s22_a_' || v_t || '_1'))::uuid, (public._test_get('s22_a_' || v_t || '_2'))::uuid;
+    if v_n <> 2 then v_mal := v_mal || ('A ' || v_t); end if;
+    execute format('select count(*) from public.%I where transportista_id = $1 and id = $2', v_t) into v_n
+      using v_tb, (public._test_get('s22_b_' || v_t))::uuid;
+    if v_n <> 1 then v_mal := v_mal || ('B ' || v_t); end if;
+  end loop;
+  perform public._test_chk(c_caso, cardinality(v_mal) = 0, format('faltan o cambiaron=%s', v_mal));
 exception when others then
   perform public._test_chk(c_caso, false, sqlerrm);
 end
