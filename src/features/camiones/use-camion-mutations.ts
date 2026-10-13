@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { gastosKeys } from '@/features/gastos/gastos-keys';
+import { invalidarResumen } from '@/features/resumen/invalidar-resumen';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { writeTimeoutSignal } from '@/lib/db';
 import { altaCamion, verificarPuedeArchivar, type AltaCamionEstado, type AltaCamionResultado } from './camion-alta';
@@ -20,13 +21,16 @@ import { camionesKeys } from './camiones-keys';
  *    alta del PRIMER camión del tenant: `crear_camion` le asigna los viajes sin camión y los gastos con litros sin camión,
  *    así que también quedan viejas las listas y vistas de viajes y TODAS las keys de gastos. Nunca el detalle de edición
  *    de un camión (lo observa la pantalla de edición).
+ *  - El Resumen (`invalidarResumen`): tras el alta del primer camión (el relleno cambia sus números por camión) y tras
+ *    editar, archivar o reactivar un camión (sus funciones devuelven la patente y si el camión está activo).
  */
 
-/** Tras dar de alta el primer camión: los registros que `crear_camion` le asignó se ven distintos. */
+/** Tras dar de alta el primer camión: los registros que `crear_camion` le asignó se ven distintos (también en el Resumen). */
 function invalidarTrasPrimerCamion(queryClient: QueryClient, tenantId: string) {
   void queryClient.invalidateQueries({ queryKey: viajesKeys.lists(tenantId) });
   void queryClient.invalidateQueries({ queryKey: viajesKeys.vistas(tenantId) });
   void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
+  invalidarResumen(queryClient, tenantId);
 }
 
 function invalidarLista(queryClient: QueryClient, tenantId: string) {
@@ -70,7 +74,11 @@ export function useActualizarCamion() {
   return useMutation<void, Error, ActualizarCamionVariables>({
     scope: { id: 'actualizar-camion' },
     mutationFn: ({ id, columns }) => actualizarCamion(id, columns),
-    onSettled: (_resultado, _error, { tenantId }) => invalidarLista(queryClient, tenantId),
+    // El Resumen muestra la patente que devuelve la base: un cambio de patente lo deja viejo.
+    onSettled: (_resultado, _error, { tenantId }) => {
+      invalidarLista(queryClient, tenantId);
+      invalidarResumen(queryClient, tenantId);
+    },
   });
 }
 
@@ -93,6 +101,10 @@ export function useCambiarActivaCamion() {
       if (!activa) await verificarPuedeArchivar(() => contarCamionesActivos(writeTimeoutSignal()));
       await cambiarActivaCamion(id, activa);
     },
-    onSettled: (_resultado, _error, { tenantId }) => invalidarLista(queryClient, tenantId),
+    // El Resumen muestra si cada camión está archivado (lo devuelve la base).
+    onSettled: (_resultado, _error, { tenantId }) => {
+      invalidarLista(queryClient, tenantId);
+      invalidarResumen(queryClient, tenantId);
+    },
   });
 }

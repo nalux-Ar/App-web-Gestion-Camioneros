@@ -5,6 +5,7 @@ import { CAMION_ARCHIVADO, VIAJES_CAMION_FK } from '@/features/camiones/constant
 import { clientesKeys } from '@/features/clientes/clientes-keys';
 import { devolucionesKeys } from '@/features/devoluciones/devoluciones-keys';
 import { gastosKeys } from '@/features/gastos/gastos-keys';
+import { invalidarResumen } from '@/features/resumen/invalidar-resumen';
 import { classifyDataError, mentionsConstraint } from '@/lib/data-errors';
 import type { ConteosDelViaje } from './eliminar-viaje-textos';
 import type { ViajeDatos } from './viaje-form';
@@ -39,11 +40,14 @@ import { viajesKeys } from './viajes-keys';
  * Marca viejas las listas de viajes (y los viajes recientes del selector), las pantallas de solo lectura y las listas de
  * devoluciones por mes: una devolución no tiene fecha propia, es del mes de la fecha de su viaje, así que guardar un viaje
  * (que puede cambiarle la fecha) puede moverla de mes, y la pestaña Devoluciones también muestra el recorrido del viaje.
+ * También el Resumen: el ingreso, los km, la fecha y el camión de un viaje están en sus números (y borrarlo desvincula sus
+ * gastos). La usan las tres mutaciones, siempre en `onSettled`.
  */
 function invalidarViajes(queryClient: QueryClient, tenantId: string) {
   void queryClient.invalidateQueries({ queryKey: viajesKeys.lists(tenantId) });
   void queryClient.invalidateQueries({ queryKey: viajesKeys.vistas(tenantId) });
   void queryClient.invalidateQueries({ queryKey: devolucionesKeys.delosMeses(tenantId) });
+  invalidarResumen(queryClient, tenantId);
 }
 
 /**

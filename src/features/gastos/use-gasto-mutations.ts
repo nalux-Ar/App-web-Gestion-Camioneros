@@ -2,6 +2,7 @@ import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-q
 
 import { camionesKeys } from '@/features/camiones/camiones-keys';
 import { CAMION_ARCHIVADO, GASTOS_CAMION_FK, GASTOS_CAMION_VIAJE, GASTOS_LITROS_CAMION } from '@/features/camiones/constants';
+import { invalidarResumen } from '@/features/resumen/invalidar-resumen';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { isForeignKeyViolationOf, mentionsConstraint } from '@/lib/data-errors';
 import type { RowChanges } from '@/lib/db';
@@ -25,6 +26,8 @@ import { gastosKeys } from './gastos-keys';
  *    mientras se edita, así que solo queda marcada como vieja y se refresca al volver.
  *  - Si guardar falla porque el viaje elegido ya no existe (23503 de `gastos_viaje_fk`), también se
  *    invalida la lista de viajes recientes del selector: si no, el viaje borrado seguiría ofreciéndose.
+ *  - El Resumen (`invalidarResumen`) se invalida en `onSettled`, también si falla: con un timeout la escritura pudo
+ *    haberse aplicado igual, y sus totales no tienen que quedar con los números de antes.
  */
 
 /**
@@ -59,6 +62,7 @@ export function useCrearGasto() {
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },
     onError: (error, { tenantId }) => invalidarViajesSiNoExiste(queryClient, tenantId, error),
+    onSettled: (_resultado, _error, { tenantId }) => invalidarResumen(queryClient, tenantId),
   });
 }
 
@@ -76,6 +80,7 @@ export function useActualizarGasto() {
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },
     onError: (error, { tenantId }) => invalidarViajesSiNoExiste(queryClient, tenantId, error),
+    onSettled: (_resultado, _error, { tenantId }) => invalidarResumen(queryClient, tenantId),
   });
 }
 
@@ -92,5 +97,6 @@ export function useEliminarGasto() {
     onSuccess: (_borradas, { tenantId }) => {
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },
+    onSettled: (_borradas, _error, { tenantId }) => invalidarResumen(queryClient, tenantId),
   });
 }
