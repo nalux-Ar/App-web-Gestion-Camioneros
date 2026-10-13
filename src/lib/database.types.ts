@@ -1,5 +1,5 @@
 // Generado con el MCP de Supabase (generate_typescript_types) sobre el
-// proyecto de Supabase del repo, después de las migraciones 001–012.
+// proyecto de Supabase del repo, después de las migraciones 001–014.
 // No editar a mano: regenerar cuando cambie el esquema.
 
 export type Json =
@@ -542,6 +542,74 @@ export type Database = {
       }
       create_transportista: { Args: { p_nombre: string }; Returns: string }
       get_mi_transportista_id: { Args: never; Returns: string }
+      resumen_combustible: {
+        Args: { p_camion_id?: string; p_desde: string; p_hasta: string }
+        Returns: {
+          activa: boolean
+          camion_id: string
+          cargas: number
+          costo_por_km: number
+          descartados_fuera_de_rango: number
+          descartados_retroceso: number
+          descartados_sin_avance: number
+          km_por_litro: number
+          litros: number
+          litros_100km: number
+          llenas_con_odometro: number
+          monto: number
+          patente: string
+          precio_promedio: number
+          tramos: number
+          tramos_km: number
+          tramos_litros: number
+          tramos_monto: number
+        }[]
+      }
+      resumen_gastos: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: {
+          activa: boolean
+          cantidad: number
+          clave: string
+          grupo: string
+          monto: number
+          nombre: string
+        }[]
+      }
+      resumen_mensual: {
+        Args: { p_mes_desde: string; p_meses: number }
+        Returns: {
+          combustible_cargas: number
+          combustible_litros: number
+          combustible_monto: number
+          gastos_cantidad: number
+          gastos_monto: number
+          mes: string
+          resultado: number
+          viajes_cantidad: number
+          viajes_con_ingreso: number
+          viajes_ingreso: number
+          viajes_km: number
+          viajes_sin_ingreso: number
+        }[]
+      }
+      resumen_viajes: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: {
+          camion_id: string
+          destino: string
+          fecha: string
+          ganancia: number
+          gastos_cantidad: number
+          gastos_monto: number
+          ingreso: number
+          km: number
+          origen: string
+          patente: string
+          total_viajes: number
+          viaje_id: string
+        }[]
+      }
     }
     Enums: {
       metodo_pago:

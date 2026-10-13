@@ -5,13 +5,14 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 22 cubren además las migraciones 005 a 013, el vínculo
+-- secciones 11 a 23 cubren además las migraciones 005 a 014, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
 -- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión;
--- la 012: el camión activo de cada usuario), y el endurecimiento de la 013 (el
--- id de una fila existente no se puede cambiar).
+-- la 012: el camión activo de cada usuario), el endurecimiento de la 013 (el
+-- id de una fila existente no se puede cambiar) y las funciones del Resumen
+-- (la 014).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
@@ -19,9 +20,9 @@
 -- 005_gastos_combustible.sql, 006_gastos_client_ref.sql,
 -- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql,
 -- 009_clientes_client_ref.sql, 010_varios_camiones.sql,
--- 011_litros_exigen_camion.sql, 012_camion_activo.sql y
--- 013_bloquear_cambio_de_id.sql
--- (las secciones 11 a 22 usan sus columnas y funciones; la 16 no necesita
+-- 011_litros_exigen_camion.sql, 012_camion_activo.sql,
+-- 013_bloquear_cambio_de_id.sql y 014_resumen.sql
+-- (las secciones 11 a 23 usan sus columnas y funciones; la 16 no necesita
 -- ninguna migración propia; la 004 no hace falta para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
@@ -46,7 +47,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 22 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 23 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -8059,6 +8060,818 @@ begin
   perform public._test_chk(c_caso, cardinality(v_mal) = 0, format('faltan o cambiaron=%s', v_mal));
 exception when others then
   perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- ---------------------------------------------------------------------
+-- 23) Resumen: resumen_gastos, resumen_mensual, resumen_combustible y resumen_viajes (migración 014)
+-- ---------------------------------------------------------------------
+-- Requiere 014_resumen.sql aplicada. Prueba las cuatro funciones de la pantalla
+-- Resumen con números calculados a mano: el gasto desglosado (con el camión
+-- imputado por el viaje), la serie mensual y el resultado del mes, la ganancia
+-- por viaje, y el rendimiento lleno a lleno con todos sus bordes (arrastre
+-- desde el mes anterior, parciales, llenas sin odómetro, tanque_lleno NULL,
+-- retroceso, sin avance, fuera de rango con 0,5 y 15 km/L como bordes válidos,
+-- error de tipeo alto, mismo día, primera carga, tramo que cruza el mes y el
+-- año, camión archivado). Además: parámetros (22023 con texto fijo), cuentas
+-- aisladas aun con RLS salteada, camión ajeno igual a inexistente, sin cuenta
+-- 42501, anon sin EXECUTE, más de 1.000 gastos en un mes, topes de filas de
+-- cada función y que no escriben nada.
+--
+-- Datos propios, con uuid fijos y fechas de 2019 (lejos de current_date): cinco
+-- cuentas nuevas con su usuario admin. No usa nada de las secciones anteriores
+-- salvo las categorías globales y el usuario sin tenant del setup, y los helpers
+-- _test_sqlstate (13) y _test_error_completo (17), así que da lo mismo en el
+-- archivo completo y sola (s23.sql). Sin la 014, los casos fallan solos sin
+-- cortar el script.
+--   A (23...a0, usuario 23...a1): camiones X, W, Y (se archiva con historia) y
+--     J; viajes V0 (ago), V1, V2, V3 (sept), V4 (oct, ingreso 0) y V5 (nov, sin
+--     ingreso); cargas con monto = litros * 1000 y cuatro peajes.
+--   B (23...b0): camión Z con un tramo de 5 km/L y nada más.
+--   H (23...c0): camión H con un error de tipeo alto y camión K con los bordes
+--     del rango (0,5 y 15 válidos; 0,499 y 15,001 fuera).
+--   M (23...d0): 1.200 gastos y 600 viajes en septiembre.
+--   V (23...e0): una cuenta sin ningún dato.
+-- Camiones: X ca01, W ca02, Y ca03, J ca04, Z cb01, H cc01, K cc02; viajes
+-- V0..V5 = da00..da05 (todos 23000000-0000-4000-8000-00000000xxxx).
+-- No hay casos de ON DELETE RESTRICT en esta sección.
+
+select set_config('request.jwt.claims', '', true);
+
+-- Como postgres, sin JWT (contexto de confianza de la 002: inserta con los transportista_id, id y created_at que
+-- manda). Un solo bloque: si algo falla, no queda nada y 23.0 lo informa.
+do $$
+declare
+  v_comb uuid := (public._test_get('categoria_global_combustible_id'))::uuid;
+  v_peaj uuid := (public._test_get('categoria_global_peajes_id'))::uuid;
+begin
+  insert into auth.users (instance_id, id, aud, role, email) values
+    ('00000000-0000-0000-0000-000000000000', '23000000-0000-4000-8000-0000000000a1', 'authenticated', 'authenticated', 's23-a@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '23000000-0000-4000-8000-0000000000b1', 'authenticated', 'authenticated', 's23-b@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '23000000-0000-4000-8000-0000000000c1', 'authenticated', 'authenticated', 's23-h@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '23000000-0000-4000-8000-0000000000d1', 'authenticated', 'authenticated', 's23-m@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '23000000-0000-4000-8000-0000000000e1', 'authenticated', 'authenticated', 's23-v@test.elan');
+  insert into public.transportistas (id, nombre) values
+    ('23000000-0000-4000-8000-0000000000a0', 'S23 A'), ('23000000-0000-4000-8000-0000000000b0', 'S23 B'),
+    ('23000000-0000-4000-8000-0000000000c0', 'S23 H'), ('23000000-0000-4000-8000-0000000000d0', 'S23 M'),
+    ('23000000-0000-4000-8000-0000000000e0', 'S23 V');
+  insert into public.miembros (user_id, transportista_id, rol) values
+    ('23000000-0000-4000-8000-0000000000a1', '23000000-0000-4000-8000-0000000000a0', 'admin'),
+    ('23000000-0000-4000-8000-0000000000b1', '23000000-0000-4000-8000-0000000000b0', 'admin'),
+    ('23000000-0000-4000-8000-0000000000c1', '23000000-0000-4000-8000-0000000000c0', 'admin'),
+    ('23000000-0000-4000-8000-0000000000d1', '23000000-0000-4000-8000-0000000000d0', 'admin'),
+    ('23000000-0000-4000-8000-0000000000e1', '23000000-0000-4000-8000-0000000000e0', 'admin');
+  insert into public.camiones (id, transportista_id, patente) values
+    ('23000000-0000-4000-8000-00000000ca01', '23000000-0000-4000-8000-0000000000a0', 'S23X'),
+    ('23000000-0000-4000-8000-00000000ca02', '23000000-0000-4000-8000-0000000000a0', 'S23W'),
+    ('23000000-0000-4000-8000-00000000ca03', '23000000-0000-4000-8000-0000000000a0', 'S23Y'),
+    ('23000000-0000-4000-8000-00000000ca04', '23000000-0000-4000-8000-0000000000a0', 'S23J'),
+    ('23000000-0000-4000-8000-00000000cb01', '23000000-0000-4000-8000-0000000000b0', 'S23Z'),
+    ('23000000-0000-4000-8000-00000000cc01', '23000000-0000-4000-8000-0000000000c0', 'S23H'),
+    ('23000000-0000-4000-8000-00000000cc02', '23000000-0000-4000-8000-0000000000c0', 'S23K');
+  insert into public.viajes (id, transportista_id, fecha, origen, destino, camion_id, ingreso, km_recorridos, km_inicial, km_final) values
+    ('23000000-0000-4000-8000-00000000da00', '23000000-0000-4000-8000-0000000000a0', '2019-08-30', 'O0', 'D0', '23000000-0000-4000-8000-00000000ca01', 100000, 200, null, null),
+    ('23000000-0000-4000-8000-00000000da01', '23000000-0000-4000-8000-0000000000a0', '2019-09-03', 'O1', 'D1', '23000000-0000-4000-8000-00000000ca02', 500000, null, 1000, 1500),
+    ('23000000-0000-4000-8000-00000000da02', '23000000-0000-4000-8000-0000000000a0', '2019-09-20', 'O2', 'D2', '23000000-0000-4000-8000-00000000ca01', null, 300, null, null),
+    ('23000000-0000-4000-8000-00000000da03', '23000000-0000-4000-8000-0000000000a0', '2019-09-30', 'O3', 'D3', null, 200000, null, 2000, null),
+    ('23000000-0000-4000-8000-00000000da04', '23000000-0000-4000-8000-0000000000a0', '2019-10-15', 'O4', 'D4', null, 0, 100, null, null),
+    ('23000000-0000-4000-8000-00000000da05', '23000000-0000-4000-8000-0000000000a0', '2019-11-10', 'O5', 'D5', null, null, 50, null, null);
+  -- Cargas: (cuenta, camión, fecha, odómetro, litros, tanque_lleno, hora de carga); monto = litros * 1000.
+  insert into public.gastos (transportista_id, categoria_id, monto, fecha, metodo_pago, litros, km_odometro, tanque_lleno, camion_id, created_at)
+  select x.t::uuid, v_comb, x.l * 1000, x.f::date, 'tarjeta_debito', x.l, x.o, x.ll, x.c::uuid, (x.f || ' ' || x.h)::timestamptz
+    from (values
+      -- A / X: arrastre desde agosto, odómetro de un dígito menos (1050), mismo odómetro, llena sin odómetro,
+      -- tanque_lleno NULL con odómetro (no corta), parcial con odómetro y tramo que cierra en octubre.
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-08-25', 10000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-08-28', null, 50, false, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-02', 11000.0, 200, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-05', 1050.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-08', 11500.0, 120, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-10', 11500.0, 10, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-12', null, 80, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-14', 11900.0, 40, null, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-15', 12100.0, 30, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-09-20', 12300.0, 20, false, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca01', '2019-10-01', 12500.0, 100, true, '12:00'),
+      -- A / W: en el mismo día, la parcial de odómetro menor se cargó después que la llena.
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca02', '2019-09-03', 5000.0, 50, true, '10:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca02', '2019-09-09', 5800.0, 60, true, '08:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca02', '2019-09-09', 5600.0, 20, false, '09:00'),
+      -- A / Y: un tramo de 3 km/L (después se archiva).
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca03', '2019-09-04', 8000.0, 70, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca03', '2019-09-18', 8210.0, 70, true, '12:00'),
+      -- A / J: un tramo que abre en diciembre de 2018 y cierra en enero de 2019 (5 km/L).
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca04', '2018-12-20', 50000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000a0', '23000000-0000-4000-8000-00000000ca04', '2019-01-10', 50500.0, 100, true, '12:00'),
+      -- B / Z: un tramo de 5 km/L.
+      ('23000000-0000-4000-8000-0000000000b0', '23000000-0000-4000-8000-00000000cb01', '2019-09-01', 1000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000b0', '23000000-0000-4000-8000-00000000cb01', '2019-09-10', 1500.0, 100, true, '12:00'),
+      -- H / H: error de tipeo alto (1001000 en vez de 101000).
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc01', '2019-09-01', 100000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc01', '2019-09-05', 1001000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc01', '2019-09-10', 102000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc01', '2019-09-15', 103000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc01', '2019-09-20', 104000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc01', '2019-10-05', 105000.0, 100, true, '12:00'),
+      -- H / K: bordes del rango: 50/100 = 0,5 y 3000/200 = 15 (válidos); 49,9/100 = 0,499 y 1500,1/100 = 15,001 (fuera).
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc02', '2019-09-01', 10000.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc02', '2019-09-03', 10050.0, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc02', '2019-09-05', 13050.0, 200, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc02', '2019-09-07', 13099.9, 100, true, '12:00'),
+      ('23000000-0000-4000-8000-0000000000c0', '23000000-0000-4000-8000-00000000cc02', '2019-09-09', 14600.0, 100, true, '12:00')
+    ) as x(t, c, f, o, l, ll, h);
+  -- A: peajes (sin camión: se imputan por el viaje). G2 es de octubre y va al viaje V1 de septiembre; G3 es de
+  -- septiembre y va al viaje V0 de agosto; G4 no tiene viaje ni método y es del último día del mes.
+  insert into public.gastos (transportista_id, categoria_id, monto, fecha, metodo_pago, viaje_id) values
+    ('23000000-0000-4000-8000-0000000000a0', v_peaj, 10000, '2019-09-05', 'efectivo', '23000000-0000-4000-8000-00000000da01'),
+    ('23000000-0000-4000-8000-0000000000a0', v_peaj, 5000, '2019-10-02', 'efectivo', '23000000-0000-4000-8000-00000000da01'),
+    ('23000000-0000-4000-8000-0000000000a0', v_peaj, 7000, '2019-09-10', 'transferencia', '23000000-0000-4000-8000-00000000da00'),
+    ('23000000-0000-4000-8000-0000000000a0', v_peaj, 3000, '2019-09-30', null, null);
+  update public.camiones set activa = false where id = '23000000-0000-4000-8000-00000000ca03';
+  -- M: 1.200 gastos y 600 viajes en septiembre.
+  insert into public.gastos (transportista_id, categoria_id, monto, fecha, metodo_pago)
+  select '23000000-0000-4000-8000-0000000000d0', v_peaj, 100 + (g % 50), date '2019-09-01' + (g % 30),
+         (array['efectivo', 'transferencia', null]::public.metodo_pago[])[1 + g % 3]
+    from generate_series(1, 1200) g;
+  insert into public.viajes (transportista_id, fecha, origen, destino, ingreso, km_recorridos)
+  select '23000000-0000-4000-8000-0000000000d0', date '2019-09-01' + (g % 30), 'OM', 'DM', 1000, 10
+    from generate_series(1, 600) g;
+exception when others then
+  perform public._test_set('s23_error_setup', sqlerrm);
+end
+$$;
+
+-- Huella de todos los datos de la base, para comprobar al final (23.39) que las funciones no escribieron nada.
+select public._test_set('s23_huella', (
+  select md5(string_agg(x, '|' order by x)) from (
+    select to_jsonb(t)::text as x from public.gastos t
+    union all select to_jsonb(t)::text from public.viajes t
+    union all select to_jsonb(t)::text from public.camiones t
+    union all select to_jsonb(t)::text from public.miembros t
+    union all select to_jsonb(t)::text from public.transportistas t
+    union all select to_jsonb(t)::text from public.clientes t
+    union all select to_jsonb(t)::text from public.entregas t
+    union all select to_jsonb(t)::text from public.devoluciones t
+    union all select to_jsonb(t)::text from public.categorias_gasto t) s));
+
+do $$
+declare
+  c_caso constant text := '23.0 setup: las cinco cuentas de la sección con sus datos (A: 4 camiones, Y archivado, 6 viajes, 22 gastos; B: 2 cargas; H: 11 cargas; M: 1.200 gastos y 600 viajes; V: nada)';
+  v_a_cam int; v_a_arch int; v_a_via int; v_a_gas int; v_b int; v_h int; v_m_g int; v_m_v int; v_v int;
+begin
+  select count(*), count(*) filter (where not activa) into v_a_cam, v_a_arch from public.camiones where transportista_id = '23000000-0000-4000-8000-0000000000a0';
+  select count(*) into v_a_via from public.viajes where transportista_id = '23000000-0000-4000-8000-0000000000a0';
+  select count(*) into v_a_gas from public.gastos where transportista_id = '23000000-0000-4000-8000-0000000000a0';
+  select count(*) into v_b from public.gastos where transportista_id = '23000000-0000-4000-8000-0000000000b0';
+  select count(*) into v_h from public.gastos where transportista_id = '23000000-0000-4000-8000-0000000000c0';
+  select count(*) into v_m_g from public.gastos where transportista_id = '23000000-0000-4000-8000-0000000000d0';
+  select count(*) into v_m_v from public.viajes where transportista_id = '23000000-0000-4000-8000-0000000000d0';
+  select (select count(*) from public.gastos where transportista_id = '23000000-0000-4000-8000-0000000000e0')
+       + (select count(*) from public.viajes where transportista_id = '23000000-0000-4000-8000-0000000000e0') into v_v;
+  perform public._test_chk(c_caso,
+    public._test_get('s23_error_setup') is null and v_a_cam = 4 and v_a_arch = 1 and v_a_via = 6 and v_a_gas = 22
+      and v_b = 2 and v_h = 11 and v_m_g = 1200 and v_m_v = 600 and v_v = 0,
+    format('error=%s | A: camiones=%s archivados=%s viajes=%s gastos=%s | B=%s H=%s M=%s/%s V=%s',
+      public._test_get('s23_error_setup'), v_a_cam, v_a_arch, v_a_via, v_a_gas, v_b, v_h, v_m_g, v_m_v, v_v));
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '23.1 Migración 014: las 4 funciones existen sin sobrecargas, con sus parámetros y columnas exactas, STABLE, SECURITY INVOKER, search_path fijo, con comentario, y EXECUTE solo para authenticated (anon y public no)';
+  v_esp record; v_p record; v_mal text[] := '{}'; v_n int;
+begin
+  for v_esp in
+    select * from (values
+      ('resumen_gastos', array['p_desde', 'p_hasta'], array['grupo', 'clave', 'nombre', 'activa', 'cantidad', 'monto']),
+      ('resumen_mensual', array['p_mes_desde', 'p_meses'], array['mes', 'gastos_cantidad', 'gastos_monto', 'combustible_cargas', 'combustible_litros', 'combustible_monto', 'viajes_cantidad', 'viajes_km', 'viajes_con_ingreso', 'viajes_sin_ingreso', 'viajes_ingreso', 'resultado']),
+      ('resumen_combustible', array['p_desde', 'p_hasta', 'p_camion_id'], array['camion_id', 'patente', 'activa', 'cargas', 'litros', 'monto', 'precio_promedio', 'llenas_con_odometro', 'tramos', 'tramos_km', 'tramos_litros', 'tramos_monto', 'km_por_litro', 'litros_100km', 'costo_por_km', 'descartados_retroceso', 'descartados_sin_avance', 'descartados_fuera_de_rango']),
+      ('resumen_viajes', array['p_desde', 'p_hasta'], array['viaje_id', 'fecha', 'origen', 'destino', 'camion_id', 'patente', 'km', 'ingreso', 'gastos_cantidad', 'gastos_monto', 'ganancia', 'total_viajes'])
+    ) as e(nombre, entrada, salida)
+  loop
+    select count(*) into v_n from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = v_esp.nombre;
+    select p.prosecdef, p.provolatile::text as vol, coalesce(p.proconfig::text like '%search_path=public%', false) as path,
+           obj_description(p.oid, 'pg_proc') is not null as com,
+           has_function_privilege('authenticated', p.oid, 'execute') as auth,
+           has_function_privilege('anon', p.oid, 'execute') as anon,
+           has_function_privilege('public', p.oid, 'execute') as pub,
+           (select array_agg(a.n order by a.o) from unnest(p.proargnames, p.proargmodes::text[]) with ordinality as a(n, m, o) where a.m = 'i') as ent,
+           (select array_agg(a.n order by a.o) from unnest(p.proargnames, p.proargmodes::text[]) with ordinality as a(n, m, o) where a.m = 't') as sal
+      into v_p
+      from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = v_esp.nombre;
+    if not (v_n = 1 and v_p.prosecdef is false and v_p.vol = 's' and v_p.path and v_p.com
+            and v_p.auth and v_p.anon is false and v_p.pub is false
+            and v_p.ent = v_esp.entrada and v_p.sal = v_esp.salida) then
+      v_mal := v_mal || format('%s: n=%s definer=%s vol=%s path=%s com=%s EXECUTE auth/anon/public=%s/%s/%s ent=%s sal=%s',
+        v_esp.nombre, v_n, v_p.prosecdef, v_p.vol, v_p.path, v_p.com, v_p.auth, v_p.anon, v_p.pub, v_p.ent, v_p.sal);
+    end if;
+  end loop;
+  perform public._test_chk(c_caso, cardinality(v_mal) = 0, format('mal=%s', v_mal));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- A (admin): combustible y rendimiento.
+select set_config('request.jwt.claims', '{"sub":"23000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare c_caso constant text := '23.2 Combustible de septiembre, camión X: 8 cargas, 600 L, $600000, precio promedio 1000, 5 llenas con odómetro (la de tanque_lleno NULL con odómetro no cuenta); con el redondeo del contrato (600.000, 600000.00 y 1000.00)'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-09-01', '2019-09-30') f where f.camion_id = '23000000-0000-4000-8000-00000000ca01';
+  perform public._test_chk(c_caso,
+    r.cargas = 8 and r.litros::text = '600.000' and r.monto::text = '600000.00' and r.precio_promedio::text = '1000.00'
+      and r.llenas_con_odometro = 5 and r.activa,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.3 Rendimiento de septiembre, X: 2 tramos válidos (uno abre en agosto; el otro suma la llena sin odómetro y la de tanque_lleno NULL, que tiene odómetro pero no corta): 1600 km / 400 L = 4,000 km/L, 25,00 L/100 km, $250,00/km, con el redondeo del contrato'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-09-01', '2019-09-30') f where f.camion_id = '23000000-0000-4000-8000-00000000ca01';
+  perform public._test_chk(c_caso,
+    r.tramos = 2 and r.tramos_km = 1600 and r.tramos_litros::text = '400.000' and r.tramos_monto::text = '400000.00'
+      and r.km_por_litro::text = '4.000' and r.litros_100km::text = '25.00' and r.costo_por_km::text = '250.00',
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.4 Descartes de septiembre, X, cada motivo por separado: 1 retroceso (11000 -> 1050), 1 fuera de rango (1050 -> 11500: 87 km/L) y 1 sin avance (11500 -> 11500)'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-09-01', '2019-09-30') f where f.camion_id = '23000000-0000-4000-8000-00000000ca01';
+  perform public._test_chk(c_caso,
+    r.descartados_retroceso = 1 and r.descartados_fuera_de_rango = 1 and r.descartados_sin_avance = 1,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.5 Mismo día, camión W: manda el odómetro (la parcial de 5600 va antes que la llena de 5800 aunque se cargó después): 800 km / 80 L = 10,000 km/L, 10,00 L/100 km, $100,00/km'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-09-01', '2019-09-30') f where f.camion_id = '23000000-0000-4000-8000-00000000ca02';
+  perform public._test_chk(c_caso,
+    r.cargas = 3 and r.tramos = 1 and r.tramos_km = 800 and r.tramos_litros = 80 and r.km_por_litro = 10
+      and r.litros_100km = 10 and r.costo_por_km = 100,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.6 Camión archivado con historia (Y): sale con activa = false, 2 cargas, 140 L y su tramo (210 km / 70 L = 3,000 km/L, 33,33 L/100 km, $333,33/km)'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-09-01', '2019-09-30') f where f.camion_id = '23000000-0000-4000-8000-00000000ca03';
+  perform public._test_chk(c_caso,
+    r.activa is false and r.patente = 'S23Y' and r.cargas = 2 and r.litros = 140 and r.tramos = 1
+      and r.km_por_litro = 3 and r.litros_100km = 33.33 and r.costo_por_km = 333.33,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.7 Septiembre devuelve exactamente los camiones de A con actividad, activos primero y por patente (S23W, S23X, S23Y): ni J (sin actividad en el mes) ni camiones de otra cuenta'; v_p text[];
+begin
+  select array_agg(f.patente order by f.ord) into v_p
+    from (select r.patente, row_number() over () as ord from public.resumen_combustible('2019-09-01', '2019-09-30') r) f;
+  perform public._test_chk(c_caso, v_p = array['S23W', 'S23X', 'S23Y']::text[], format('%s', v_p));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.8 Octubre, X: el tramo abierto en septiembre (con la parcial con odómetro de 12300) cierra el 1/10 y cuenta en octubre: 400 km / 120 L = 3,333 km/L; 1 carga en el mes'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-10-01', '2019-10-31') f where f.camion_id = '23000000-0000-4000-8000-00000000ca01';
+  perform public._test_chk(c_caso,
+    r.cargas = 1 and r.litros = 100 and r.tramos = 1 and r.tramos_km = 400 and r.tramos_litros = 120 and r.km_por_litro = 3.333,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.9 Agosto, X: la primera carga del camión no tiene tramo y ninguno cierra en el mes: 2 cargas, 150 L, tramos 0 y rendimiento NULL'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-08-01', '2019-08-31') f where f.camion_id = '23000000-0000-4000-8000-00000000ca01';
+  perform public._test_chk(c_caso,
+    r.cargas = 2 and r.litros = 150 and r.tramos = 0 and r.tramos_km is null and r.km_por_litro is null
+      and r.litros_100km is null and r.costo_por_km is null,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.10 Año 2019 filtrado por X (p_camion_id): 3 tramos válidos, 2000 km / 520 L = 3,846 km/L; 1 retroceso, 1 sin avance y 1 fuera de rango; una sola fila'; v_n int; r record;
+begin
+  select count(*) into v_n from public.resumen_combustible('2019-01-01', '2019-12-31', '23000000-0000-4000-8000-00000000ca01');
+  select * into r from public.resumen_combustible('2019-01-01', '2019-12-31', '23000000-0000-4000-8000-00000000ca01');
+  perform public._test_chk(c_caso,
+    v_n = 1 and r.tramos = 3 and r.tramos_km = 2000 and r.tramos_litros = 520 and r.km_por_litro = 3.846
+      and r.descartados_retroceso = 1 and r.descartados_sin_avance = 1 and r.descartados_fuera_de_rango = 1,
+    format('filas=%s %s', v_n, to_jsonb(r)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '23.11 Tramo que cruza el año (J: abre el 20/12/2018 y cierra el 10/01/2019): cuenta en enero de 2019 y en el año 2019 (500 km / 100 L = 5,000); en diciembre de 2018 y en el año 2018 J tiene su carga pero ningún tramo';
+  r19 record; r18 record; rene record; rdic record;
+begin
+  select * into r19 from public.resumen_combustible('2019-01-01', '2019-12-31', '23000000-0000-4000-8000-00000000ca04');
+  select * into r18 from public.resumen_combustible('2018-01-01', '2018-12-31', '23000000-0000-4000-8000-00000000ca04');
+  select * into rene from public.resumen_combustible('2019-01-01', '2019-01-31', '23000000-0000-4000-8000-00000000ca04');
+  select * into rdic from public.resumen_combustible('2018-12-01', '2018-12-31', '23000000-0000-4000-8000-00000000ca04');
+  perform public._test_chk(c_caso,
+    r19.tramos = 1 and r19.km_por_litro = 5 and r19.cargas = 1
+      and rene.tramos = 1 and rene.km_por_litro = 5
+      and r18.cargas = 1 and r18.tramos = 0 and r18.km_por_litro is null
+      and rdic.cargas = 1 and rdic.tramos = 0,
+    format('2019=%s | 2018=%s | ene=%s | dic=%s', to_jsonb(r19), to_jsonb(r18), to_jsonb(rene), to_jsonb(rdic)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.12 Un camión de otra cuenta (Z, de B) y uno inexistente dan lo mismo: 0 filas (sin oráculo de existencia)'; v_a int; v_b int;
+begin
+  select count(*) into v_a from public.resumen_combustible('2019-09-01', '2019-09-30', '23000000-0000-4000-8000-00000000cb01');
+  select count(*) into v_b from public.resumen_combustible('2019-09-01', '2019-09-30', gen_random_uuid());
+  perform public._test_chk(c_caso, v_a = 0 and v_b = 0, format('ajeno=%s inexistente=%s', v_a, v_b));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.13 Combustible de un mes sin cargas ni tramos (diciembre de 2019): 0 filas, sin error'; v_n int;
+begin
+  select count(*) into v_n from public.resumen_combustible('2019-12-01', '2019-12-31');
+  perform public._test_chk(c_caso, v_n = 0, format('filas=%s', v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- A: gastos.
+do $$
+declare c_caso constant text := '23.14 Gasto de septiembre: una sola fila total con 16 gastos y $890000,00; 11 filas en total (1 total, 2 categorías, 4 métodos, 4 camiones)'; v_n int; r record;
+begin
+  select count(*) into v_n from public.resumen_gastos('2019-09-01', '2019-09-30');
+  select * into r from public.resumen_gastos('2019-09-01', '2019-09-30') f where f.grupo = 'total';
+  perform public._test_chk(c_caso,
+    v_n = 11 and r.cantidad = 16 and r.monto = 890000 and r.clave is null and r.nombre is null,
+    format('filas=%s total=%s', v_n, to_jsonb(r)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.15 Gasto de septiembre por categoría: Combustible 13 / $870000; Peajes 3 / $20000 (clave = id, nombre)'; v_c record; v_p record;
+begin
+  select * into v_c from public.resumen_gastos('2019-09-01', '2019-09-30') f
+   where f.grupo = 'categoria' and f.clave = public._test_get('categoria_global_combustible_id');
+  select * into v_p from public.resumen_gastos('2019-09-01', '2019-09-30') f
+   where f.grupo = 'categoria' and f.clave = public._test_get('categoria_global_peajes_id');
+  perform public._test_chk(c_caso,
+    v_c.nombre = 'Combustible' and v_c.cantidad = 13 and v_c.monto = 870000 and v_p.nombre = 'Peajes' and v_p.cantidad = 3 and v_p.monto = 20000,
+    format('%s | %s', to_jsonb(v_c), to_jsonb(v_p)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.16 Gasto de septiembre por método de pago: débito 13 / $870000, efectivo 1 / $10000, transferencia 1 / $7000 y "sin especificar" (clave NULL) 1 / $3000'; v_x text;
+begin
+  select string_agg(coalesce(f.clave, 'NULL') || '=' || f.cantidad || '/' || f.monto, ' ' order by coalesce(f.clave, 'NULL') collate "C") into v_x
+    from public.resumen_gastos('2019-09-01', '2019-09-30') f where f.grupo = 'metodo_pago';
+  perform public._test_chk(c_caso,
+    v_x = 'NULL=1/3000.00 efectivo=1/10000.00 tarjeta_debito=13/870000.00 transferencia=1/7000.00', v_x);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.17 Gasto de septiembre por camión, imputando el del viaje a los gastos sin camión: X 9 / $607000 (incluye el peaje del viaje V0), W 4 / $140000 (incluye el peaje del viaje V1), Y 2 / $140000 con activa = false, y "sin camión" (clave NULL) 1 / $3000'; v_x text;
+begin
+  select string_agg(coalesce(f.nombre, 'SIN') || ':' || f.cantidad || '/' || f.monto || ':' || coalesce(f.activa::text, '-'), ' ' order by coalesce(f.nombre, 'SIN') collate "C") into v_x
+    from public.resumen_gastos('2019-09-01', '2019-09-30') f where f.grupo = 'camion';
+  perform public._test_chk(c_caso,
+    v_x = 'S23W:4/140000.00:true S23X:9/607000.00:true S23Y:2/140000.00:false SIN:1/3000.00:-', v_x);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.18 Gasto de un mes sin gastos (diciembre de 2019): solo la fila total, en 0'; v_x text;
+begin
+  select string_agg(f.grupo || ':' || f.cantidad || '/' || f.monto, ' ') into v_x from public.resumen_gastos('2019-12-01', '2019-12-31') f;
+  perform public._test_chk(c_caso, v_x = 'total:0/0.00', v_x);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.19 p_desde y p_hasta son inclusivos: el período de un solo día 30/09 incluye el peaje de ese día (1 / $3000) y el viaje V3 de ese día; el del 15/09 incluye, para X, la carga de ese día (30 L) y el tramo que cierra ese día (600 km / 150 L)'; r record; v_v uuid; v_x record;
+begin
+  select * into r from public.resumen_gastos('2019-09-30', '2019-09-30') f where f.grupo = 'total';
+  select f.viaje_id into v_v from public.resumen_viajes('2019-09-30', '2019-09-30') f;
+  select * into v_x from public.resumen_combustible('2019-09-15', '2019-09-15', '23000000-0000-4000-8000-00000000ca01') f;
+  perform public._test_chk(c_caso, r.cantidad = 1 and r.monto = 3000 and v_v = '23000000-0000-4000-8000-00000000da03'
+      and v_x.cargas = 1 and v_x.litros = 30 and v_x.tramos = 1 and v_x.tramos_km = 600 and v_x.tramos_litros = 150,
+    format('%s viaje=%s X=%s', to_jsonb(r), v_v, to_jsonb(v_x)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- A: serie mensual (agosto a diciembre de 2019).
+do $$
+declare c_caso constant text := '23.20 resumen_mensual desde mediados de agosto por 5 meses: exactamente 5 filas, del 1/08 al 1/12; agosto: 2 gastos $150000 (2 cargas, 150 L), 1 viaje de 200 km con $100000 de ingreso, resultado -50000'; v_n int; v_meses text; r record;
+begin
+  select count(*), string_agg(f.mes::text, ',' order by f.mes) into v_n, v_meses from public.resumen_mensual('2019-08-15', 5) f;
+  select * into r from public.resumen_mensual('2019-08-15', 5) f where f.mes = '2019-08-01';
+  perform public._test_chk(c_caso,
+    v_n = 5 and v_meses = '2019-08-01,2019-09-01,2019-10-01,2019-11-01,2019-12-01'
+      and r.gastos_cantidad = 2 and r.gastos_monto = 150000 and r.combustible_cargas = 2 and r.combustible_litros = 150
+      and r.viajes_cantidad = 1 and r.viajes_km = 200 and r.viajes_ingreso = 100000 and r.resultado = -50000,
+    format('filas=%s meses=%s agosto=%s', v_n, v_meses, to_jsonb(r)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.21 Septiembre: 16 gastos $890000; combustible 13 cargas, 870 L, $870000; 3 viajes (800 km: V3 sin km final no suma), 2 con ingreso y 1 sin, ingreso $700000; resultado = 700000 - 890000 = -190000'; r record;
+begin
+  select * into r from public.resumen_mensual('2019-09-01', 1);
+  perform public._test_chk(c_caso,
+    r.mes = '2019-09-01' and r.gastos_cantidad = 16 and r.gastos_monto = 890000 and r.combustible_cargas = 13
+      and r.combustible_litros = 870 and r.combustible_monto = 870000 and r.viajes_cantidad = 3 and r.viajes_km = 800
+      and r.viajes_con_ingreso = 2 and r.viajes_sin_ingreso = 1 and r.viajes_ingreso = 700000 and r.resultado = -190000,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.22 Octubre: el peaje de octubre vinculado al viaje V1 de septiembre cuenta en octubre (2 gastos, $105000); el viaje V4 con ingreso 0 cuenta como cargado: resultado = 0 - 105000 = -105000 (no NULL)'; r record;
+begin
+  select * into r from public.resumen_mensual('2019-10-20', 1);
+  perform public._test_chk(c_caso,
+    r.mes = '2019-10-01' and r.gastos_cantidad = 2 and r.gastos_monto = 105000 and r.viajes_cantidad = 1
+      and r.viajes_con_ingreso = 1 and r.viajes_sin_ingreso = 0 and r.viajes_ingreso = 0 and r.resultado = -105000,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.23 Noviembre: un viaje sin ingreso y ningún gasto: resultado NULL (no 0), 1 viaje sin ingreso; diciembre vacío: todo en 0 y resultado NULL'; rn record; rd record;
+begin
+  select * into rn from public.resumen_mensual('2019-11-01', 1);
+  select * into rd from public.resumen_mensual('2019-12-01', 1);
+  perform public._test_chk(c_caso,
+    rn.viajes_cantidad = 1 and rn.viajes_con_ingreso = 0 and rn.viajes_sin_ingreso = 1 and rn.viajes_km = 50
+      and rn.gastos_cantidad = 0 and rn.resultado is null
+      and rd.gastos_cantidad = 0 and rd.gastos_monto = 0 and rd.combustible_cargas = 0 and rd.viajes_cantidad = 0
+      and rd.viajes_ingreso = 0 and rd.resultado is null,
+    format('nov=%s dic=%s', to_jsonb(rn), to_jsonb(rd)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.24 resumen_mensual con 24 meses (el máximo) devuelve exactamente 24 filas y con 1 mes, 1 fila'; v_24 int; v_1 int;
+begin
+  select count(*) into v_24 from public.resumen_mensual('2018-01-01', 24);
+  select count(*) into v_1 from public.resumen_mensual('2019-09-01', 1);
+  perform public._test_chk(c_caso, v_24 = 24 and v_1 = 1, format('24 meses=%s 1 mes=%s', v_24, v_1));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- A: viajes con ganancia.
+do $$
+declare c_caso constant text := '23.25 Viajes de septiembre: 3 filas, del más nuevo al más viejo (V3, V2, V1), con total_viajes = 3'; v_x text; v_t int;
+begin
+  select string_agg(f.origen, ',' order by f.ord), min(f.total_viajes) into v_x, v_t
+    from (select r.origen, r.total_viajes, row_number() over () as ord from public.resumen_viajes('2019-09-01', '2019-09-30') r) f;
+  perform public._test_chk(c_caso, v_x = 'O3,O2,O1' and v_t = 3, format('%s total=%s', v_x, v_t));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.26 Ganancia de V1 = 500000 - todos sus gastos vinculados, también el de octubre (10000 + 5000) = 485000; 500 km (inicial y final), camión W'; r record;
+begin
+  select * into r from public.resumen_viajes('2019-09-01', '2019-09-30') f where f.viaje_id = '23000000-0000-4000-8000-00000000da01';
+  perform public._test_chk(c_caso,
+    r.ingreso = 500000 and r.gastos_cantidad = 2 and r.gastos_monto = 15000 and r.ganancia = 485000 and r.km = 500 and r.patente = 'S23W',
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.27 Ganancia: V2 sin ingreso -> NULL (300 km); V3 sin km final -> km NULL y ganancia 200000; V0 (agosto) con un peaje de septiembre -> 100000 - 7000 = 93000; V4 con ingreso 0 -> ganancia 0 (no NULL)'; r2 record; r3 record; r0 record; r4 record;
+begin
+  select * into r2 from public.resumen_viajes('2019-09-01', '2019-09-30') f where f.viaje_id = '23000000-0000-4000-8000-00000000da02';
+  select * into r3 from public.resumen_viajes('2019-09-01', '2019-09-30') f where f.viaje_id = '23000000-0000-4000-8000-00000000da03';
+  select * into r0 from public.resumen_viajes('2019-08-01', '2019-08-31') f where f.viaje_id = '23000000-0000-4000-8000-00000000da00';
+  select * into r4 from public.resumen_viajes('2019-10-01', '2019-10-31') f where f.viaje_id = '23000000-0000-4000-8000-00000000da04';
+  perform public._test_chk(c_caso,
+    r2.ingreso is null and r2.ganancia is null and r2.km = 300
+      and r3.km is null and r3.ganancia = 200000
+      and r0.gastos_cantidad = 1 and r0.ganancia = 93000
+      and r4.ingreso = 0 and r4.ganancia = 0,
+    format('V2=%s V3=%s V0=%s V4=%s', to_jsonb(r2), to_jsonb(r3), to_jsonb(r0), to_jsonb(r4)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '23.28 Parámetros inválidos: 22023 con el texto fijo de cada caso (NULL, desde > hasta, más de 366 días, más de 62 días en viajes, p_meses 0, 25 o NULL, mes NULL)';
+  c_rango constant text := '22023||Período inválido: hacen falta desde y hasta, con desde <= hasta';
+  c_366 constant text := '22023||Período inválido: no puede superar 366 días';
+  c_62 constant text := '22023||Período inválido: la lista de viajes admite hasta 62 días';
+  c_mes constant text := '22023||Período inválido: hace falta un mes de inicio y entre 1 y 24 meses';
+  v_r text[]; v_e text[];
+begin
+  v_r := array[
+    public._test_sqlstate($q$select * from public.resumen_gastos(null, '2019-09-30')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos('2019-09-30', '2019-09-01')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos('2019-01-01', '2020-01-03')$q$),
+    public._test_sqlstate($q$select * from public.resumen_combustible('2019-09-01', null)$q$),
+    public._test_sqlstate($q$select * from public.resumen_combustible('2019-09-30', '2019-09-01')$q$),
+    public._test_sqlstate($q$select * from public.resumen_combustible('2019-01-01', '2020-01-03')$q$),
+    public._test_sqlstate($q$select * from public.resumen_viajes(null, null)$q$),
+    public._test_sqlstate($q$select * from public.resumen_viajes('2019-09-30', '2019-09-01')$q$),
+    public._test_sqlstate($q$select * from public.resumen_viajes('2019-09-01', '2019-11-03')$q$),
+    public._test_sqlstate($q$select * from public.resumen_mensual('2019-09-01', 0)$q$),
+    public._test_sqlstate($q$select * from public.resumen_mensual('2019-09-01', 25)$q$),
+    public._test_sqlstate($q$select * from public.resumen_mensual('2019-09-01', null)$q$),
+    public._test_sqlstate($q$select * from public.resumen_mensual(null, 1)$q$)];
+  v_e := array[c_rango, c_rango, c_366, c_rango, c_rango, c_366, c_rango, c_rango, c_62, c_mes, c_mes, c_mes, c_mes];
+  perform public._test_chk(c_caso, v_r = v_e, format('%s', v_r));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Como postgres CON el JWT de A: RLS salteada (postgres es el dueño de las tablas). El filtro explícito por
+-- get_mi_transportista_id() tiene que dar exactamente lo mismo que con RLS.
+select set_config('request.jwt.claims', '{"sub":"23000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+
+do $$
+declare c_caso constant text := '23.29 Con RLS salteada (postgres con el JWT de A), las cuatro funciones siguen devolviendo solo lo de A: total de septiembre 16 / $890000, 3 camiones, en la serie mensual 16 gastos y 3 viajes con $700000 de ingreso, y 3 viajes en la lista'; r record; v_c int; v_m record; v_v int;
+begin
+  select * into r from public.resumen_gastos('2019-09-01', '2019-09-30') f where f.grupo = 'total';
+  select count(*) into v_c from public.resumen_combustible('2019-09-01', '2019-09-30');
+  select * into v_m from public.resumen_mensual('2019-09-01', 1) f;
+  select count(*) into v_v from public.resumen_viajes('2019-09-01', '2019-09-30');
+  perform public._test_chk(c_caso, r.cantidad = 16 and r.monto = 890000 and v_c = 3
+      and v_m.gastos_cantidad = 16 and v_m.viajes_cantidad = 3 and v_m.viajes_ingreso = 700000 and v_v = 3,
+    format('total=%s camiones=%s mensual=%s viajes=%s', to_jsonb(r), v_c, to_jsonb(v_m), v_v));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- B: solo lo suyo.
+select set_config('request.jwt.claims', '{"sub":"23000000-0000-4000-8000-0000000000b1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare c_caso constant text := '23.30 B ve solo lo suyo: su camión Z (500 km / 100 L = 5,000), 2 gastos / $200000 en septiembre, ningún viaje; y pidiendo el camión X de A, 0 filas'; v_n int; r record; v_g record; v_v int; v_x int;
+begin
+  select count(*) into v_n from public.resumen_combustible('2019-09-01', '2019-09-30');
+  select * into r from public.resumen_combustible('2019-09-01', '2019-09-30');
+  select * into v_g from public.resumen_gastos('2019-09-01', '2019-09-30') f where f.grupo = 'total';
+  select count(*) into v_v from public.resumen_viajes('2019-09-01', '2019-09-30');
+  select count(*) into v_x from public.resumen_combustible('2019-09-01', '2019-09-30', '23000000-0000-4000-8000-00000000ca01');
+  perform public._test_chk(c_caso,
+    v_n = 1 and r.camion_id = '23000000-0000-4000-8000-00000000cb01' and r.km_por_litro = 5
+      and v_g.cantidad = 2 and v_g.monto = 200000 and v_v = 0 and v_x = 0,
+    format('filas=%s Z=%s total=%s viajes=%s X=%s', v_n, to_jsonb(r), to_jsonb(v_g), v_v, v_x));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- H: error de tipeo alto y bordes del rango.
+select set_config('request.jwt.claims', '{"sub":"23000000-0000-4000-8000-0000000000c1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare c_caso constant text := '23.31 Error de tipeo alto (H: 1001000 en vez de 101000): cuesta solo 2 tramos (1 fuera de rango, 1 retroceso); los otros 2 de septiembre dan 10,000 km/L y octubre sigue normal (1 tramo, 10,000)'; rs record; ro record;
+begin
+  select * into rs from public.resumen_combustible('2019-09-01', '2019-09-30') f where f.camion_id = '23000000-0000-4000-8000-00000000cc01';
+  select * into ro from public.resumen_combustible('2019-10-01', '2019-10-31') f where f.camion_id = '23000000-0000-4000-8000-00000000cc01';
+  perform public._test_chk(c_caso,
+    rs.tramos = 2 and rs.tramos_km = 2000 and rs.km_por_litro = 10 and rs.descartados_fuera_de_rango = 1
+      and rs.descartados_retroceso = 1 and rs.descartados_sin_avance = 0 and ro.tramos = 1 and ro.km_por_litro = 10,
+    format('sept=%s oct=%s', to_jsonb(rs), to_jsonb(ro)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.32 Bordes del rango (K): 0,5 km/L (50 / 100) y 15 km/L (3000 / 200) son válidos; 0,499 (49,9 / 100) y 15,001 (1500,1 / 100) quedan fuera. Resultado ponderado, no promedio de cocientes: 3050 km / 300 L = 10,167 km/L, 9,84 L/100 km, $98,36/km'; r record;
+begin
+  select * into r from public.resumen_combustible('2019-09-01', '2019-09-30') f where f.camion_id = '23000000-0000-4000-8000-00000000cc02';
+  perform public._test_chk(c_caso,
+    r.cargas = 5 and r.tramos = 2 and r.tramos_km = 3050 and r.tramos_litros = 300 and r.km_por_litro = 10.167
+      and r.litros_100km = 9.84 and r.costo_por_km = 98.36 and r.descartados_fuera_de_rango = 2
+      and r.descartados_retroceso = 0 and r.descartados_sin_avance = 0,
+    to_jsonb(r)::text);
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- M: más de 1.000 gastos y 600 viajes en un mes.
+select set_config('request.jwt.claims', '{"sub":"23000000-0000-4000-8000-0000000000d1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare c_caso constant text := '23.33 Más de 1.000 gastos en un mes (M: 1.200): el total es exacto (1200 / $149400,00) en solo 6 filas, y la serie mensual también los cuenta todos (resultado 600000 - 149400 = 450600)'; v_n int; r record; m record;
+begin
+  select count(*) into v_n from public.resumen_gastos('2019-09-01', '2019-09-30');
+  select * into r from public.resumen_gastos('2019-09-01', '2019-09-30') f where f.grupo = 'total';
+  select * into m from public.resumen_mensual('2019-09-01', 1);
+  perform public._test_chk(c_caso,
+    v_n = 6 and r.cantidad = 1200 and r.monto = 149400 and m.gastos_cantidad = 1200 and m.viajes_cantidad = 600 and m.resultado = 450600,
+    format('filas=%s total=%s mensual=%s', v_n, to_jsonb(r), to_jsonb(m)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare c_caso constant text := '23.34 La lista de viajes se corta en 500: con 600 viajes en septiembre devuelve 500 filas y total_viajes = 600 en todas'; v_n int; v_min int; v_max int;
+begin
+  select count(*), min(f.total_viajes), max(f.total_viajes) into v_n, v_min, v_max from public.resumen_viajes('2019-09-01', '2019-09-30') f;
+  perform public._test_chk(c_caso, v_n = 500 and v_min = 600 and v_max = 600, format('filas=%s total=%s..%s', v_n, v_min, v_max));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- V: una cuenta sin datos.
+select set_config('request.jwt.claims', '{"sub":"23000000-0000-4000-8000-0000000000e1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare c_caso constant text := '23.35 Una cuenta sin ningún dato: gastos solo con la fila total en 0, serie mensual en 0 con resultado NULL, combustible y viajes sin filas; sin errores'; v_g text; v_m int; v_m_mal int; v_c int; v_v int;
+begin
+  select string_agg(f.grupo || ':' || f.cantidad || '/' || f.monto, ' ') into v_g from public.resumen_gastos('2019-01-01', '2019-12-31') f;
+  select count(*), count(*) filter (where f.gastos_cantidad <> 0 or f.gastos_monto <> 0 or f.viajes_cantidad <> 0 or f.resultado is not null)
+    into v_m, v_m_mal from public.resumen_mensual('2019-01-01', 12) f;
+  select count(*) into v_c from public.resumen_combustible('2019-01-01', '2019-12-31');
+  select count(*) into v_v from public.resumen_viajes('2019-09-01', '2019-10-31');
+  perform public._test_chk(c_caso, v_g = 'total:0/0.00' and v_m = 12 and v_m_mal = 0 and v_c = 0 and v_v = 0,
+    format('gastos=%s mensual=%s (con datos %s) combustible=%s viajes=%s', v_g, v_m, v_m_mal, v_c, v_v));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Usuario autenticado sin cuenta (del setup).
+select set_config('request.jwt.claims',
+  json_build_object('sub', public._test_get('uid_sin_tenant'), 'role','authenticated')::text, true);
+set local role authenticated;
+
+do $$
+declare c_caso constant text := '23.36 Un usuario sin cuenta recibe 42501 ("No perteneces a ningún transportista") en las cuatro funciones'; v_r text[];
+begin
+  v_r := array[
+    public._test_sqlstate($q$select * from public.resumen_gastos('2019-09-01', '2019-09-30')$q$),
+    public._test_sqlstate($q$select * from public.resumen_mensual('2019-09-01', 1)$q$),
+    public._test_sqlstate($q$select * from public.resumen_combustible('2019-09-01', '2019-09-30')$q$),
+    public._test_sqlstate($q$select * from public.resumen_viajes('2019-09-01', '2019-09-30')$q$)];
+  perform public._test_chk(c_caso,
+    (select bool_and(x = '42501||No perteneces a ningún transportista') from unnest(v_r) as t(x)), format('%s', v_r));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- anon: sin EXECUTE.
+set local role anon;
+
+do $$
+declare c_caso constant text := '23.37 anon no puede ejecutar ninguna de las cuatro funciones (42501 por permiso)'; v_r text[] := '{}'; v_s text;
+begin
+  begin perform * from public.resumen_gastos('2019-09-01', '2019-09-30'); v_r := v_r || 'gastos: OK'::text;
+  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('gastos: ' || v_s); end;
+  begin perform * from public.resumen_mensual('2019-09-01', 1); v_r := v_r || 'mensual: OK'::text;
+  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('mensual: ' || v_s); end;
+  begin perform * from public.resumen_combustible('2019-09-01', '2019-09-30'); v_r := v_r || 'combustible: OK'::text;
+  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('combustible: ' || v_s); end;
+  begin perform * from public.resumen_viajes('2019-09-01', '2019-09-30'); v_r := v_r || 'viajes: OK'::text;
+  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('viajes: ' || v_s); end;
+  perform public._test_chk(c_caso,
+    v_r = array['gastos: 42501', 'mensual: 42501', 'combustible: 42501', 'viajes: 42501']::text[], format('%s', v_r));
+end
+$$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+-- Como postgres: topes de filas de cada función, para cada cuenta de la sección, con los rangos máximos.
+do $$
+declare
+  c_caso constant text := '23.38 Ninguna función devuelve más filas que su tope documentado, en ninguna cuenta y con los rangos máximos: resumen_gastos <= 1 + categorías + 5 + camiones + 1, resumen_mensual = p_meses (24), resumen_combustible <= camiones de la cuenta, resumen_viajes <= 500 (y M lo alcanza)';
+  v_c record; v_cat int; v_cam int; v_g int; v_m int; v_co int; v_v int; v_mal text[] := '{}'; v_vm int;
+begin
+  for v_c in
+    select * from (values
+      ('A', '23000000-0000-4000-8000-0000000000a1', '23000000-0000-4000-8000-0000000000a0'),
+      ('B', '23000000-0000-4000-8000-0000000000b1', '23000000-0000-4000-8000-0000000000b0'),
+      ('H', '23000000-0000-4000-8000-0000000000c1', '23000000-0000-4000-8000-0000000000c0'),
+      ('M', '23000000-0000-4000-8000-0000000000d1', '23000000-0000-4000-8000-0000000000d0'),
+      ('V', '23000000-0000-4000-8000-0000000000e1', '23000000-0000-4000-8000-0000000000e0')) as t(nombre, uid, tid)
+  loop
+    perform set_config('request.jwt.claims', json_build_object('sub', v_c.uid, 'role', 'authenticated')::text, true);
+    select count(*) into v_cat from public.categorias_gasto where transportista_id is null or transportista_id = v_c.tid::uuid;
+    select count(*) into v_cam from public.camiones where transportista_id = v_c.tid::uuid;
+    select count(*) into v_g from public.resumen_gastos('2019-01-01', '2020-01-01');
+    select count(*) into v_m from public.resumen_mensual('2018-10-01', 24);
+    select count(*) into v_co from public.resumen_combustible('2019-01-01', '2020-01-01');
+    select count(*) into v_v from public.resumen_viajes('2019-09-01', '2019-11-01');
+    if v_c.nombre = 'M' then v_vm := v_v; end if;
+    if v_g > 1 + v_cat + 5 + v_cam + 1 or v_m <> 24 or v_co > v_cam or v_v > 500 then
+      v_mal := v_mal || format('%s: gastos=%s (tope %s) mensual=%s combustible=%s (tope %s) viajes=%s', v_c.nombre, v_g, 1 + v_cat + 5 + v_cam + 1, v_m, v_co, v_cam, v_v);
+    end if;
+  end loop;
+  perform set_config('request.jwt.claims', '', true);
+  perform public._test_chk(c_caso, cardinality(v_mal) = 0 and v_vm = 500, format('mal=%s | viajes de M=%s', v_mal, v_vm));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '23.39 Las funciones no escribieron nada: la huella de todos los datos de la base es la misma que antes de llamarlas';
+  v_ahora text;
+begin
+  select md5(string_agg(x, '|' order by x)) into v_ahora from (
+    select to_jsonb(t)::text as x from public.gastos t
+    union all select to_jsonb(t)::text from public.viajes t
+    union all select to_jsonb(t)::text from public.camiones t
+    union all select to_jsonb(t)::text from public.miembros t
+    union all select to_jsonb(t)::text from public.transportistas t
+    union all select to_jsonb(t)::text from public.clientes t
+    union all select to_jsonb(t)::text from public.entregas t
+    union all select to_jsonb(t)::text from public.devoluciones t
+    union all select to_jsonb(t)::text from public.categorias_gasto t) s;
+  perform public._test_chk(c_caso, v_ahora = public._test_get('s23_huella'), format('antes=%s ahora=%s', public._test_get('s23_huella'), v_ahora));
 end
 $$;
 
