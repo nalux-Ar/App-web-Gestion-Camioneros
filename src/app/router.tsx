@@ -1,5 +1,5 @@
 import { lazy } from 'react';
-import { Navigate, Route, Routes } from 'react-router';
+import { Navigate, Route, Routes, useLocation } from 'react-router';
 
 import { AuthShell } from '@/features/auth/components/auth-shell';
 import { AppShell } from '@/features/layout/app-shell';
@@ -9,7 +9,7 @@ import { RecoveryGuard, RequireAuth, RequireGuest, RequireMember, RequireNoMembe
 // de Supabase ya pesan lo suyo en el chunk principal (hace falta todo eso
 // para saber, ANTES de mostrar cualquier pantalla, si hay sesión). Lo que
 // sí se puede diferir es el código de cada pantalla en sí: nadie necesita
-// el formulario de "restablecer contraseña" ni la de "reportes" en la
+// el formulario de "restablecer contraseña" ni la del Resumen en la
 // carga inicial. Con esto el camionero baja menos JS de entrada, que
 // importa con mala señal. Los límites de Suspense viven en AuthShell y
 // AppShell (no acá arriba), para que el header/placa del logo no
@@ -28,9 +28,7 @@ const WelcomePage = lazy(() =>
   import('@/features/onboarding/welcome-page').then((m) => ({ default: m.WelcomePage })),
 );
 const InicioPage = lazy(() => import('@/features/home/inicio-page').then((m) => ({ default: m.InicioPage })));
-const ComingSoonPage = lazy(() =>
-  import('@/features/coming-soon/coming-soon-page').then((m) => ({ default: m.ComingSoonPage })),
-);
+const ResumenPage = lazy(() => import('@/features/resumen/resumen-page').then((m) => ({ default: m.ResumenPage })));
 const ViajesPage = lazy(() => import('@/features/viajes/viajes-page').then((m) => ({ default: m.ViajesPage })));
 const ViajeFormPage = lazy(() =>
   import('@/features/viajes/viaje-form-page').then((m) => ({ default: m.ViajeFormPage })),
@@ -59,6 +57,13 @@ const CamionFormPage = lazy(() =>
 const ConfiguracionPage = lazy(() =>
   import('@/features/configuracion/configuracion-page').then((m) => ({ default: m.ConfiguracionPage })),
 );
+
+/** `/reportes?mes=2026-08` -> `/resumen?mes=2026-08` (con `replace`: el "atrás" no vuelve a la ruta vieja). La búsqueda pasa tal
+ *  cual: la valida la pantalla (`readResumenFiltro`). */
+function RedirigirAResumen() {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: '/resumen', search }} replace />;
+}
 
 export function AppRouter() {
   return (
@@ -144,7 +149,9 @@ export function AppRouter() {
           <Route path="camiones" element={<CamionesPage />} />
           <Route path="camiones/nuevo" element={<CamionFormPage modo="nuevo" />} />
           <Route path="camiones/:id/editar" element={<CamionFormPage modo="editar" />} />
-          <Route path="reportes" element={<ComingSoonPage title="Reportes" />} />
+          {/* El Resumen reemplazó a "Reportes" (que era un "próximamente"): la ruta vieja redirige conservando la búsqueda. */}
+          <Route path="resumen" element={<ResumenPage />} />
+          <Route path="reportes" element={<RedirigirAResumen />} />
           <Route path="configuracion" element={<ConfiguracionPage />} />
         </Route>
 

@@ -14,7 +14,7 @@ export const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
   { to: '/viajes', label: 'Viajes', icon: Truck },
   { to: '/gastos', label: 'Gastos', icon: Package },
   { to: '/clientes', label: 'Clientes', icon: Users },
-  { to: '/reportes', label: 'Reportes', icon: BarChart3 },
+  { to: '/resumen', label: 'Resumen', icon: BarChart3 },
 ];
 
 /**

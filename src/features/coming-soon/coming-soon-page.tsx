@@ -4,8 +4,8 @@ interface ComingSoonPageProps {
   title: string;
 }
 
-/** Pantalla "próximamente" para las secciones que llegan en los próximos
- *  bloques (Viajes, Gastos, Clientes, Reportes). */
+/** Pantalla "próximamente" para las secciones que todavía no existen. Hoy no la usa ninguna ruta (la última, "Reportes",
+ *  se reemplazó por el Resumen); se conserva para la próxima sección que la necesite. */
 export function ComingSoonPage({ title }: ComingSoonPageProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 py-16 text-center">

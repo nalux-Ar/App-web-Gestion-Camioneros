@@ -1,6 +1,6 @@
 import { act, useMemo, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation, useNavigationType } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,8 +12,8 @@ type Call = { table: string; ops: Op[] };
 const h = vi.hoisted(() => {
   const calls: Array<{ table: string; ops: Array<{ m: string; args: unknown[] }> }> = [];
   const state = { responder: null as null | ((call: { table: string; ops: Array<{ m: string; args: unknown[] }> }) => unknown) };
-  function from(table: string) {
-    const call = { table, ops: [] as Array<{ m: string; args: unknown[] }> };
+  function from(table: string, firstOp?: { m: string; args: unknown[] }) {
+    const call = { table, ops: firstOp ? [firstOp] : ([] as Array<{ m: string; args: unknown[] }>) };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const builder: any = {};
     for (const m of ['select', 'update', 'insert', 'delete', 'eq', 'abortSignal', 'order', 'limit', 'gte', 'lt', 'maybeSingle', 'single']) {
@@ -30,10 +30,12 @@ const h = vi.hoisted(() => {
     };
     return builder;
   }
-  return { calls, state, from };
+  // Las funciones de la base (las del Resumen) se registran como `rpc:<función>`.
+  const rpc = (fn: string, args: unknown) => from(`rpc:${fn}`, { m: 'rpc', args: [args] });
+  return { calls, state, from: (table: string) => from(table), rpc };
 });
 
-vi.mock('@/lib/supabase', () => ({ supabase: { from: h.from } }));
+vi.mock('@/lib/supabase', () => ({ supabase: { from: h.from, rpc: h.rpc } }));
 
 import { AppRouter } from '@/app/router';
 import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context';
@@ -94,6 +96,28 @@ function installResponder() {
       if (has('maybeSingle')) return ok({ id: DEV, viaje_id: VIAJE, cliente_id: 'a0000000-0000-4000-8000-000000000001', motivo: 'otro', descripcion: 'x' });
       return ok([]);
     }
+    // Resumen: un mes sin movimientos.
+    if (call.table === 'rpc:resumen_gastos') return ok([{ grupo: 'total', clave: null, nombre: null, activa: null, cantidad: 0, monto: 0 }]);
+    if (call.table === 'rpc:resumen_mensual') {
+      const args = call.ops[0]!.args[0] as { p_mes_desde: string };
+      return ok([
+        {
+          mes: args.p_mes_desde,
+          gastos_cantidad: 0,
+          gastos_monto: 0,
+          combustible_cargas: 0,
+          combustible_litros: 0,
+          combustible_monto: 0,
+          viajes_cantidad: 0,
+          viajes_km: 0,
+          viajes_con_ingreso: 0,
+          viajes_sin_ingreso: 0,
+          viajes_ingreso: 0,
+          resultado: null,
+        },
+      ]);
+    }
+    if (call.table === 'rpc:resumen_combustible' || call.table === 'rpc:resumen_viajes') return ok([]);
     throw new Error(`pedido inesperado: ${call.table} ${call.ops.map((o) => o.m).join('.')}`);
   };
 }
@@ -111,11 +135,22 @@ function AuthHarness({ children, conSesion }: { children: ReactNode; conSesion: 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+/** Deja a la vista en qué ruta quedó el router (para las redirecciones). */
+function Ubicacion() {
+  const location = useLocation();
+  const tipo = useNavigationType();
+  return <div id="ubicacion" data-pathname={location.pathname} data-search={location.search} data-tipo={tipo} />;
+}
+
 let root: Root;
 let container: HTMLElement;
 let errorSpy: ReturnType<typeof vi.spyOn>;
 
 const h1 = () => document.querySelector('h1')?.textContent ?? '';
+const ubicacion = () => {
+  const el = document.getElementById('ubicacion');
+  return { pathname: el?.dataset.pathname ?? '', search: el?.dataset.search ?? '', tipo: el?.dataset.tipo ?? '' };
+};
 
 async function settle(times = 4) {
   for (let i = 0; i < times; i++) {
@@ -142,6 +177,7 @@ async function mount(path: string, conSesion = true) {
           <MemberProvider>
             <MemoryRouter initialEntries={[path]}>
               <AppRouter />
+              <Ubicacion />
             </MemoryRouter>
           </MemberProvider>
         </AuthHarness>
@@ -385,5 +421,85 @@ describe('router: las rutas de Camiones (fuera de la barra de abajo)', () => {
     await settle(6);
     expect(h1()).not.toBe('Editar camión');
     expect(h.calls.filter((c) => c.table === 'camiones')).toHaveLength(0);
+  });
+});
+
+describe('router: el Resumen (antes "Reportes")', () => {
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+  const mesMostrado = () => document.querySelector('[role="group"][aria-label="Mes"] p')?.textContent ?? '';
+  const pedidosDelResumen = () => h.calls.filter((c) => c.table.startsWith('rpc:resumen_'));
+
+  it('/resumen es la pantalla Resumen (ya no "próximamente"), dentro del layout, y pide los datos del mes', async () => {
+    await mount('/resumen');
+    await until(() => h1() === 'Resumen' && mesMostrado() !== '');
+    expect(h1()).toBe('Resumen');
+    expect(document.querySelector('header')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('Próximamente');
+    await until(() => pedidosDelResumen().length >= 5);
+    expect(new Set(pedidosDelResumen().map((c) => c.table))).toEqual(
+      new Set(['rpc:resumen_gastos', 'rpc:resumen_mensual', 'rpc:resumen_combustible', 'rpc:resumen_viajes']),
+    );
+  });
+
+  it('/reportes redirige a /resumen REEMPLAZANDO la entrada del historial (sin búsqueda: queda sin búsqueda)', async () => {
+    await mount('/reportes');
+    await until(() => h1() === 'Resumen');
+    expect(ubicacion()).toEqual({ pathname: '/resumen', search: '', tipo: 'REPLACE' });
+  });
+
+  it('/reportes?mes=… conserva la búsqueda: el Resumen abre en ese mes', async () => {
+    await mount('/reportes?mes=2025-03');
+    await until(() => h1() === 'Resumen' && mesMostrado() !== '');
+    expect(ubicacion()).toEqual({ pathname: '/resumen', search: '?mes=2025-03', tipo: 'REPLACE' });
+    expect(mesMostrado()).toBe('marzo 2025');
+    await until(() => pedidosDelResumen().length > 0);
+    expect(pedidosDelResumen().filter((c) => c.table === 'rpc:resumen_mensual').map((c) => c.ops[0]!.args[0])).toContainEqual({
+      p_mes_desde: '2025-03-01',
+      p_meses: 1,
+    });
+  });
+
+  it('/reportes conserva la búsqueda completa, tal cual (la pantalla valida lo que entienda)', async () => {
+    await mount('/reportes?vista=anio&anio=2025&otro=1');
+    await until(() => h1() === 'Resumen');
+    expect(ubicacion()).toEqual({ pathname: '/resumen', search: '?vista=anio&anio=2025&otro=1', tipo: 'REPLACE' });
+  });
+
+  it('rutas parecidas que no existen caen en la ruta desconocida (Inicio), sin pedir el resumen', async () => {
+    for (const ruta of ['/reportes/x', '/resumen/x', '/resumenes']) {
+      h.calls.length = 0;
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola'));
+      expect(h1(), ruta).toMatch(/^Hola/);
+      expect(pedidosDelResumen(), ruta).toHaveLength(0);
+      await desmontar();
+    }
+  });
+
+  it('la barra de navegación tiene "Resumen" (a /resumen) en lugar de "Reportes"', async () => {
+    await mount('/');
+    await until(() => h1().startsWith('Hola'));
+    const enNav = [...document.querySelectorAll<HTMLAnchorElement>('nav a')].filter((a) => a.getAttribute('href') === '/resumen');
+    expect(enNav.length).toBeGreaterThan(0);
+    for (const enlace of enNav) expect(enlace.textContent).toContain('Resumen');
+    expect([...document.querySelectorAll('a')].some((a) => a.getAttribute('href') === '/reportes')).toBe(false);
+    expect([...document.querySelectorAll('nav')].some((nav) => nav.textContent?.includes('Reportes'))).toBe(false);
+  });
+
+  it('está detrás de la sesión: sin sesión no se pide NADA (ni por /resumen ni por /reportes)', async () => {
+    await mount('/resumen', false);
+    await settle(6);
+    expect(h1()).not.toBe('Resumen');
+    expect(pedidosDelResumen()).toHaveLength(0);
+    await desmontar();
+    await mount('/reportes?mes=2025-03', false);
+    await settle(6);
+    expect(pedidosDelResumen()).toHaveLength(0);
   });
 });
