@@ -78,8 +78,11 @@ function ComparacionDelGasto({ actual, consulta, periodo }: { actual: number; co
   );
 }
 
-/** Los tres desgloses del gasto del mes. El de camión solo si al menos un gasto tiene camión. */
-function DesglosesDelGasto({ datos }: { datos: ResumenGastos }) {
+/**
+ * Los tres desgloses del gasto de un período (el mes o el año: la misma respuesta de `resumen_gastos`). El de camión solo
+ * si al menos un gasto tiene camión.
+ */
+export function DesglosesDelGasto({ datos }: { datos: ResumenGastos }) {
   const total = datos.total.monto;
   const categorias = filasDeBarras(
     principalesYOtras(

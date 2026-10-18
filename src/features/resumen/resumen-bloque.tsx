@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
+import type { FetchStatus } from '@tanstack/react-query';
+import { WifiOff } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { isRetryableDataError } from '@/lib/data-errors';
 import { cn } from '@/lib/utils';
 import type { FilaDeBarra } from './resumen-calculos';
-import { formatMonto, textoDetalleBarra } from './resumen-pantalla-textos';
+import { formatMonto, RESUMEN_SIN_CONEXION, textoCargandoResumen, textoDetalleBarra } from './resumen-pantalla-textos';
 import { mensajeErrorResumen, RESUMEN_ERROR_CONTEXT } from './resumen-textos';
 
 /** Lo que un bloque usa de su consulta (un `useQuery` de `use-resumen.ts`). */
@@ -94,12 +96,52 @@ export function ListaDeBarras({ filas }: { filas: readonly FilaDeBarra[] }) {
             <span className="min-w-0 break-words font-medium">{fila.etiqueta}</span>
             <span className="shrink-0 font-semibold tabular-nums">{formatMonto(fila.monto)}</span>
           </div>
-          <div aria-hidden="true" className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
-            <div className={cn('h-full rounded-full bg-primary', fila.monto > 0 && 'min-w-1')} style={{ width: `${fila.ancho}%` }} />
-          </div>
+          <BarraDecorativa ancho={fila.ancho} visible={fila.monto > 0} />
           <p className="mt-1 text-sm text-muted-foreground">{textoDetalleBarra(fila)}</p>
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * La barra de una fila: solo visual (`aria-hidden`: el valor siempre está también en texto), con los colores del tema.
+ * `ancho` en % (0–100); `visible` = hay algo que dibujar (un valor muy chico igual se ve: mínimo 4 px).
+ */
+export function BarraDecorativa({ ancho, visible }: { ancho: number; visible: boolean }) {
+  return (
+    <div aria-hidden="true" className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
+      <div className={cn('h-full rounded-full bg-primary', visible && 'min-w-1')} style={{ width: `${ancho}%` }} />
+    </div>
+  );
+}
+
+/** Lo que el aviso de la pantalla mira de cada consulta. */
+interface EstadoDeConsulta {
+  isPending: boolean;
+  fetchStatus: FetchStatus;
+}
+
+/**
+ * El ÚNICO `role="status"` de la pantalla (cada bloque solo marca `aria-busy`): "Cargando el resumen de …" (oculto, para
+ * lectores de pantalla) mientras alguna consulta sin datos está pidiendo, o el aviso VISIBLE de sin conexión si alguna
+ * quedó en pausa (`networkMode: 'online'`: sin red, una consulta sin datos no falla ni termina, espera la señal).
+ */
+export function EstadoDeCarga({ consultas, periodo }: { consultas: readonly EstadoDeConsulta[]; periodo: string }) {
+  const cargando = consultas.some((query) => query.isPending && query.fetchStatus === 'fetching');
+  const enPausa = consultas.some((query) => query.isPending && query.fetchStatus === 'paused');
+  return (
+    <p role="status" className={enPausa ? 'flex items-center gap-2 text-sm text-muted-foreground' : 'sr-only'}>
+      {enPausa ? (
+        <>
+          <WifiOff className="size-4 shrink-0" aria-hidden="true" />
+          {RESUMEN_SIN_CONEXION}
+        </>
+      ) : cargando ? (
+        textoCargandoResumen(periodo)
+      ) : (
+        ''
+      )}
+    </p>
   );
 }

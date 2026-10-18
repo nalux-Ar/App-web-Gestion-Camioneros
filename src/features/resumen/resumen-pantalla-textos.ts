@@ -142,12 +142,12 @@ export function etiquetaResultado(resultado: number): string {
   return 'Resultado';
 }
 
-/** Sin resultado (ningún viaje del mes tiene ingreso): qué falta para tenerlo. */
-export function textoSinResultado(viajesDelMes: number): string {
-  const falta = 'para ver si el mes dio ganancia o pérdida.';
-  if (viajesDelMes === 0) return `No hay viajes en el mes. Carga tus viajes con su ingreso ${falta}`;
-  if (viajesDelMes === 1) return `Tu viaje del mes no tiene el ingreso cargado. Cárgalo ${falta}`;
-  return `Ninguno de tus ${formatEntero(viajesDelMes)} viajes del mes tiene el ingreso cargado. Cárgalo ${falta}`;
+/** Sin resultado (ningún viaje del período tiene ingreso): qué falta para tenerlo. `periodo`: el Mes o el Año. */
+export function textoSinResultado(viajes: number, periodo: 'mes' | 'año' = 'mes'): string {
+  const falta = `para ver si el ${periodo} dio ganancia o pérdida.`;
+  if (viajes === 0) return `No hay viajes en el ${periodo}. Carga tus viajes con su ingreso ${falta}`;
+  if (viajes === 1) return `Tu viaje del ${periodo} no tiene el ingreso cargado. Cárgalo ${falta}`;
+  return `Ninguno de tus ${formatEntero(viajes)} viajes del ${periodo} tiene el ingreso cargado. Cárgalo ${falta}`;
 }
 
 /** Hay resultado, pero algunos viajes no tienen ingreso: puede faltar plata. */
@@ -284,4 +284,73 @@ export function textoIngresoDelViaje(ingreso: number | null): string | null {
 /** Los gastos vinculados al viaje: "Sin gastos" o "2 gastos: 3.000,00". */
 export function textoGastosDelViaje(cantidad: number, monto: number): string {
   return cantidad === 0 ? 'Sin gastos' : `${textoCantidadGastos(cantidad)}: ${formatMonto(monto)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Vistas (Mes | Año) y selector de año
+// ---------------------------------------------------------------------------
+
+/** Nombre del `nav` de las dos vistas y el texto de cada enlace. */
+export const ETIQUETA_VISTAS = 'Vista del resumen';
+export const ETIQUETAS_VISTA = { mes: 'Mes', anio: 'Año' } as const;
+
+/** El selector de año (mismo patrón que el de mes). */
+export const ETIQUETA_SELECTOR_ANIO = 'Año';
+export const ANIO_ANTERIOR = 'Año anterior';
+export const ANIO_SIGUIENTE = 'Año siguiente';
+
+// ---------------------------------------------------------------------------
+// Vista Año: gastos del año, promedio y gasto por mes
+// ---------------------------------------------------------------------------
+
+export const TITULO_GASTOS_DEL_ANIO = 'Gastos del año';
+export const ETIQUETA_PROMEDIO_POR_MES = 'Promedio por mes';
+export const TITULO_GASTO_POR_MES = 'Gasto por mes';
+/** Un mes del año sin gastos (en la lista de gasto por mes). */
+export const SIN_GASTOS = 'Sin gastos';
+
+/** El año no tiene gastos. */
+export function textoSinGastosDelAnio(anio: number, enCurso: boolean): string {
+  return enCurso ? `Todavía no cargaste gastos en ${anio}` : `No cargaste gastos en ${anio}`;
+}
+
+/**
+ * Sobre cuántos meses se promedia (ver `mesesTranscurridos`): en el año en curso, los meses que ya empezaron (el actual
+ * cuenta); en uno pasado, los 12.
+ */
+export function textoPromedioDeMeses(meses: number, enCurso: boolean): string {
+  if (!enCurso) return `promedio de los ${formatEntero(meses)} meses del año`;
+  return meses === 1 ? 'promedio del único mes transcurrido' : `promedio de los ${formatEntero(meses)} meses transcurridos`;
+}
+
+/** El nombre del mes, sin el año ("enero"): en la vista Año el año ya está a la vista. */
+export function nombreDelMes(mes: YearMonth): string {
+  return nombreDeMes(mes, mes.year);
+}
+
+// ---------------------------------------------------------------------------
+// Vista Año: ingresos, resultado y resultado por mes
+// ---------------------------------------------------------------------------
+
+/** Qué es el resultado del año (la suma de los 12 meses de `resumen_mensual`). */
+export const TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO = 'El resultado es lo que cobraste por los viajes del año menos todos los gastos del año.';
+export const ETIQUETA_VIAJES = 'Viajes';
+export const ETIQUETA_KM = 'Km recorridos';
+export const TITULO_RESULTADO_POR_MES = 'Resultado por mes';
+/** Un mes con viajes pero ninguno con ingreso: no tiene resultado. */
+export const SIN_INGRESOS_CARGADOS = 'Sin ingresos cargados';
+/** Un mes sin ningún viaje (no faltan ingresos: no hubo viajes). */
+export const SIN_VIAJES = 'Sin viajes';
+/** En el Año no hay lista de viajes (la base la limita a 62 días). */
+export const TEXTO_VIAJES_EN_EL_ANIO = 'La lista de viajes se ve mes a mes: toca un mes o pasa a la vista Mes.';
+export const IR_A_LA_VISTA_MES = 'Ir a la vista Mes';
+
+/** Debajo de cada mes de "Resultado por mes": "Ingresos 1.500,00 · Gastos 1.000,00". */
+export function textoIngresosYGastos(ingresos: number, gastos: number): string {
+  return `Ingresos ${formatMonto(ingresos)} · Gastos ${formatMonto(gastos)}`;
+}
+
+/** El año sin cargas de combustible. */
+export function textoSinCombustibleDelAnio(anio: number, enCurso: boolean): string {
+  return enCurso ? `Todavía no cargaste combustible en ${anio}` : `No cargaste combustible en ${anio}`;
 }

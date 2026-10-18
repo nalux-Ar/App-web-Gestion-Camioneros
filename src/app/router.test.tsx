@@ -99,10 +99,13 @@ function installResponder() {
     // Resumen: un mes sin movimientos.
     if (call.table === 'rpc:resumen_gastos') return ok([{ grupo: 'total', clave: null, nombre: null, activa: null, cantidad: 0, monto: 0 }]);
     if (call.table === 'rpc:resumen_mensual') {
-      const args = call.ops[0]!.args[0] as { p_mes_desde: string };
-      return ok([
-        {
-          mes: args.p_mes_desde,
+      // `p_meses` filas, una por mes desde `p_mes_desde` (1 en la vista Mes, 12 en la vista Año).
+      const args = call.ops[0]!.args[0] as { p_mes_desde: string; p_meses: number };
+      const anio = Number(args.p_mes_desde.slice(0, 4));
+      const mes0 = Number(args.p_mes_desde.slice(5, 7)) - 1;
+      return ok(
+        Array.from({ length: args.p_meses }, (_, i) => ({
+          mes: `${anio + Math.floor((mes0 + i) / 12)}-${String(((mes0 + i) % 12) + 1).padStart(2, '0')}-01`,
           gastos_cantidad: 0,
           gastos_monto: 0,
           combustible_cargas: 0,
@@ -114,8 +117,8 @@ function installResponder() {
           viajes_sin_ingreso: 0,
           viajes_ingreso: 0,
           resultado: null,
-        },
-      ]);
+        })),
+      );
     }
     if (call.table === 'rpc:resumen_combustible' || call.table === 'rpc:resumen_viajes') return ok([]);
     throw new Error(`pedido inesperado: ${call.table} ${call.ops.map((o) => o.m).join('.')}`);
@@ -465,10 +468,16 @@ describe('router: el Resumen (antes "Reportes")', () => {
     });
   });
 
-  it('/reportes conserva la búsqueda completa, tal cual (la pantalla valida lo que entienda)', async () => {
+  it('/reportes conserva la búsqueda completa, tal cual (la pantalla valida lo que entienda): ?vista=anio abre la vista Año', async () => {
     await mount('/reportes?vista=anio&anio=2025&otro=1');
-    await until(() => h1() === 'Resumen');
+    await until(() => h1() === 'Resumen' && document.querySelector('[role="group"][aria-label="Año"]') !== null);
     expect(ubicacion()).toEqual({ pathname: '/resumen', search: '?vista=anio&anio=2025&otro=1', tipo: 'REPLACE' });
+    expect(document.querySelector('[role="group"][aria-label="Año"] p')!.textContent).toBe('2025');
+    await until(() => pedidosDelResumen().some((c) => c.table === 'rpc:resumen_mensual'));
+    expect(pedidosDelResumen().filter((c) => c.table === 'rpc:resumen_mensual').map((c) => c.ops[0]!.args[0])).toEqual([
+      { p_mes_desde: '2025-01-01', p_meses: 12 },
+    ]);
+    expect(pedidosDelResumen().filter((c) => c.table === 'rpc:resumen_viajes')).toHaveLength(0);
   });
 
   it('rutas parecidas que no existen caen en la ruta desconocida (Inicio), sin pedir el resumen', async () => {

@@ -345,15 +345,12 @@ describe('pantalla Resumen: encabezado y mes', () => {
     },
   );
 
-  it('?vista=anio (todavía sin vista Año): el mes que le corresponde a ese año', async () => {
-    MES_DESDE = '2025-12-01';
+  it('?vista=anio ya NO se convierte en Mes: abre la vista Año (sin selector de mes ni bloques del mes)', async () => {
     await mount('/resumen?vista=anio&anio=2025');
-    expect(mesMostrado()).toBe('diciembre 2025');
-    await act(async () => root.unmount());
-    container.remove();
-    MES_DESDE = '2026-10-01';
-    await mount('/resumen?vista=anio');
-    expect(mesMostrado()).toBe('octubre 2026');
+    expect(document.querySelector('[role="group"][aria-label="Mes"]')).toBeNull();
+    expect(document.querySelector('[role="group"][aria-label="Año"] p')!.textContent).toBe('2025');
+    expect(byId('resumen-viajes')).toBeNull();
+    expect(rpcs('resumen_viajes')).toHaveLength(0);
   });
 
   it('cambiar de mes: el mes va a la URL (?mes=) y se piden SUS datos; volver al actual lo saca de la URL', async () => {
@@ -369,12 +366,12 @@ describe('pantalla Resumen: encabezado y mes', () => {
     expect(mesMostrado()).toBe('octubre 2026');
   });
 
-  it('desde ?vista=anio, cambiar de mes deja solo ?mes=', async () => {
-    MES_DESDE = '2025-12-01';
+  it('desde la vista Año de un año pasado, "Mes" abre diciembre de ese año y deja solo ?mes=', async () => {
     await mount('/resumen?vista=anio&anio=2025');
-    MES_DESDE = '2025-11-01';
-    await click(buttonByLabel('Mes anterior'));
-    expect(search()).toBe('?mes=2025-11');
+    MES_DESDE = '2025-12-01';
+    await click([...document.querySelectorAll<HTMLAnchorElement>('nav a')].find((a) => a.textContent === 'Mes'));
+    expect(search()).toBe('?mes=2025-12');
+    expect(mesMostrado()).toBe('diciembre 2025');
   });
 
   it('cambiar de mes REEMPLAZA la entrada del historial (no la agrega): "atrás" sale del Resumen, como en Viajes y Gastos', async () => {

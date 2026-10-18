@@ -1,6 +1,5 @@
 import { ChevronDown } from 'lucide-react';
 
-import type { YearMonth } from '@/lib/dates';
 import { BloqueResumen, type ConsultaDeBloque } from './resumen-bloque';
 import {
   ETIQUETAS_COMBUSTIBLE,
@@ -12,7 +11,6 @@ import {
   textoLitros,
   textoLitrosCada100,
   textoPrecioPorLitro,
-  textoSinCombustible,
   textoTramos,
   TITULO_COMBUSTIBLE,
   TITULO_COMO_SE_CALCULA,
@@ -20,23 +18,24 @@ import {
 import type { CombustibleDelCamion } from './resumen-parse';
 import { etiquetaCamionResumen } from './resumen-textos';
 
-interface CombustibleDelMesProps {
-  mes: YearMonth;
-  enCurso: boolean;
+interface CombustibleDelPeriodoProps {
+  /** El texto cuando el período no tiene cargas ("Todavía no cargaste combustible este mes", "… en 2025"). */
+  vacio: string;
   combustible: ConsultaDeBloque<CombustibleDelCamion[]>;
 }
 
 /**
- * Combustible por camión (`resumen_combustible`): las cargas del mes y, si hay tramos válidos que cierran en el mes, el
- * rendimiento. Todo lo calcula la base; acá solo se muestra y se explica ("¿Cómo se calcula?").
+ * Combustible por camión (`resumen_combustible`) de un período, el mes o el año: las cargas del período y, si hay tramos
+ * válidos que cierran en él, el rendimiento ponderado del período. Todo lo calcula la base; acá solo se muestra y se
+ * explica ("¿Cómo se calcula?").
  */
-export function CombustibleDelMes({ mes, enCurso, combustible }: CombustibleDelMesProps) {
+export function CombustibleDelPeriodo({ vacio, combustible }: CombustibleDelPeriodoProps) {
   return (
     <BloqueResumen id="resumen-combustible" titulo={TITULO_COMBUSTIBLE} consulta={combustible} filasCargando={3}>
       {(camiones) => (
         <>
           {camiones.length === 0 ? (
-            <p className="text-muted-foreground">{textoSinCombustible(mes, enCurso)}</p>
+            <p className="text-muted-foreground">{vacio}</p>
           ) : (
             <div className="space-y-4 divide-y divide-border">
               {camiones.map((camion) => (

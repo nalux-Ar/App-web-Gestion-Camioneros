@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { CLAVE_OTRAS, compararGasto, filasDeBarras, porcentajesEnteros, principalesYOtras, type EntradaDeBarra } from './resumen-calculos';
+import {
+  CLAVE_OTRAS,
+  compararGasto,
+  filasDeBarras,
+  gastoPorMes,
+  mesesYaTranscurridos,
+  porcentajesEnteros,
+  principalesYOtras,
+  promedioPorMes,
+  totalesDelAnio,
+  type EntradaDeBarra,
+} from './resumen-calculos';
+import type { ResumenDelMes } from './resumen-parse';
 
 const entrada = (clave: string, monto: number, cantidad = 1): EntradaDeBarra => ({ clave, etiqueta: clave.toUpperCase(), monto, cantidad });
 
@@ -138,5 +150,126 @@ describe('principalesYOtras', () => {
     const entradas = [entrada('a', 1), entrada('b', 2)];
     principalesYOtras(entradas, 5, etiqueta);
     expect(entradas.map((e) => e.clave)).toEqual(['a', 'b']);
+  });
+});
+
+describe('promedioPorMes (vista Año)', () => {
+  it('total / meses, a centavos', () => {
+    expect(promedioPorMes(78000, 12)).toBe(6500);
+    expect(promedioPorMes(55000, 10)).toBe(5500);
+    expect(promedioPorMes(10000, 3)).toBe(3333.33);
+    expect(promedioPorMes(2, 3)).toBe(0.67);
+  });
+
+  it('un solo mes: el promedio es el total', () => {
+    expect(promedioPorMes(1234.5, 1)).toBe(1234.5);
+  });
+
+  it('0 meses (o menos): sin promedio', () => {
+    expect(promedioPorMes(1000, 0)).toBeNull();
+    expect(promedioPorMes(0, 0)).toBeNull();
+    expect(promedioPorMes(1000, -1)).toBeNull();
+  });
+
+  it('sin gastos: 0', () => {
+    expect(promedioPorMes(0, 12)).toBe(0);
+  });
+});
+
+describe('gastoPorMes (vista Año)', () => {
+  const fila = (m: number, monto: number, cantidad = 1) => ({ mes: `2026-${String(m).padStart(2, '0')}-01`, gastosMonto: monto, gastosCantidad: cantidad });
+  const anio = [1000, 2000, 0, 4000, 500, 0, 0, 0, 0, 0, 0, 0].map((monto, i) => fila(i + 1, monto, monto > 0 ? i + 1 : 0));
+
+  it('solo los meses transcurridos, en orden', () => {
+    expect(gastoPorMes(anio, 5).map((m) => m.mes)).toEqual(['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01', '2026-05-01']);
+    expect(gastoPorMes(anio, 12)).toHaveLength(12);
+    expect(gastoPorMes(anio, 0)).toEqual([]);
+  });
+
+  it('el ancho es relativo al MES DE MAYOR GASTO (ese mide 100), no al total', () => {
+    expect(gastoPorMes(anio, 5).map((m) => m.ancho)).toEqual([25, 50, 0, 100, 12.5]);
+  });
+
+  it('un mes futuro (fuera de los transcurridos) no cuenta para el máximo', () => {
+    const conFuturo = [fila(1, 1000), fila(2, 2000), fila(3, 999999)];
+    expect(gastoPorMes(conFuturo, 2).map((m) => m.ancho)).toEqual([50, 100]);
+  });
+
+  it('monto y cantidad tal cual; un año sin gastos da todo en 0 (sin dividir por 0)', () => {
+    expect(gastoPorMes(anio, 2)).toEqual([
+      { mes: '2026-01-01', monto: 1000, cantidad: 1, ancho: 50 },
+      { mes: '2026-02-01', monto: 2000, cantidad: 2, ancho: 100 },
+    ]);
+    expect(gastoPorMes([fila(1, 0, 0), fila(2, 0, 0)], 2).map((m) => m.ancho)).toEqual([0, 0]);
+  });
+});
+
+describe('totalesDelAnio y mesesYaTranscurridos (vista Año)', () => {
+  const fila = (m: number, over: Partial<ResumenDelMes> = {}): ResumenDelMes => ({
+    mes: `2026-${String(m).padStart(2, '0')}-01`,
+    gastosCantidad: m,
+    gastosMonto: m * 1000,
+    combustibleCargas: 0,
+    combustibleLitros: 0,
+    combustibleMonto: 0,
+    viajesCantidad: 2,
+    viajesKm: 400.5,
+    viajesConIngreso: 2,
+    viajesSinIngreso: 0,
+    viajesIngreso: m * 1500,
+    resultado: m * 500,
+    ...over,
+  });
+  const sinIngreso = { viajesConIngreso: 0, viajesSinIngreso: 2, viajesIngreso: 0, resultado: null };
+
+  it('suma ingresos, gastos, viajes y km de todas las filas; resultado = ingresos − gastos', () => {
+    expect(totalesDelAnio([fila(1), fila(2), fila(3)])).toEqual({
+      ingresos: 9000,
+      gastos: 6000,
+      viajesCantidad: 6,
+      viajesKm: 1201.5,
+      viajesConIngreso: 6,
+      viajesSinIngreso: 0,
+      resultado: 3000,
+    });
+  });
+
+  it('pérdida: resultado negativo', () => {
+    expect(totalesDelAnio([fila(1, { viajesIngreso: 200 })]).resultado).toBe(-800);
+  });
+
+  it('ningún viaje con ingreso en todo el año: resultado null (no "−gastos")', () => {
+    const totales = totalesDelAnio([fila(1, sinIngreso), fila(2, sinIngreso)]);
+    expect(totales.resultado).toBeNull();
+    expect(totales.viajesSinIngreso).toBe(4);
+    expect(totales.gastos).toBe(3000);
+  });
+
+  it('mezcla de meses con y sin ingreso: resta TODOS los gastos del año (no suma los resultados de los meses con ingreso)', () => {
+    const totales = totalesDelAnio([fila(1), fila(2, sinIngreso), fila(3, sinIngreso)]);
+    // Ingresos 1.500; gastos 1.000 + 2.000 + 3.000. La suma de resultados de los meses daría +500.
+    expect(totales.resultado).toBe(-4500);
+    expect(totales.viajesConIngreso).toBe(2);
+    expect(totales.viajesSinIngreso).toBe(4);
+  });
+
+  it('un ingreso 0 cuenta como cargado: hay resultado (= −gastos)', () => {
+    const totales = totalesDelAnio([fila(1, sinIngreso), fila(2, { viajesConIngreso: 1, viajesSinIngreso: 1, viajesIngreso: 0, resultado: -2000 })]);
+    expect(totales.resultado).toBe(-3000);
+  });
+
+  it('a centavos, sin ruido de coma flotante; sin filas, todo 0 y sin resultado', () => {
+    const totales = totalesDelAnio([fila(1, { viajesIngreso: 0.1, gastosMonto: 0.3 }), fila(2, { viajesIngreso: 0.2, gastosMonto: 0 })]);
+    expect(totales.ingresos).toBe(0.3);
+    expect(totales.resultado).toBe(0);
+    expect(totalesDelAnio([])).toEqual({ ingresos: 0, gastos: 0, viajesCantidad: 0, viajesKm: 0, viajesConIngreso: 0, viajesSinIngreso: 0, resultado: null });
+  });
+
+  it('mesesYaTranscurridos: los primeros N, en orden; nunca negativos', () => {
+    const anio = Array.from({ length: 12 }, (_, i) => fila(i + 1));
+    expect(mesesYaTranscurridos(anio, 10).map((f) => f.mes.slice(5, 7))).toEqual(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10']);
+    expect(mesesYaTranscurridos(anio, 12)).toHaveLength(12);
+    expect(mesesYaTranscurridos(anio, 0)).toEqual([]);
+    expect(mesesYaTranscurridos(anio, -3)).toEqual([]);
   });
 });

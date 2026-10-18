@@ -36,6 +36,20 @@ import {
   textoGastosDelViaje,
   textoIngresoDelViaje,
   textoSinViajes,
+  ANIO_ANTERIOR,
+  ANIO_SIGUIENTE,
+  ETIQUETA_SELECTOR_ANIO,
+  ETIQUETAS_VISTA,
+  nombreDelMes,
+  SIN_GASTOS,
+  textoPromedioDeMeses,
+  textoSinGastosDelAnio,
+  SIN_INGRESOS_CARGADOS,
+  SIN_VIAJES,
+  TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO,
+  TEXTO_VIAJES_EN_EL_ANIO,
+  textoIngresosYGastos,
+  textoSinCombustibleDelAnio,
 } from './resumen-pantalla-textos';
 
 /** Los textos usan espacio duro antes del "%" y el signo menos tipográfico: se normalizan para leer las pruebas. */
@@ -210,5 +224,55 @@ describe('textos de la pantalla Resumen: viajes', () => {
     expect(textoGastosDelViaje(1, 500)).toBe('1 gasto: 500,00');
     expect(textoGastosDelViaje(2, 3000)).toBe('2 gastos: 3.000,00');
     expect(SIN_INGRESO).toBe('Sin ingreso');
+  });
+});
+
+describe('textos de la pantalla Resumen: vista Año (gastos)', () => {
+  it('textoSinGastosDelAnio: "Todavía…" en el año en curso, el año a secas si ya pasó', () => {
+    expect(textoSinGastosDelAnio(2026, true)).toBe('Todavía no cargaste gastos en 2026');
+    expect(textoSinGastosDelAnio(2025, false)).toBe('No cargaste gastos en 2025');
+  });
+
+  it('textoPromedioDeMeses: sobre cuántos meses se promedia', () => {
+    expect(textoPromedioDeMeses(10, true)).toBe('promedio de los 10 meses transcurridos');
+    expect(textoPromedioDeMeses(1, true)).toBe('promedio del único mes transcurrido');
+    expect(textoPromedioDeMeses(12, false)).toBe('promedio de los 12 meses del año');
+  });
+
+  it('nombreDelMes: el mes sin el año', () => {
+    expect(nombreDelMes({ year: 2025, month: 1 })).toBe('enero');
+    expect(nombreDelMes({ year: 2026, month: 12 })).toBe('diciembre');
+  });
+
+  it('etiquetas de las vistas y del selector de año', () => {
+    expect(ETIQUETAS_VISTA).toEqual({ mes: 'Mes', anio: 'Año' });
+    expect([ETIQUETA_SELECTOR_ANIO, ANIO_ANTERIOR, ANIO_SIGUIENTE]).toEqual(['Año', 'Año anterior', 'Año siguiente']);
+    expect(SIN_GASTOS).toBe('Sin gastos');
+  });
+});
+
+describe('textos de la pantalla Resumen: vista Año (resultado)', () => {
+  it('textoSinResultado del año: los mismos textos que el Mes, con "año"', () => {
+    expect(textoSinResultado(0, 'año')).toBe('No hay viajes en el año. Carga tus viajes con su ingreso para ver si el año dio ganancia o pérdida.');
+    expect(textoSinResultado(1, 'año')).toBe('Tu viaje del año no tiene el ingreso cargado. Cárgalo para ver si el año dio ganancia o pérdida.');
+    expect(textoSinResultado(20, 'año')).toBe('Ninguno de tus 20 viajes del año tiene el ingreso cargado. Cárgalo para ver si el año dio ganancia o pérdida.');
+    // Sin período: el del Mes (los textos del paso 2 no cambiaron).
+    expect(textoSinResultado(3)).toBe('Ninguno de tus 3 viajes del mes tiene el ingreso cargado. Cárgalo para ver si el mes dio ganancia o pérdida.');
+  });
+
+  it('textoIngresosYGastos y los textos fijos del Año', () => {
+    expect(textoIngresosYGastos(1500, 1000)).toBe('Ingresos 1.500,00 · Gastos 1.000,00');
+    expect(textoIngresosYGastos(0, 0)).toBe('Ingresos 0,00 · Gastos 0,00');
+    expect(SIN_INGRESOS_CARGADOS).toBe('Sin ingresos cargados');
+    expect(SIN_VIAJES).toBe('Sin viajes');
+    expect(TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO).toContain('del año menos todos los gastos del año');
+    expect(TEXTO_VIAJES_EN_EL_ANIO).toContain('mes a mes');
+  });
+});
+
+describe('textos de la pantalla Resumen: vista Año (combustible)', () => {
+  it('textoSinCombustibleDelAnio: en curso / pasado', () => {
+    expect(textoSinCombustibleDelAnio(2026, true)).toBe('Todavía no cargaste combustible en 2026');
+    expect(textoSinCombustibleDelAnio(2025, false)).toBe('No cargaste combustible en 2025');
   });
 });
