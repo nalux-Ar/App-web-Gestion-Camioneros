@@ -5,14 +5,14 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 23 cubren además las migraciones 005 a 014, el vínculo
+-- secciones 11 a 23 cubren además las migraciones 005 a 015, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
 -- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión;
 -- la 012: el camión activo de cada usuario), el endurecimiento de la 013 (el
 -- id de una fila existente no se puede cambiar) y las funciones del Resumen
--- (la 014).
+-- (la 014, con el arreglo de fechas infinitas de la 015).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
@@ -21,9 +21,11 @@
 -- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql,
 -- 009_clientes_client_ref.sql, 010_varios_camiones.sql,
 -- 011_litros_exigen_camion.sql, 012_camion_activo.sql,
--- 013_bloquear_cambio_de_id.sql y 014_resumen.sql
--- (las secciones 11 a 23 usan sus columnas y funciones; la 16 no necesita
--- ninguna migración propia; la 004 no hace falta para este test). NO agregar
+-- 013_bloquear_cambio_de_id.sql, 014_resumen.sql y
+-- 015_resumen_mensual_fechas_finitas.sql
+-- (las secciones 11 a 23 usan sus columnas y funciones; la sección 23 requiere
+-- 014 y 015; la 16 no necesita ninguna migración propia; la 004 no hace falta
+-- para este test). NO agregar
 -- BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
@@ -8064,26 +8066,33 @@ end
 $$;
 
 -- ---------------------------------------------------------------------
--- 23) Resumen: resumen_gastos, resumen_mensual, resumen_combustible y resumen_viajes (migración 014)
+-- 23) Resumen: resumen_gastos, resumen_mensual, resumen_combustible y resumen_viajes (migraciones 014 y 015)
 -- ---------------------------------------------------------------------
--- Requiere 014_resumen.sql aplicada. Prueba las cuatro funciones de la pantalla
+-- Requiere 014_resumen.sql y 015_resumen_mensual_fechas_finitas.sql aplicadas.
+-- Prueba las cuatro funciones de la pantalla
 -- Resumen con números calculados a mano: el gasto desglosado (con el camión
 -- imputado por el viaje), la serie mensual y el resultado del mes, la ganancia
 -- por viaje, y el rendimiento lleno a lleno con todos sus bordes (arrastre
 -- desde el mes anterior, parciales, llenas sin odómetro, tanque_lleno NULL,
 -- retroceso, sin avance, fuera de rango con 0,5 y 15 km/L como bordes válidos,
 -- error de tipeo alto, mismo día, primera carga, tramo que cruza el mes y el
--- año, camión archivado). Además: parámetros (22023 con texto fijo), cuentas
--- aisladas aun con RLS salteada, camión ajeno igual a inexistente, sin cuenta
--- 42501, anon sin EXECUTE, más de 1.000 gastos en un mes, topes de filas de
--- cada función y que no escriben nada.
+-- año, camión archivado). Además: parámetros (22023 con texto fijo, bordes de
+-- los rangos y fechas infinitas), cuentas aisladas aun con RLS salteada, camión
+-- ajeno igual a inexistente, sin cuenta 42501, anon sin EXECUTE, más de 1.000
+-- gastos en un mes, topes de filas de cada función y que no escriben nada.
 --
 -- Datos propios, con uuid fijos y fechas de 2019 (lejos de current_date): cinco
 -- cuentas nuevas con su usuario admin. No usa nada de las secciones anteriores
--- salvo las categorías globales y el usuario sin tenant del setup, y los helpers
--- _test_sqlstate (13) y _test_error_completo (17), así que da lo mismo en el
--- archivo completo y sola (s23.sql). Sin la 014, los casos fallan solos sin
--- cortar el script.
+-- salvo las categorías globales y el usuario sin tenant del setup, y el helper
+-- _test_sqlstate (13), así que da lo mismo en el archivo completo y sola
+-- (s23.sql). Sin la 014, los casos fallan solos sin cortar el script.
+-- statement_timeout: la sección fija un tope local de 20 s por sentencia (de
+-- sobra para los casos pesados de M) y al final restaura el valor anterior.
+-- Las dos llamadas con fecha infinita a resumen_mensual van cada una en su
+-- propia sentencia con un tope de 5 s: sin la 015 no terminan, el tope las
+-- corta (57014, que se atrapa aparte porque "when others" no lo incluye) y
+-- 23.28 falla sin cortar el script. PGlite no respeta statement_timeout: ahí,
+-- sin la 015, el script se cuelga.
 --   A (23...a0, usuario 23...a1): camiones X, W, Y (se archiva con historia) y
 --     J; viajes V0 (ago), V1, V2, V3 (sept), V4 (oct, ingreso 0) y V5 (nov, sin
 --     ingreso); cargas con monto = litros * 1000 y cuatro peajes.
@@ -8097,6 +8106,10 @@ $$;
 -- No hay casos de ON DELETE RESTRICT en esta sección.
 
 select set_config('request.jwt.claims', '', true);
+
+-- Tope por sentencia para toda la sección (se restaura después de 23.39).
+select public._test_set('s23_statement_timeout', current_setting('statement_timeout'));
+set local statement_timeout = '20s';
 
 -- Como postgres, sin JWT (contexto de confianza de la 002: inserta con los transportista_id, id y created_at que
 -- manda). Un solo bloque: si algo falla, no queda nada y 23.0 lo informa.
@@ -8238,7 +8251,7 @@ $$;
 
 do $$
 declare
-  c_caso constant text := '23.1 Migración 014: las 4 funciones existen sin sobrecargas, con sus parámetros y columnas exactas, STABLE, SECURITY INVOKER, search_path fijo, con comentario, y EXECUTE solo para authenticated (anon y public no)';
+  c_caso constant text := '23.1 Migraciones 014 y 015: las 4 funciones existen sin sobrecargas, con sus parámetros y columnas exactas, STABLE, SECURITY INVOKER, search_path fijo, con comentario, y EXECUTE para authenticated, no para anon ni public (service_role conserva el EXECUTE por defecto de la plataforma, que no importa: sin sub en el JWT recibe 42501)';
   v_esp record; v_p record; v_mal text[] := '{}'; v_n int;
 begin
   for v_esp in
@@ -8620,31 +8633,85 @@ exception when others then
 end
 $$;
 
+-- Fechas infinitas en resumen_mensual (015). Sin el arreglo la llamada no termina: cada una va en su propia
+-- sentencia con un tope de 5 s (un statement_timeout corta una sola vez por sentencia) y el 57014 se atrapa
+-- aparte, porque "when others" no incluye query_canceled. 23.28 compara lo que quede guardado.
+set local statement_timeout = '5s';
+
+do $$
+declare v_s text; v_m text;
+begin
+  perform * from public.resumen_mensual('infinity', 1);
+  perform public._test_set('s23_mensual_infinito', 'OK');
+exception
+  when query_canceled then
+    perform public._test_set('s23_mensual_infinito', '57014|cortada por statement_timeout: no termina');
+  when others then
+    get stacked diagnostics v_s = returned_sqlstate, v_m = message_text;
+    perform public._test_set('s23_mensual_infinito', v_s || '||' || v_m);
+end
+$$;
+
+do $$
+declare v_s text; v_m text;
+begin
+  perform * from public.resumen_mensual('-infinity', 1);
+  perform public._test_set('s23_mensual_menos_infinito', 'OK');
+exception
+  when query_canceled then
+    perform public._test_set('s23_mensual_menos_infinito', '57014|cortada por statement_timeout: no termina');
+  when others then
+    get stacked diagnostics v_s = returned_sqlstate, v_m = message_text;
+    perform public._test_set('s23_mensual_menos_infinito', v_s || '||' || v_m);
+end
+$$;
+
+set local statement_timeout = '20s';
+
 do $$
 declare
-  c_caso constant text := '23.28 Parámetros inválidos: 22023 con el texto fijo de cada caso (NULL, desde > hasta, más de 366 días, más de 62 días en viajes, p_meses 0, 25 o NULL, mes NULL)';
+  c_caso constant text := '23.28 Parámetros: 22023 con el texto fijo de cada caso (NULL, desde > hasta, 367 días, 63 días en viajes, p_meses 0, 25 o NULL, mes NULL, mes infinito o -infinito); los bordes se aceptan (366 días en gastos y combustible, 62 en viajes); con fechas infinitas las otras tres funciones fallan enseguida con el SQLSTATE actual (22008 al restar, 22023 si desde > hasta)';
   c_rango constant text := '22023||Período inválido: hacen falta desde y hasta, con desde <= hasta';
   c_366 constant text := '22023||Período inválido: no puede superar 366 días';
   c_62 constant text := '22023||Período inválido: la lista de viajes admite hasta 62 días';
   c_mes constant text := '22023||Período inválido: hace falta un mes de inicio y entre 1 y 24 meses';
-  v_r text[]; v_e text[];
+  v_r text[]; v_e text[]; v_inf text[]; v_inf_e text[]; v_f text;
 begin
   v_r := array[
     public._test_sqlstate($q$select * from public.resumen_gastos(null, '2019-09-30')$q$),
     public._test_sqlstate($q$select * from public.resumen_gastos('2019-09-30', '2019-09-01')$q$),
     public._test_sqlstate($q$select * from public.resumen_gastos('2019-01-01', '2020-01-03')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos('2019-01-01', '2020-01-02')$q$),
     public._test_sqlstate($q$select * from public.resumen_combustible('2019-09-01', null)$q$),
     public._test_sqlstate($q$select * from public.resumen_combustible('2019-09-30', '2019-09-01')$q$),
     public._test_sqlstate($q$select * from public.resumen_combustible('2019-01-01', '2020-01-03')$q$),
+    public._test_sqlstate($q$select * from public.resumen_combustible('2019-01-01', '2020-01-02')$q$),
     public._test_sqlstate($q$select * from public.resumen_viajes(null, null)$q$),
     public._test_sqlstate($q$select * from public.resumen_viajes('2019-09-30', '2019-09-01')$q$),
     public._test_sqlstate($q$select * from public.resumen_viajes('2019-09-01', '2019-11-03')$q$),
+    public._test_sqlstate($q$select * from public.resumen_viajes('2019-09-01', '2019-11-02')$q$),
     public._test_sqlstate($q$select * from public.resumen_mensual('2019-09-01', 0)$q$),
     public._test_sqlstate($q$select * from public.resumen_mensual('2019-09-01', 25)$q$),
     public._test_sqlstate($q$select * from public.resumen_mensual('2019-09-01', null)$q$),
-    public._test_sqlstate($q$select * from public.resumen_mensual(null, 1)$q$)];
-  v_e := array[c_rango, c_rango, c_366, c_rango, c_rango, c_366, c_rango, c_rango, c_62, c_mes, c_mes, c_mes, c_mes];
-  perform public._test_chk(c_caso, v_r = v_e, format('%s', v_r));
+    public._test_sqlstate($q$select * from public.resumen_mensual(null, 1)$q$),
+    public._test_get('s23_mensual_infinito'),
+    public._test_get('s23_mensual_menos_infinito')];
+  -- 367 días (2019-01-01 a 2020-01-03) y 63 (2019-09-01 a 2019-11-03): 22023; 366 y 62: aceptados.
+  v_e := array[c_rango, c_rango, c_366, 'OK', c_rango, c_rango, c_366, 'OK', c_rango, c_rango, c_62, 'OK',
+               c_mes, c_mes, c_mes, c_mes, c_mes, c_mes];
+  -- Las otras tres con fechas infinitas: solo el SQLSTATE (el texto de 22008 es de Postgres).
+  v_inf := '{}';
+  foreach v_f in array array['resumen_gastos', 'resumen_combustible', 'resumen_viajes'] loop
+    v_inf := v_inf
+      || split_part(public._test_sqlstate(format('select * from public.%I(%L, %L)', v_f, '-infinity', '2019-09-30')), '|', 1)
+      || split_part(public._test_sqlstate(format('select * from public.%I(%L, %L)', v_f, '2019-09-01', 'infinity')), '|', 1)
+      || split_part(public._test_sqlstate(format('select * from public.%I(%L, %L)', v_f, '-infinity', 'infinity')), '|', 1)
+      || split_part(public._test_sqlstate(format('select * from public.%I(%L, %L)', v_f, 'infinity', 'infinity')), '|', 1)
+      || split_part(public._test_sqlstate(format('select * from public.%I(%L, %L)', v_f, 'infinity', '2019-09-30')), '|', 1);
+  end loop;
+  v_inf_e := array['22008', '22008', '22008', '22008', '22023', '22008', '22008', '22008', '22008', '22023',
+                   '22008', '22008', '22008', '22008', '22023'];
+  perform public._test_chk(c_caso, v_r = v_e and v_inf = v_inf_e, format('%s | infinitas en gastos, combustible y viajes: %s', v_r, v_inf));
 exception when others then
   perform public._test_chk(c_caso, false, sqlerrm);
 end
@@ -8801,22 +8868,31 @@ $$;
 
 reset role;
 
--- anon: sin EXECUTE.
+-- anon: sin EXECUTE. El 42501 tiene que ser el de permiso sobre la función misma (su mensaje nombra la función:
+-- "permission denied for function resumen_..."), no el de adentro ("No perteneces a ningún transportista", o un
+-- permiso sobre get_mi_transportista_id), que es lo que saldría si anon tuviera EXECUTE. Se busca el nombre de la
+-- función dentro del mensaje en vez de comparar el texto entero, que es de Postgres.
 set local role anon;
 
 do $$
-declare c_caso constant text := '23.37 anon no puede ejecutar ninguna de las cuatro funciones (42501 por permiso)'; v_r text[] := '{}'; v_s text;
+declare c_caso constant text := '23.37 anon no puede ejecutar ninguna de las cuatro funciones: 42501 por permiso sobre la función misma (el mensaje la nombra), no el 42501 de adentro'; v_r text[] := '{}'; v_s text; v_m text; v_f text;
 begin
-  begin perform * from public.resumen_gastos('2019-09-01', '2019-09-30'); v_r := v_r || 'gastos: OK'::text;
-  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('gastos: ' || v_s); end;
-  begin perform * from public.resumen_mensual('2019-09-01', 1); v_r := v_r || 'mensual: OK'::text;
-  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('mensual: ' || v_s); end;
-  begin perform * from public.resumen_combustible('2019-09-01', '2019-09-30'); v_r := v_r || 'combustible: OK'::text;
-  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('combustible: ' || v_s); end;
-  begin perform * from public.resumen_viajes('2019-09-01', '2019-09-30'); v_r := v_r || 'viajes: OK'::text;
-  exception when others then get stacked diagnostics v_s = returned_sqlstate; v_r := v_r || ('viajes: ' || v_s); end;
+  foreach v_f in array array['resumen_gastos', 'resumen_mensual', 'resumen_combustible', 'resumen_viajes'] loop
+    begin
+      if v_f = 'resumen_mensual' then
+        perform * from public.resumen_mensual('2019-09-01', 1);
+      else
+        execute format('select * from public.%I(%L, %L)', v_f, '2019-09-01', '2019-09-30');
+      end if;
+      v_r := v_r || (v_f || ': OK');
+    exception when others then
+      get stacked diagnostics v_s = returned_sqlstate, v_m = message_text;
+      v_r := v_r || (v_f || ': ' || v_s || case when position(v_f in v_m) > 0 then ' por permiso' else ' adentro: ' || v_m end);
+    end;
+  end loop;
   perform public._test_chk(c_caso,
-    v_r = array['gastos: 42501', 'mensual: 42501', 'combustible: 42501', 'viajes: 42501']::text[], format('%s', v_r));
+    v_r = array['resumen_gastos: 42501 por permiso', 'resumen_mensual: 42501 por permiso',
+                'resumen_combustible: 42501 por permiso', 'resumen_viajes: 42501 por permiso']::text[], format('%s', v_r));
 end
 $$;
 
@@ -8826,7 +8902,7 @@ select set_config('request.jwt.claims', '', true);
 -- Como postgres: topes de filas de cada función, para cada cuenta de la sección, con los rangos máximos.
 do $$
 declare
-  c_caso constant text := '23.38 Ninguna función devuelve más filas que su tope documentado, en ninguna cuenta y con los rangos máximos: resumen_gastos <= 1 + categorías + 5 + camiones + 1, resumen_mensual = p_meses (24), resumen_combustible <= camiones de la cuenta, resumen_viajes <= 500 (y M lo alcanza)';
+  c_caso constant text := '23.38 Ninguna función devuelve más filas que su tope documentado, en ninguna cuenta y con los rangos máximos (366 días en gastos y combustible, 24 meses, 62 días en viajes): resumen_gastos <= 1 + categorías + 5 + camiones + 1, resumen_mensual = p_meses (24), resumen_combustible <= camiones de la cuenta, resumen_viajes <= 500 (y M lo alcanza)';
   v_c record; v_cat int; v_cam int; v_g int; v_m int; v_co int; v_v int; v_mal text[] := '{}'; v_vm int;
 begin
   for v_c in
@@ -8840,10 +8916,10 @@ begin
     perform set_config('request.jwt.claims', json_build_object('sub', v_c.uid, 'role', 'authenticated')::text, true);
     select count(*) into v_cat from public.categorias_gasto where transportista_id is null or transportista_id = v_c.tid::uuid;
     select count(*) into v_cam from public.camiones where transportista_id = v_c.tid::uuid;
-    select count(*) into v_g from public.resumen_gastos('2019-01-01', '2020-01-01');
+    select count(*) into v_g from public.resumen_gastos('2019-01-01', '2020-01-02');
     select count(*) into v_m from public.resumen_mensual('2018-10-01', 24);
-    select count(*) into v_co from public.resumen_combustible('2019-01-01', '2020-01-01');
-    select count(*) into v_v from public.resumen_viajes('2019-09-01', '2019-11-01');
+    select count(*) into v_co from public.resumen_combustible('2019-01-01', '2020-01-02');
+    select count(*) into v_v from public.resumen_viajes('2019-09-01', '2019-11-02');
     if v_c.nombre = 'M' then v_vm := v_v; end if;
     if v_g > 1 + v_cat + 5 + v_cam + 1 or v_m <> 24 or v_co > v_cam or v_v > 500 then
       v_mal := v_mal || format('%s: gastos=%s (tope %s) mensual=%s combustible=%s (tope %s) viajes=%s', v_c.nombre, v_g, 1 + v_cat + 5 + v_cam + 1, v_m, v_co, v_cam, v_v);
@@ -8874,6 +8950,9 @@ begin
   perform public._test_chk(c_caso, v_ahora = public._test_get('s23_huella'), format('antes=%s ahora=%s', public._test_get('s23_huella'), v_ahora));
 end
 $$;
+
+-- Vuelve el statement_timeout al valor que tenía antes de la sección.
+select set_config('statement_timeout', public._test_get('s23_statement_timeout'), true);
 
 -- ---------------------------------------------------------------------
 -- 9) Resumen final: SIEMPRE lanza excepción (fuerza el ROLLBACK)
