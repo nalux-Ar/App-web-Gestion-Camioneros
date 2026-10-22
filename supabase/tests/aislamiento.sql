@@ -5,14 +5,15 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 23 cubren además las migraciones 005 a 015, el vínculo
+-- secciones 11 a 24 cubren además las migraciones 005 a 016, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
 -- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión;
 -- la 012: el camión activo de cada usuario), el endurecimiento de la 013 (el
--- id de una fila existente no se puede cambiar) y las funciones del Resumen
--- (la 014, con el arreglo de fechas infinitas de la 015).
+-- id de una fila existente no se puede cambiar), las funciones del Resumen
+-- (la 014, con el arreglo de fechas infinitas de la 015) y los reportes de
+-- problemas (la 016).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
@@ -21,12 +22,12 @@
 -- 007_viajes_client_ref_y_funciones.sql, 008_devoluciones_client_ref.sql,
 -- 009_clientes_client_ref.sql, 010_varios_camiones.sql,
 -- 011_litros_exigen_camion.sql, 012_camion_activo.sql,
--- 013_bloquear_cambio_de_id.sql, 014_resumen.sql y
--- 015_resumen_mensual_fechas_finitas.sql
--- (las secciones 11 a 23 usan sus columnas y funciones; la sección 23 requiere
--- 014 y 015; la 16 no necesita ninguna migración propia; la 004 no hace falta
--- para este test). NO agregar
--- BEGIN/COMMIT: el SQL Editor ya manda todo
+-- 013_bloquear_cambio_de_id.sql, 014_resumen.sql,
+-- 015_resumen_mensual_fechas_finitas.sql y 016_reportes.sql
+-- (las secciones 11 a 24 usan sus columnas y funciones; la sección 23 requiere
+-- 014 y 015, y la 24 requiere 016 (y 014/015 para su caso 24.16); la 16 no
+-- necesita ninguna migración propia; la 004 no hace falta para este test).
+-- NO agregar BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
 -- lanza una excepción a propósito (pasen o no los tests) para forzar el
@@ -49,7 +50,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 23 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 24 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -8953,6 +8954,818 @@ $$;
 
 -- Vuelve el statement_timeout al valor que tenía antes de la sección.
 select set_config('statement_timeout', public._test_get('s23_statement_timeout'), true);
+
+-- ---------------------------------------------------------------------
+-- 24) Reportes de problemas: public.reportes (migración 016)
+-- ---------------------------------------------------------------------
+-- Requiere 016_reportes.sql aplicada (y 014/015 para el caso 24.16, que llama
+-- a las funciones del Resumen). Prueba que las cuentas SOLO insertan reportes
+-- (también con ON CONFLICT, en varias filas, con RETURNING o TRUNCATE, y con
+-- identidades raras o service_role): permiso de INSERT por columna y una sola
+-- policy (de INSERT); los triggers
+-- fuerzan cuenta, usuario, fecha, estado y nota; los checks; el reintento por
+-- client_ref (23505); el tope de 30 reportes por usuario en 24 horas (PT429);
+-- el ON DELETE SET NULL; que la tabla no está en Realtime y que no toca nada
+-- más. Los casos verifican la CAUSA de cada error (permiso, trigger, policy o
+-- check) y no solo el SQLSTATE. Dos casos otorgan permisos de más dentro de
+-- una subtransacción que se deshace, para probar la segunda barrera (los
+-- triggers y la RLS) aun si un GRANT quedara mal.
+--
+-- Cada caso es un bloque DO que corre como postgres y, para actuar como un
+-- usuario, hace "set local role" + request.jwt.claims adentro del bloque y
+-- vuelve a postgres para verificar. Los mensajes de permiso que se comparan
+-- son los de Postgres en inglés ("permission denied for table reportes"), como
+-- en Supabase.
+--
+-- Casos 24.0 a 24.23. Datos propios con uuid fijos (24000000-0000-4000-8000-...):
+-- cuentas A (a0, usuario a1), B (b0/b1), C (c0/c1: tope, con 5 reportes viejos
+-- fuera de la ventana, 4 de hace 25 horas y 1 de hace exactamente 24), D
+-- (d0/d1: INSERT de 30 filas), E (e0, usuarios e1 y e2: tope, con 1 reporte de
+-- e1 de hace 23 horas, dentro de la ventana), F (f0/f1: se borran) y N (90/91:
+-- INSERT de 31 filas). Usa además el usuario sin cuenta del setup y el helper
+-- _test_sqlstate (13), así que da lo mismo en el archivo completo y sola
+-- (s24.sql). Sin la 016, los casos fallan solos sin cortar el script.
+-- El candado por usuario del tope (pg_advisory_xact_lock) solo se nota con dos
+-- transacciones simultáneas, que un script de una sola transacción no puede
+-- armar: 24.23 comprueba que se toma, con qué clave y en qué orden, no la espera.
+-- Repetible con reportes reales en la tabla: todo se filtra por las cuentas, los
+-- usuarios o los client_ref de la sección, y lo que mira la tabla entera (24.7,
+-- 24.21) compara contra lo que había antes (24.0 lo anota).
+
+select set_config('request.jwt.claims', '', true);
+reset role;
+
+-- Como postgres, sin JWT (contexto de confianza de la 002: inserta con el id, la cuenta, el usuario y la fecha que
+-- manda). Un solo bloque: si algo falla, no queda nada y 24.0 lo informa.
+do $$
+begin
+  -- Cuántos reportes había antes de la sección (en la base real puede haber reportes de verdad): los casos que
+  -- miran la tabla entera comparan contra esto, no contra una tabla vacía.
+  perform public._test_set('s24_base', (select count(*) from public.reportes)::text);
+  insert into auth.users (instance_id, id, aud, role, email) values
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-0000000000a1', 'authenticated', 'authenticated', 's24-a@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-0000000000b1', 'authenticated', 'authenticated', 's24-b@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-0000000000c1', 'authenticated', 'authenticated', 's24-c@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-0000000000e1', 'authenticated', 'authenticated', 's24-e1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-0000000000e2', 'authenticated', 'authenticated', 's24-e2@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-0000000000f1', 'authenticated', 'authenticated', 's24-f@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-0000000000d1', 'authenticated', 'authenticated', 's24-d@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '24000000-0000-4000-8000-000000000091', 'authenticated', 'authenticated', 's24-n@test.elan');
+  insert into public.transportistas (id, nombre) values
+    ('24000000-0000-4000-8000-0000000000a0', 'S24 A'), ('24000000-0000-4000-8000-0000000000b0', 'S24 B'),
+    ('24000000-0000-4000-8000-0000000000c0', 'S24 C'), ('24000000-0000-4000-8000-0000000000e0', 'S24 E'),
+    ('24000000-0000-4000-8000-0000000000f0', 'S24 F'), ('24000000-0000-4000-8000-0000000000d0', 'S24 D'),
+    ('24000000-0000-4000-8000-000000000090', 'S24 N');
+  insert into public.miembros (user_id, transportista_id, rol) values
+    ('24000000-0000-4000-8000-0000000000a1', '24000000-0000-4000-8000-0000000000a0', 'admin'),
+    ('24000000-0000-4000-8000-0000000000b1', '24000000-0000-4000-8000-0000000000b0', 'admin'),
+    ('24000000-0000-4000-8000-0000000000c1', '24000000-0000-4000-8000-0000000000c0', 'admin'),
+    ('24000000-0000-4000-8000-0000000000e1', '24000000-0000-4000-8000-0000000000e0', 'admin'),
+    ('24000000-0000-4000-8000-0000000000e2', '24000000-0000-4000-8000-0000000000e0', 'chofer'),
+    ('24000000-0000-4000-8000-0000000000f1', '24000000-0000-4000-8000-0000000000f0', 'admin'),
+    ('24000000-0000-4000-8000-0000000000d1', '24000000-0000-4000-8000-0000000000d0', 'admin'),
+    ('24000000-0000-4000-8000-000000000091', '24000000-0000-4000-8000-000000000090', 'admin');
+  -- C: 4 reportes de hace 25 horas y 1 de hace exactamente 24 (fuera de la ventana: cuenta "> now() - 24 horas").
+  insert into public.reportes (id, created_at, transportista_id, user_id, mensaje, client_ref)
+  select ('24000000-0000-4000-8000-0000000c9' || lpad(g::text, 3, '0'))::uuid,
+         now() - case when g <= 4 then interval '25 hours' else interval '24 hours' end,
+         '24000000-0000-4000-8000-0000000000c0', '24000000-0000-4000-8000-0000000000c1',
+         'Reporte viejo ' || g, ('24000000-0000-4000-8000-0000000c8' || lpad(g::text, 3, '0'))::uuid
+    from generate_series(1, 5) g;
+  -- E: 1 reporte de e1 de hace 23 horas (dentro de la ventana).
+  insert into public.reportes (id, created_at, transportista_id, user_id, mensaje, client_ref) values
+    ('24000000-0000-4000-8000-0000000e9001', now() - interval '23 hours', '24000000-0000-4000-8000-0000000000e0',
+     '24000000-0000-4000-8000-0000000000e1', 'Reporte de hace 23 horas', '24000000-0000-4000-8000-0000000e8001');
+exception when others then
+  perform public._test_set('s24_error_setup', sqlerrm);
+end
+$$;
+
+-- Huella de los datos de negocio (sin reportes), para 24.16.
+select public._test_set('s24_huella', (
+  select md5(string_agg(x, '|' order by x)) from (
+    select to_jsonb(t)::text as x from public.gastos t
+    union all select to_jsonb(t)::text from public.viajes t
+    union all select to_jsonb(t)::text from public.camiones t
+    union all select to_jsonb(t)::text from public.miembros t
+    union all select to_jsonb(t)::text from public.transportistas t
+    union all select to_jsonb(t)::text from public.clientes t
+    union all select to_jsonb(t)::text from public.entregas t
+    union all select to_jsonb(t)::text from public.devoluciones t
+    union all select to_jsonb(t)::text from public.categorias_gasto t) s));
+
+do $$
+declare
+  c_caso constant text := '24.0 setup: siete cuentas de la sección (A, B, C, D, E con dos usuarios, F y N: 8 miembros) y 6 reportes viejos cargados como postgres con su fecha (C: 4 de hace 25 horas y 1 de hace 24; E: 1 de e1 de hace 23); queda anotado cuántos reportes había antes de la sección';
+  v_cu int; v_mi int; v_c int; v_e int;
+begin
+  select count(*) into v_cu from public.transportistas where id::text like '24000000-0000-4000-8000-0000000000_0';
+  select count(*) into v_mi from public.miembros where transportista_id::text like '24000000-0000-4000-8000-0000000000_0';
+  select count(*) into v_c from public.reportes
+   where user_id = '24000000-0000-4000-8000-0000000000c1' and transportista_id = '24000000-0000-4000-8000-0000000000c0'
+     and created_at <= now() - interval '24 hours';
+  select count(*) into v_e from public.reportes
+   where user_id = '24000000-0000-4000-8000-0000000000e1' and created_at = now() - interval '23 hours';
+  perform public._test_chk(c_caso,
+    public._test_get('s24_error_setup') is null and v_cu = 7 and v_mi = 8 and v_c = 5 and v_e = 1
+      and public._test_get('s24_base') is not null,
+    format('error=%s cuentas=%s miembros=%s viejos C=%s E=%s | reportes previos a la sección=%s',
+      public._test_get('s24_error_setup'), v_cu, v_mi, v_c, v_e, public._test_get('s24_base')));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.1 Migración 016: public.reportes con sus 10 columnas (tipo, NOT NULL y default exactos), los 5 checks, las 2 FK con ON DELETE SET NULL (transportistas y auth.users), la PK, el índice único (transportista_id, client_ref) y el de (user_id, created_at), RLS activa, solo 2 triggers, los dos BEFORE INSERT por fila (trg_10 con la función de 002 y trg_11 con fn_completar_reporte: SECURITY DEFINER, VOLATILE, search_path fijo, sin EXECUTE para public, anon ni authenticated) y comentario en la tabla y en las 9 columnas que no son id';
+  v_x text; v_mal text[] := '{}'; v_f record; v_n int;
+begin
+  select string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || case when a.attnotnull then 'nn' else 'null' end
+                    || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-'), ' ' order by a.attnum)
+    into v_x
+    from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+   where a.attrelid = 'public.reportes'::regclass and a.attnum > 0 and not a.attisdropped;
+  if v_x is distinct from 'id:uuid:nn:gen_random_uuid() created_at:timestamp with time zone:nn:now() transportista_id:uuid:null:- user_id:uuid:null:auth.uid() mensaje:text:nn:- pantalla:text:null:- contexto:jsonb:nn:''{}''::jsonb client_ref:uuid:nn:- estado:text:nn:''nuevo''::text nota:text:null:-' then
+    v_mal := v_mal || ('columnas: ' || coalesce(v_x, 'NULL'));
+  end if;
+  select string_agg(conname, ' ' order by conname) into v_x from pg_constraint where conrelid = 'public.reportes'::regclass and contype = 'c';
+  if v_x is distinct from 'reportes_contexto_chk reportes_estado_chk reportes_mensaje_chk reportes_nota_chk reportes_pantalla_chk' then
+    v_mal := v_mal || ('checks: ' || coalesce(v_x, 'NULL'));
+  end if;
+  select string_agg(a.attname || '->' || c.confrelid::regclass::text || ':' || c.confdeltype::text, ' ' order by a.attname) into v_x
+    from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+   where c.conrelid = 'public.reportes'::regclass and c.contype = 'f';
+  if v_x is distinct from 'transportista_id->transportistas:n user_id->auth.users:n' then
+    v_mal := v_mal || ('fk: ' || coalesce(v_x, 'NULL'));
+  end if;
+  select string_agg(indexdef, ' | ' order by indexname) into v_x from pg_indexes where schemaname = 'public' and tablename = 'reportes';
+  if v_x is distinct from 'CREATE UNIQUE INDEX reportes_pkey ON public.reportes USING btree (id) | CREATE UNIQUE INDEX reportes_transportista_client_ref_uidx ON public.reportes USING btree (transportista_id, client_ref) | CREATE INDEX reportes_user_created_idx ON public.reportes USING btree (user_id, created_at)' then
+    v_mal := v_mal || ('índices: ' || coalesce(v_x, 'NULL'));
+  end if;
+  if not (select relrowsecurity from pg_class where oid = 'public.reportes'::regclass) then
+    v_mal := v_mal || 'RLS desactivada'::text;
+  end if;
+  -- tgtype 7 = ROW (1) + BEFORE (2) + INSERT (4).
+  select string_agg(t.tgname || ':' || t.tgtype || ':' || p.proname, ' ' order by t.tgname) into v_x
+    from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+   where t.tgrelid = 'public.reportes'::regclass and not t.tgisinternal;
+  if v_x is distinct from 'trg_10_forzar_transportista_id:7:fn_forzar_transportista_id trg_11_completar_reporte:7:fn_completar_reporte' then
+    v_mal := v_mal || ('triggers: ' || coalesce(v_x, 'NULL'));
+  end if;
+  select p.prosecdef, p.provolatile::text as vol, coalesce(p.proconfig::text like '%search_path=public%', false) as path,
+         has_function_privilege('public', p.oid, 'execute') as pub, has_function_privilege('anon', p.oid, 'execute') as anon,
+         has_function_privilege('authenticated', p.oid, 'execute') as auth, obj_description(p.oid, 'pg_proc') is not null as com
+    into v_f
+    from pg_proc p where p.oid = 'public.fn_completar_reporte()'::regprocedure;
+  if not (v_f.prosecdef and v_f.vol = 'v' and v_f.path and not v_f.pub and not v_f.anon and not v_f.auth and v_f.com) then
+    v_mal := v_mal || format('fn_completar_reporte: %s', to_jsonb(v_f));
+  end if;
+  select count(*) into v_n from pg_attribute a
+   where a.attrelid = 'public.reportes'::regclass and a.attnum > 0 and not a.attisdropped and a.attname <> 'id'
+     and col_description(a.attrelid, a.attnum) is not null;
+  if obj_description('public.reportes'::regclass, 'pg_class') is null or v_n <> 9 then
+    v_mal := v_mal || format('comentarios: tabla=%s columnas=%s', obj_description('public.reportes'::regclass, 'pg_class') is not null, v_n);
+  end if;
+  perform public._test_chk(c_caso, cardinality(v_mal) = 0, format('mal=%s', v_mal));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.2 Permisos en el catálogo: una sola policy en reportes (reportes_insert_propio: INSERT, para authenticated, sin USING, con WITH CHECK sobre get_mi_transportista_id() y auth.uid()); authenticated tiene INSERT solo sobre las columnas mensaje, pantalla, contexto y client_ref, y ningún otro privilegio (ni de tabla ni de columna); anon y public, ninguno';
+  v_pol text; v_n int; v_chk text; v_ins text; v_otros text;
+begin
+  select count(*), string_agg(policyname || ':' || cmd || ':' || roles::text || ':' || coalesce(qual, '-'), ' '), min(with_check)
+    into v_n, v_pol, v_chk
+    from pg_policies where schemaname = 'public' and tablename = 'reportes';
+  select string_agg(a.attname, ' ' order by a.attnum) into v_ins
+    from pg_attribute a
+   where a.attrelid = 'public.reportes'::regclass and a.attnum > 0 and not a.attisdropped
+     and has_column_privilege('authenticated', a.attrelid, a.attnum, 'INSERT');
+  -- Cualquier otro privilegio, de tabla o de columna, de authenticated, anon o public.
+  select string_agg(x, ' ') into v_otros from (
+    select r || ' tabla ' || p as x
+      from unnest(array['authenticated', 'anon', 'public']) r, unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p
+     where has_table_privilege(r, 'public.reportes', p)
+    union all
+    select r || ' ' || a.attname || ' ' || p
+      from unnest(array['authenticated', 'anon', 'public']) r, unnest(array['SELECT', 'INSERT', 'UPDATE', 'REFERENCES']) p,
+           pg_attribute a
+     where a.attrelid = 'public.reportes'::regclass and a.attnum > 0 and not a.attisdropped
+       and has_column_privilege(r, a.attrelid, a.attnum, p)
+       and not (r = 'authenticated' and p = 'INSERT' and a.attname in ('mensaje', 'pantalla', 'contexto', 'client_ref'))) s;
+  perform public._test_chk(c_caso,
+    v_n = 1 and v_pol = 'reportes_insert_propio:INSERT:{authenticated}:-'
+      and v_chk like '%get_mi_transportista_id()%' and v_chk like '%auth.uid()%'
+      and v_ins = 'mensaje pantalla contexto client_ref' and v_otros is null,
+    format('policies=%s (%s) with_check=%s | INSERT de columna=%s | otros privilegios=%s', v_n, v_pol, v_chk, v_ins, v_otros));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.3 A inserta un reporte válido mandando solo mensaje, pantalla, contexto y client_ref: queda con la cuenta y el usuario de A, estado nuevo, nota NULL, created_at = now() del servidor, un id nuevo y el mensaje, la pantalla y el contexto tal cual';
+  v_r text; r record;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_sqlstate($q$insert into public.reportes (mensaje, pantalla, contexto, client_ref) values ('No carga el resumen del mes', '/resumen', '{"version": "1.4.0", "en_linea": true, "errores": []}', '24000000-0000-4000-8000-0000000a0001')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select * into r from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0001';
+  perform public._test_chk(c_caso,
+    v_r = 'OK' and r.transportista_id = '24000000-0000-4000-8000-0000000000a0' and r.user_id = '24000000-0000-4000-8000-0000000000a1'
+      and r.estado = 'nuevo' and r.nota is null and r.created_at = now() and r.id is not null
+      and r.mensaje = 'No carga el resumen del mes' and r.pantalla = '/resumen'
+      and r.contexto = '{"version": "1.4.0", "en_linea": true, "errores": []}'::jsonb,
+    format('insert=%s fila=%s', v_r, to_jsonb(r)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.4 Mandar id, created_at, transportista_id, user_id, estado o nota en el INSERT falla por permiso de columna (42501 "permission denied for table reportes", aunque el valor sea el propio o válido) y no se guarda nada';
+  v_col text; v_val text; v_r text[] := '{}'; v_k int := 0; v_n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  for v_col, v_val in
+    select * from (values ('id', 'gen_random_uuid()'), ('created_at', 'now()'),
+                          ('transportista_id', '''24000000-0000-4000-8000-0000000000a0'''),
+                          ('user_id', '''24000000-0000-4000-8000-0000000000a1'''),
+                          ('estado', '''resuelto'''), ('nota', '''nota del cliente''')) as t(c, v)
+  loop
+    v_k := v_k + 1;
+    v_r := v_r || (v_col || ': ' || public._test_sqlstate(format(
+      'insert into public.reportes (mensaje, client_ref, %I) values (%L, %L, %s)',
+      v_col, 'Intento con ' || v_col, '24000000-0000-4000-8000-0000000a010' || v_k, v_val)));
+  end loop;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_n from public.reportes where client_ref::text like '24000000-0000-4000-8000-0000000a010_';
+  perform public._test_chk(c_caso,
+    v_r = array['id: 42501||permission denied for table reportes', 'created_at: 42501||permission denied for table reportes',
+                'transportista_id: 42501||permission denied for table reportes', 'user_id: 42501||permission denied for table reportes',
+                'estado: 42501||permission denied for table reportes', 'nota: 42501||permission denied for table reportes']
+      and v_n = 0,
+    format('%s | guardados=%s', v_r, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.5 Segunda barrera del forzado: aun con permiso de INSERT de más sobre id, created_at, transportista_id, user_id, estado y nota (otorgado en una subtransacción que se deshace), si A manda la cuenta y el usuario de B, otra fecha, estado resuelto, una nota y un id, la fila queda con la cuenta y el usuario de A, created_at = now(), estado nuevo, nota NULL y otro id';
+  v_r text; r record; v_err text; v_queda boolean; v_grant boolean;
+begin
+  begin
+    grant insert (id, created_at, transportista_id, user_id, estado, nota) on public.reportes to authenticated;
+    perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+    set local role authenticated;
+    v_r := public._test_sqlstate($q$insert into public.reportes (id, created_at, transportista_id, user_id, estado, nota, mensaje, client_ref)
+      values ('24000000-0000-4000-8000-0000000a0f00', '2000-01-01', '24000000-0000-4000-8000-0000000000b0', '24000000-0000-4000-8000-0000000000b1',
+              'resuelto', 'nota del cliente', 'Forzado', '24000000-0000-4000-8000-0000000a0f01')$q$);
+    reset role;
+    select * into r from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0f01';
+    raise exception 's24_deshacer';
+  exception when others then
+    if sqlerrm <> 's24_deshacer' then v_err := sqlerrm; end if;
+  end;
+  select exists (select 1 from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0f01') into v_queda;
+  v_grant := has_column_privilege('authenticated', 'public.reportes', 'estado', 'INSERT');
+  perform public._test_chk(c_caso,
+    v_err is null and v_r = 'OK' and r.transportista_id = '24000000-0000-4000-8000-0000000000a0'
+      and r.user_id = '24000000-0000-4000-8000-0000000000a1' and r.created_at = now() and r.estado = 'nuevo'
+      and r.nota is null and r.id <> '24000000-0000-4000-8000-0000000a0f00' and not v_queda and not v_grant,
+    format('error=%s insert=%s fila=%s | quedó la fila=%s | quedó el grant=%s', v_err, v_r, to_jsonb(r), v_queda, v_grant));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.6 Ni A ni B pueden leer, editar ni borrar reportes, tampoco el propio: SELECT (todo o filtrado por el client_ref propio), UPDATE (de estado o de mensaje) y DELETE dan 42501 "permission denied for table reportes", y el reporte de A queda igual';
+  v_r text[] := '{}'; v_e text := '42501||permission denied for table reportes'; r record; v_n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := v_r || public._test_sqlstate($q$select count(*) from public.reportes$q$)
+             || public._test_sqlstate($q$select mensaje from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0001'$q$)
+             || public._test_sqlstate($q$update public.reportes set estado = 'visto' where client_ref = '24000000-0000-4000-8000-0000000a0001'$q$)
+             || public._test_sqlstate($q$update public.reportes set mensaje = 'Editado'$q$)
+             || public._test_sqlstate($q$delete from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0001'$q$);
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000b1","role":"authenticated"}', true);
+  v_r := v_r || public._test_sqlstate($q$select count(*) from public.reportes$q$)
+             || public._test_sqlstate($q$update public.reportes set estado = 'visto'$q$)
+             || public._test_sqlstate($q$delete from public.reportes$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select * into r from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0001';
+  select count(*) into v_n from public.reportes where transportista_id = '24000000-0000-4000-8000-0000000000a0';
+  perform public._test_chk(c_caso,
+    v_r = array[v_e, v_e, v_e, v_e, v_e, v_e, v_e, v_e] and r.estado = 'nuevo' and r.mensaje = 'No carga el resumen del mes' and v_n = 1,
+    format('%s | reporte de A: estado=%s mensaje=%s | reportes de A=%s', v_r, r.estado, r.mensaje, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.7 Segunda barrera de la RLS: aun con SELECT, UPDATE y DELETE de tabla otorgados de más (en una subtransacción que se deshace), A no ve ninguna fila de la tabla (ni las 7 que cargó la sección hasta acá, ni la suya, ni las que hubiera antes), y su UPDATE y su DELETE afectan 0 filas: no hay policy de SELECT, UPDATE ni DELETE';
+  v_base int; v_tot int; v_sel int; v_upd int; v_del int; v_err text; v_tot2 int; v_grant boolean;
+begin
+  -- Las filas que había antes de la sección (24.0) más las 7 de la sección: 6 del setup y la de A de 24.3.
+  v_base := public._test_get('s24_base')::int;
+  select count(*) into v_tot from public.reportes;
+  begin
+    grant select, update, delete on public.reportes to authenticated;
+    perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+    set local role authenticated;
+    select count(*) into v_sel from public.reportes;
+    update public.reportes set estado = 'visto';
+    get diagnostics v_upd = row_count;
+    delete from public.reportes;
+    get diagnostics v_del = row_count;
+    reset role;
+    raise exception 's24_deshacer';
+  exception when others then
+    if sqlerrm <> 's24_deshacer' then v_err := sqlerrm; end if;
+  end;
+  select count(*) into v_tot2 from public.reportes;
+  v_grant := has_table_privilege('authenticated', 'public.reportes', 'SELECT');
+  perform public._test_chk(c_caso,
+    v_err is null and v_tot = v_base + 7 and v_sel = 0 and v_upd = 0 and v_del = 0 and v_tot2 = v_tot and not v_grant,
+    format('error=%s | filas en la tabla=%s (previas=%s + 7 de la sección) | A ve=%s, actualiza=%s, borra=%s | después=%s | quedó el grant=%s',
+      v_err, v_tot, v_base, v_sel, v_upd, v_del, v_tot2, v_grant));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.8 anon no puede insertar (42501 por permiso de tabla) y un usuario sin cuenta tampoco (42501 de trg_10: "No pertenecés a ningún transportista"); no se guarda nada';
+  v_anon text; v_sin text; v_n int;
+begin
+  perform set_config('request.jwt.claims', '', true);
+  set local role anon;
+  v_anon := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Desde anon', '24000000-0000-4000-8000-0000000a0201')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', public._test_get('uid_sin_tenant'), 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_sin := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Sin cuenta', '24000000-0000-4000-8000-0000000a0202')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_n from public.reportes where client_ref in ('24000000-0000-4000-8000-0000000a0201', '24000000-0000-4000-8000-0000000a0202');
+  perform public._test_chk(c_caso,
+    v_anon = '42501||permission denied for table reportes'
+      and v_sin = '42501||No pertenecés a ningún transportista: no se puede crear este registro' and v_n = 0,
+    format('anon=%s | sin cuenta=%s | guardados=%s', v_anon, v_sin, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.9 mensaje: vacío, solo espacios, solo saltos de línea y tabs, y de 2001 caracteres fallan con 23514 reportes_mensaje_chk; 2000 caracteres y uno con espacios alrededor pasan (y se guardan tal cual)';
+  v_r text[] := '{}'; v_c text := '23514|reportes_mensaje_chk'; v_largo int; v_esp text;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('', '24000000-0000-4000-8000-0000000a0301')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('    ', '24000000-0000-4000-8000-0000000a0302')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values (E'\n\t \r\n', '24000000-0000-4000-8000-0000000a0303')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values (repeat('x', 2001), '24000000-0000-4000-8000-0000000a0304')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values (repeat('x', 2000), '24000000-0000-4000-8000-0000000a0305')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('  Se cerró sola  ', '24000000-0000-4000-8000-0000000a0306')$q$)];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select char_length(mensaje) into v_largo from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0305';
+  select mensaje into v_esp from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0306';
+  perform public._test_chk(c_caso,
+    (select array_agg(split_part(x, '|', 1) || '|' || split_part(x, '|', 2) order by o) from unnest(v_r) with ordinality as t(x, o))
+      = array[v_c, v_c, v_c, v_c, 'OK|', 'OK|'] and v_largo = 2000 and v_esp = '  Se cerró sola  ',
+    format('%s | largo guardado=%s | con espacios=%s', v_r, v_largo, v_esp));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.10 pantalla: 301 caracteres falla con 23514 reportes_pantalla_chk; 300 caracteres y sin pantalla (NULL) pasan';
+  v_r text[]; v_c text := '23514|reportes_pantalla_chk'; v_n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_sqlstate($q$insert into public.reportes (mensaje, pantalla, client_ref) values ('P', repeat('p', 301), '24000000-0000-4000-8000-0000000a0401')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, pantalla, client_ref) values ('P', repeat('p', 300), '24000000-0000-4000-8000-0000000a0402')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('P', '24000000-0000-4000-8000-0000000a0403')$q$)];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_n from public.reportes
+   where (client_ref = '24000000-0000-4000-8000-0000000a0402' and char_length(pantalla) = 300)
+      or (client_ref = '24000000-0000-4000-8000-0000000a0403' and pantalla is null);
+  perform public._test_chk(c_caso,
+    (select array_agg(split_part(x, '|', 1) || '|' || split_part(x, '|', 2) order by o) from unnest(v_r) with ordinality as t(x, o))
+      = array[v_c, 'OK|', 'OK|'] and v_n = 2,
+    format('%s | guardados como se esperaba=%s', v_r, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.11 contexto: un array, un string, el JSON null y un objeto de 4001 bytes fallan con 23514 reportes_contexto_chk; SQL NULL falla con 23502 (NOT NULL); un objeto de exactamente 4000 bytes pasa, y sin contexto queda {}';
+  v_r text[]; v_c text := '23514|reportes_contexto_chk'; v_4000 int; v_4001 int; v_n int;
+begin
+  v_4000 := octet_length(jsonb_build_object('x', repeat('y', 3991))::text);
+  v_4001 := octet_length(jsonb_build_object('x', repeat('y', 3992))::text);
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_sqlstate($q$insert into public.reportes (mensaje, contexto, client_ref) values ('C', '[]', '24000000-0000-4000-8000-0000000a0501')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, contexto, client_ref) values ('C', '"texto"', '24000000-0000-4000-8000-0000000a0502')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, contexto, client_ref) values ('C', 'null', '24000000-0000-4000-8000-0000000a0503')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, contexto, client_ref) values ('C', jsonb_build_object('x', repeat('y', 3992)), '24000000-0000-4000-8000-0000000a0504')$q$),
+    split_part(public._test_sqlstate($q$insert into public.reportes (mensaje, contexto, client_ref) values ('C', null, '24000000-0000-4000-8000-0000000a0505')$q$), '|', 1),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, contexto, client_ref) values ('C', jsonb_build_object('x', repeat('y', 3991)), '24000000-0000-4000-8000-0000000a0506')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('C', '24000000-0000-4000-8000-0000000a0507')$q$)];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_n from public.reportes
+   where (client_ref = '24000000-0000-4000-8000-0000000a0506' and octet_length(contexto::text) = 4000)
+      or (client_ref = '24000000-0000-4000-8000-0000000a0507' and contexto = '{}'::jsonb);
+  perform public._test_chk(c_caso,
+    v_4000 = 4000 and v_4001 = 4001
+      and (select array_agg(split_part(x, '|', 1) || '|' || split_part(x, '|', 2) order by o) from unnest(v_r) with ordinality as t(x, o))
+          = array[v_c, v_c, v_c, v_c, '23502|', 'OK|', 'OK|'] and v_n = 2,
+    format('bytes=%s/%s | %s | guardados como se esperaba=%s', v_4000, v_4001, v_r, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.12 client_ref: repetirlo en la misma cuenta da 23505 reportes_transportista_client_ref_uidx (el reintento no duplica); el mismo client_ref en otra cuenta (B) pasa';
+  v_r text[]; v_a int; v_b int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Primer envío', '24000000-0000-4000-8000-0000000a0d01')$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Reintento', '24000000-0000-4000-8000-0000000a0d01')$q$)];
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000b1","role":"authenticated"}', true);
+  v_r := v_r || public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Otra cuenta', '24000000-0000-4000-8000-0000000a0d01')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) filter (where transportista_id = '24000000-0000-4000-8000-0000000000a0' and mensaje = 'Primer envío'),
+         count(*) filter (where transportista_id = '24000000-0000-4000-8000-0000000000b0')
+    into v_a, v_b
+    from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0d01';
+  perform public._test_chk(c_caso,
+    (select array_agg(split_part(x, '|', 1) || '|' || split_part(x, '|', 2) order by o) from unnest(v_r) with ordinality as t(x, o))
+      = array['OK|', '23505|reportes_transportista_client_ref_uidx', 'OK|'] and v_a = 1 and v_b = 1,
+    format('%s | A=%s B=%s', v_r, v_a, v_b));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.13 Tope (C, con 5 reportes de hace 24 horas o más, que no cuentan): 30 reportes nuevos pasan, el 31 falla con PT429 y el texto fijo y no se guarda; reintentar uno ya guardado da 23505 y no el error del tope';
+  v_ok int := 0; v_r text; v_31 text; v_rei text; v_ven int; v_tot int; v_existe boolean;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000c1","role":"authenticated"}', true);
+  set local role authenticated;
+  for g in 1..30 loop
+    v_r := public._test_sqlstate(format('insert into public.reportes (mensaje, client_ref) values (%L, %L)',
+      'Reporte ' || g, '24000000-0000-4000-8000-0000000c' || lpad(g::text, 4, '0')));
+    if v_r = 'OK' then v_ok := v_ok + 1; end if;
+  end loop;
+  v_31 := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Reporte 31', '24000000-0000-4000-8000-0000000c0031')$q$);
+  v_rei := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Reintento del 5', '24000000-0000-4000-8000-0000000c0005')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) filter (where created_at > now() - interval '24 hours'), count(*) into v_ven, v_tot
+    from public.reportes where user_id = '24000000-0000-4000-8000-0000000000c1';
+  select exists (select 1 from public.reportes where client_ref = '24000000-0000-4000-8000-0000000c0031') into v_existe;
+  perform public._test_chk(c_caso,
+    v_ok = 30 and v_31 = 'PT429||Llegaste al límite de 30 reportes en 24 horas. Probá de nuevo más tarde.'
+      and split_part(v_rei, '|', 1) || '|' || split_part(v_rei, '|', 2) = '23505|reportes_transportista_client_ref_uidx'
+      and v_ven = 30 and v_tot = 35 and not v_existe,
+    format('pasaron=%s | 31=%s | reintento=%s | en la ventana=%s total=%s | quedó el 31=%s', v_ok, v_31, v_rei, v_ven, v_tot, v_existe));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.14 El tope es por usuario y la ventana cuenta lo de las últimas 24 horas: e1 (con 1 reporte de hace 23 horas) llega al tope con 29 nuevos y el siguiente da PT429; e2, de la misma cuenta, y B siguen pudiendo';
+  v_ok int := 0; v_r text; v_30 text; v_e2 text; v_b text; v_e1 int; v_e2n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000e1","role":"authenticated"}', true);
+  set local role authenticated;
+  for g in 1..29 loop
+    v_r := public._test_sqlstate(format('insert into public.reportes (mensaje, client_ref) values (%L, %L)',
+      'Reporte ' || g, '24000000-0000-4000-8000-0000000e' || lpad(g::text, 4, '0')));
+    if v_r = 'OK' then v_ok := v_ok + 1; end if;
+  end loop;
+  v_30 := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Reporte 30', '24000000-0000-4000-8000-0000000e0030')$q$);
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000e2","role":"authenticated"}', true);
+  v_e2 := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Del otro usuario', '24000000-0000-4000-8000-0000000e0e21')$q$);
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000b1","role":"authenticated"}', true);
+  v_b := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('De B', '24000000-0000-4000-8000-0000000b0e01')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_e1 from public.reportes where user_id = '24000000-0000-4000-8000-0000000000e1' and created_at > now() - interval '24 hours';
+  select count(*) into v_e2n from public.reportes where user_id = '24000000-0000-4000-8000-0000000000e2' and transportista_id = '24000000-0000-4000-8000-0000000000e0';
+  perform public._test_chk(c_caso,
+    v_ok = 29 and v_30 = 'PT429||Llegaste al límite de 30 reportes en 24 horas. Probá de nuevo más tarde.'
+      and v_e2 = 'OK' and v_b = 'OK' and v_e1 = 30 and v_e2n = 1,
+    format('e1 pasaron=%s | 30=%s | e2=%s | B=%s | e1 en la ventana=%s | e2=%s', v_ok, v_30, v_e2, v_b, v_e1, v_e2n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.15 Como lo manda PostgREST: el INSERT con RETURNING 1 (return=minimal) funciona; pedir la fila de vuelta (RETURNING id, return=representation) da 42501 "permission denied for table reportes" y no guarda nada';
+  v_min text; v_rep text; v_a int; v_b int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_min := public._test_sqlstate($q$with s as (insert into public.reportes (mensaje, client_ref) values ('Por PostgREST', '24000000-0000-4000-8000-0000000a0601') returning 1) select count(*) from s$q$);
+  v_rep := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Con representation', '24000000-0000-4000-8000-0000000a0602') returning id$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_a from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0601';
+  select count(*) into v_b from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0602';
+  perform public._test_chk(c_caso,
+    v_min = 'OK' and v_rep = '42501||permission denied for table reportes' and v_a = 1 and v_b = 0,
+    format('minimal=%s representation=%s | guardados=%s/%s', v_min, v_rep, v_a, v_b));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.16 Los reportes no tocan nada más: la huella de los datos de negocio (9 tablas) es la misma que antes de insertarlos, y para A (con 9 reportes) las funciones del Resumen siguen en cero (gasto total 0, ni gastos ni viajes en el mes, combustible y viajes sin filas)';
+  v_ahora text; v_g text; v_m record; v_c int; v_v int; v_n int;
+begin
+  select md5(string_agg(x, '|' order by x)) into v_ahora from (
+    select to_jsonb(t)::text as x from public.gastos t
+    union all select to_jsonb(t)::text from public.viajes t
+    union all select to_jsonb(t)::text from public.camiones t
+    union all select to_jsonb(t)::text from public.miembros t
+    union all select to_jsonb(t)::text from public.transportistas t
+    union all select to_jsonb(t)::text from public.clientes t
+    union all select to_jsonb(t)::text from public.entregas t
+    union all select to_jsonb(t)::text from public.devoluciones t
+    union all select to_jsonb(t)::text from public.categorias_gasto t) s;
+  select count(*) into v_n from public.reportes where transportista_id = '24000000-0000-4000-8000-0000000000a0';
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  select f.cantidad || '/' || f.monto into v_g from public.resumen_gastos(current_date - 1, current_date + 1) f where f.grupo = 'total';
+  select * into v_m from public.resumen_mensual(current_date, 1);
+  select count(*) into v_c from public.resumen_combustible(current_date - 1, current_date + 1);
+  select count(*) into v_v from public.resumen_viajes(current_date - 1, current_date + 1);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  perform public._test_chk(c_caso,
+    v_ahora = public._test_get('s24_huella') and v_n = 9 and v_g = '0/0.00' and v_m.gastos_cantidad = 0
+      and v_m.viajes_cantidad = 0 and v_c = 0 and v_v = 0,
+    format('huella igual=%s | reportes de A=%s | gastos=%s mensual=%s combustible=%s viajes=%s', v_ahora = public._test_get('s24_huella'), v_n, v_g, to_jsonb(v_m), v_c, v_v));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.17 ON DELETE SET NULL: borrar el usuario de F deja su reporte con user_id NULL (y la cuenta); borrar después la cuenta F deja transportista_id NULL; el reporte sigue con su mensaje, estado y fecha';
+  v_r text; r1 record; r2 record;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000f1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Reporte de F', '24000000-0000-4000-8000-0000000f0001')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  delete from auth.users where id = '24000000-0000-4000-8000-0000000000f1';
+  select * into r1 from public.reportes where client_ref = '24000000-0000-4000-8000-0000000f0001';
+  delete from public.transportistas where id = '24000000-0000-4000-8000-0000000000f0';
+  select * into r2 from public.reportes where client_ref = '24000000-0000-4000-8000-0000000f0001';
+  perform public._test_chk(c_caso,
+    v_r = 'OK' and r1.user_id is null and r1.transportista_id = '24000000-0000-4000-8000-0000000000f0'
+      and r2.user_id is null and r2.transportista_id is null and r2.mensaje = 'Reporte de F' and r2.estado = 'nuevo' and r2.created_at = now(),
+    format('insert=%s | sin usuario=%s | sin cuenta=%s', v_r, to_jsonb(r1), to_jsonb(r2)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.18 reportes no está en ninguna publicación (Realtime no la transmite): pg_publication_tables no la lista, tampoco por una publicación FOR ALL TABLES';
+  v_n int; v_pubs text;
+begin
+  select count(*) into v_n from pg_publication_tables where schemaname = 'public' and tablename = 'reportes';
+  select string_agg(pubname || case when puballtables then ' (todas las tablas)' else '' end, ', ') into v_pubs from pg_publication;
+  perform public._test_chk(c_caso, v_n = 0 and to_regclass('public.reportes') is not null,
+    format('publicaciones que la incluyen=%s | publicaciones de la base=%s', v_n, coalesce(v_pubs, 'ninguna')));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.19 INSERT ... ON CONFLICT: DO NOTHING sin columnas no da error; con un client_ref ya guardado no inserta nada (0 filas, el mensaje nuevo no queda) y con uno nuevo inserta con la cuenta y el usuario forzados; no saltea el tope (C, que está en 30, recibe PT429 con uno nuevo y 0 filas sin error con uno propio ya guardado); con columnas, ON CONSTRAINT o DO UPDATE da 42501 por permiso, y con RETURNING mensaje también';
+  v_e constant text := '42501||permission denied for table reportes';
+  v_n1 int; v_n2 int; v_c0 int; v_r text[]; v_cap text; r record; v_quedan int; v_msj int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  execute $q$insert into public.reportes (mensaje, client_ref) values ('Reintento sin error', '24000000-0000-4000-8000-0000000a0001') on conflict do nothing$q$;
+  get diagnostics v_n1 = row_count;
+  execute $q$insert into public.reportes (mensaje, client_ref) values ('Nuevo con on conflict', '24000000-0000-4000-8000-0000000a0701') on conflict do nothing$q$;
+  get diagnostics v_n2 = row_count;
+  v_r := array[
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Con columnas', '24000000-0000-4000-8000-0000000a0702') on conflict (transportista_id, client_ref) do nothing$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('On constraint', '24000000-0000-4000-8000-0000000a0703') on conflict on constraint reportes_pkey do nothing$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Do update', '24000000-0000-4000-8000-0000000a0001') on conflict (transportista_id, client_ref) do update set mensaje = excluded.mensaje$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Con returning', '24000000-0000-4000-8000-0000000a0704') on conflict do nothing returning mensaje$q$)];
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000c1","role":"authenticated"}', true);
+  v_cap := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Saltear el tope', '24000000-0000-4000-8000-0000000c0701') on conflict do nothing$q$);
+  execute $q$insert into public.reportes (mensaje, client_ref) values ('Reintento en el tope', '24000000-0000-4000-8000-0000000c0001') on conflict do nothing$q$;
+  get diagnostics v_c0 = row_count;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select * into r from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a0701';
+  select count(*) into v_quedan from public.reportes
+   where client_ref in ('24000000-0000-4000-8000-0000000a0702', '24000000-0000-4000-8000-0000000a0703',
+                        '24000000-0000-4000-8000-0000000a0704', '24000000-0000-4000-8000-0000000c0701');
+  select count(*) into v_msj from public.reportes
+   where transportista_id in ('24000000-0000-4000-8000-0000000000a0', '24000000-0000-4000-8000-0000000000c0')
+     and mensaje in ('Reintento sin error', 'Do update', 'Reintento en el tope');
+  perform public._test_chk(c_caso,
+    v_n1 = 0 and v_n2 = 1 and r.transportista_id = '24000000-0000-4000-8000-0000000000a0'
+      and r.user_id = '24000000-0000-4000-8000-0000000000a1' and r.estado = 'nuevo'
+      and v_r = array[v_e, v_e, v_e, v_e]
+      and v_cap = 'PT429||Llegaste al límite de 30 reportes en 24 horas. Probá de nuevo más tarde.'
+      and v_c0 = 0 and v_quedan = 0 and v_msj = 0,
+    format('existente=%s nuevo=%s (%s) | %s | C en el tope: nuevo=%s propio=%s | guardados de más=%s mensajes que no debían quedar=%s',
+      v_n1, v_n2, to_jsonb(r), v_r, v_cap, v_c0, v_quedan, v_msj));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.20 INSERT de varias filas en una sola sentencia (como manda PostgREST con un array): D manda 30 y se guardan las 30 con su cuenta y su usuario; N manda 31 y la sentencia entera falla con PT429 sin guardar ninguna (el tope cuenta fila por fila dentro de la misma sentencia)';
+  v_d text; v_n text; v_cd int; v_cn int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000d1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_d := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) select 'Fila ' || g, ('24000000-0000-4000-8000-0000000d' || lpad(g::text, 4, '0'))::uuid from generate_series(1, 30) g$q$);
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-000000000091","role":"authenticated"}', true);
+  v_n := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) select 'Fila ' || g, ('24000000-0000-4000-8000-00000009' || lpad(g::text, 4, '0'))::uuid from generate_series(1, 31) g$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_cd from public.reportes
+   where user_id = '24000000-0000-4000-8000-0000000000d1' and transportista_id = '24000000-0000-4000-8000-0000000000d0';
+  select count(*) into v_cn from public.reportes
+   where user_id = '24000000-0000-4000-8000-000000000091' or transportista_id = '24000000-0000-4000-8000-000000000090';
+  perform public._test_chk(c_caso,
+    v_d = 'OK' and v_cd = 30 and v_n = 'PT429||Llegaste al límite de 30 reportes en 24 horas. Probá de nuevo más tarde.' and v_cn = 0,
+    format('D (30 filas)=%s guardadas=%s | N (31 filas)=%s guardadas=%s', v_d, v_cd, v_n, v_cn));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.21 Lo que la cuenta no puede aunque tenga INSERT: TRUNCATE da 42501 por permiso, y pedir de vuelta columnas sobre las que sí tiene INSERT (RETURNING client_ref, RETURNING mensaje) también da 42501 sin guardar nada; la tabla queda con las mismas filas';
+  v_e constant text := '42501||permission denied for table reportes';
+  v_antes int; v_despues int; v_r text[]; v_n int;
+begin
+  select count(*) into v_antes from public.reportes;
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_sqlstate($q$truncate public.reportes$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Returning client_ref', '24000000-0000-4000-8000-0000000a0801') returning client_ref$q$),
+    public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Returning mensaje', '24000000-0000-4000-8000-0000000a0802') returning mensaje$q$)];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_despues from public.reportes;
+  select count(*) into v_n from public.reportes
+   where client_ref in ('24000000-0000-4000-8000-0000000a0801', '24000000-0000-4000-8000-0000000a0802');
+  perform public._test_chk(c_caso,
+    v_r = array[v_e, v_e, v_e] and v_antes > 0 and v_despues = v_antes and v_n = 0,
+    format('%s | filas antes=%s después=%s | guardados=%s', v_r, v_antes, v_despues, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.22 Identidades: authenticated sin claims, sin sub, con un sub que no es uuid (22P02) o de un usuario sin cuenta siempre es rechazado y no guarda nada (sin sub, en esta sesión de postgres lo frena la policy; en un request real de PostgREST lo frena antes trg_10, con el texto de la 002); service_role con el sub de un usuario se trata como ese usuario: cuenta, usuario, estado y nota forzados aunque mande otros, y tope aplicado (con el sub de C, PT429)';
+  v_rls constant text := '42501||new row violates row-level security policy for table "reportes"';
+  v_trg constant text := '42501||No pertenecés a ningún transportista: no se puede crear este registro';
+  v_sin_sub text; v_r text[]; v_sr text; v_sr_c text; r record; v_n int;
+begin
+  -- session_user es postgres (o supabase_admin) al correr este script: sin sub, trg_10 entra en su contexto de
+  -- confianza y el que rechaza es el WITH CHECK. Por PostgREST (session_user authenticator) rechaza trg_10.
+  v_sin_sub := case when session_user in ('postgres', 'supabase_admin') then v_rls else v_trg end;
+  set local role authenticated;
+  perform set_config('request.jwt.claims', '', true);
+  v_r := array[public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Sin claims', '24000000-0000-4000-8000-0000000a1001')$q$)];
+  perform set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+  v_r := v_r || public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Sin sub', '24000000-0000-4000-8000-0000000a1002')$q$);
+  perform set_config('request.jwt.claims', '{"sub":"no-es-uuid","role":"authenticated"}', true);
+  v_r := v_r || public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Sub no uuid', '24000000-0000-4000-8000-0000000a1003')$q$);
+  perform set_config('request.jwt.claims', json_build_object('sub', public._test_get('uid_sin_tenant'), 'role', 'authenticated')::text, true);
+  v_r := v_r || public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Sin cuenta', '24000000-0000-4000-8000-0000000a1004')$q$);
+  reset role;
+  set local role service_role;
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000a1","role":"service_role"}', true);
+  v_sr := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref, transportista_id, user_id, estado, nota)
+    values ('Desde service_role', '24000000-0000-4000-8000-0000000a1101', '24000000-0000-4000-8000-0000000000b0',
+            '24000000-0000-4000-8000-0000000000b1', 'resuelto', 'nota')$q$);
+  perform set_config('request.jwt.claims', '{"sub":"24000000-0000-4000-8000-0000000000c1","role":"service_role"}', true);
+  v_sr_c := public._test_sqlstate($q$insert into public.reportes (mensaje, client_ref) values ('Service_role en el tope', '24000000-0000-4000-8000-0000000c1101')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select * into r from public.reportes where client_ref = '24000000-0000-4000-8000-0000000a1101';
+  select count(*) into v_n from public.reportes
+   where client_ref in ('24000000-0000-4000-8000-0000000a1001', '24000000-0000-4000-8000-0000000a1002', '24000000-0000-4000-8000-0000000a1003',
+                        '24000000-0000-4000-8000-0000000a1004', '24000000-0000-4000-8000-0000000c1101');
+  perform public._test_chk(c_caso,
+    v_r[1] = v_sin_sub and v_r[2] = v_sin_sub
+      and split_part(v_r[3], '|', 1) = '22P02' and position('no-es-uuid' in v_r[3]) > 0
+      and v_r[4] = v_trg and v_n = 0
+      and v_sr = 'OK' and r.transportista_id = '24000000-0000-4000-8000-0000000000a0'
+      and r.user_id = '24000000-0000-4000-8000-0000000000a1' and r.estado = 'nuevo' and r.nota is null
+      and v_sr_c = 'PT429||Llegaste al límite de 30 reportes en 24 horas. Probá de nuevo más tarde.',
+    format('session_user=%s | %s | service_role=%s fila=%s | service_role con C=%s | guardados de más=%s',
+      session_user, v_r, v_sr, to_jsonb(r), v_sr_c, v_n));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '24.23 Candado por usuario del tope: fn_completar_reporte toma pg_advisory_xact_lock(hashtextextended(user_id, 0)) después del atajo del reintento y antes de contar; esta transacción tiene tomado (ExclusiveLock) el candado de A, que insertó, y no el del usuario sin cuenta, que nunca llegó a insertar. La espera entre dos INSERT simultáneos no se puede probar en un script de una sola transacción';
+  v_src text; v_reint int; v_lock int; v_count int; v_a boolean; v_sin boolean;
+begin
+  select prosrc into v_src from pg_proc where oid = 'public.fn_completar_reporte()'::regprocedure;
+  v_reint := position('r.client_ref = new.client_ref' in v_src);
+  v_lock := position('perform pg_advisory_xact_lock(hashtextextended(v_uid::text, 0));' in v_src);
+  v_count := position('select count(*) into v_n' in v_src);
+  select exists (
+    select 1 from pg_locks l,
+           (select hashtextextended('24000000-0000-4000-8000-0000000000a1', 0) as k) c
+     where l.locktype = 'advisory' and l.pid = pg_backend_pid() and l.granted and l.mode = 'ExclusiveLock' and l.objsubid = 1
+       and l.classid::text::bigint = (c.k >> 32) & 4294967295 and l.objid::text::bigint = c.k & 4294967295) into v_a;
+  select exists (
+    select 1 from pg_locks l,
+           (select hashtextextended(public._test_get('uid_sin_tenant'), 0) as k) c
+     where l.locktype = 'advisory' and l.pid = pg_backend_pid() and l.objsubid = 1
+       and l.classid::text::bigint = (c.k >> 32) & 4294967295 and l.objid::text::bigint = c.k & 4294967295) into v_sin;
+  perform public._test_chk(c_caso,
+    v_reint > 0 and v_lock > v_reint and v_count > v_lock and v_a and not v_sin,
+    format('posiciones: reintento=%s candado=%s conteo=%s | candado de A=%s | candado del usuario sin cuenta=%s', v_reint, v_lock, v_count, v_a, v_sin));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
 
 -- ---------------------------------------------------------------------
 -- 9) Resumen final: SIEMPRE lanza excepción (fuerza el ROLLBACK)
