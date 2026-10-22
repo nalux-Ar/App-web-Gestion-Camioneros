@@ -5,15 +5,15 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 24 cubren además las migraciones 005 a 016, el vínculo
+-- secciones 11 a 25 cubren además las migraciones 005 a 017, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
 -- (la 010: varios camiones por tenant; la 011: un gasto con litros exige camión;
 -- la 012: el camión activo de cada usuario), el endurecimiento de la 013 (el
 -- id de una fila existente no se puede cambiar), las funciones del Resumen
--- (la 014, con el arreglo de fechas infinitas de la 015) y los reportes de
--- problemas (la 016).
+-- (la 014, con el arreglo de fechas infinitas de la 015), los reportes de
+-- problemas (la 016) y el recorrido de bienvenida (la 017).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
@@ -23,10 +23,12 @@
 -- 009_clientes_client_ref.sql, 010_varios_camiones.sql,
 -- 011_litros_exigen_camion.sql, 012_camion_activo.sql,
 -- 013_bloquear_cambio_de_id.sql, 014_resumen.sql,
--- 015_resumen_mensual_fechas_finitas.sql y 016_reportes.sql
--- (las secciones 11 a 24 usan sus columnas y funciones; la sección 23 requiere
--- 014 y 015, y la 24 requiere 016 (y 014/015 para su caso 24.16); la 16 no
--- necesita ninguna migración propia; la 004 no hace falta para este test).
+-- 015_resumen_mensual_fechas_finitas.sql, 016_reportes.sql y
+-- 017_tour_version_vista.sql
+-- (las secciones 11 a 25 usan sus columnas y funciones; la sección 23 requiere
+-- 014 y 015, la 24 requiere 016 (y 014/015 para su caso 24.16) y la 25
+-- requiere 017; la 16 no necesita ninguna migración propia; la 004 no hace
+-- falta para este test).
 -- NO agregar BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
@@ -50,7 +52,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 24 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 25 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -7013,7 +7015,7 @@ $$;
 
 do $$
 declare
-  c_caso constant text := '21.3 Migración 012: authenticated tiene UPDATE en miembros SOLO sobre (tema, color_acento, camion_activo_id) -ni rol, ni user_id, ni transportista_id, ni updated_at, ni la tabla entera-, ningún INSERT; anon no tiene UPDATE en ninguna columna; el SELECT de authenticated sigue';
+  c_caso constant text := '21.3 Migraciones 012 y 017: authenticated tiene UPDATE en miembros SOLO sobre (tema, color_acento, camion_activo_id y, desde la 017, tour_version_vista) -ni rol, ni user_id, ni transportista_id, ni updated_at, ni la tabla entera-, ningún INSERT; anon no tiene UPDATE en ninguna columna; el SELECT de authenticated sigue';
   v_upd text[]; v_ins int; v_anon int; v_tabla boolean; v_select boolean;
 begin
   select array_agg(a.attname::text order by a.attname) into v_upd
@@ -7030,7 +7032,7 @@ begin
          has_table_privilege('authenticated', 'public.miembros', 'SELECT')
     into v_tabla, v_select;
   perform public._test_chk(c_caso,
-    v_upd = array['camion_activo_id', 'color_acento', 'tema']::text[] and v_ins = 0 and v_anon = 0
+    v_upd = array['camion_activo_id', 'color_acento', 'tema', 'tour_version_vista']::text[] and v_ins = 0 and v_anon = 0
       and v_tabla is false and v_select,
     format('UPDATE de authenticated en=%s | INSERT en %s columnas | UPDATE de anon en %s columnas | UPDATE de tabla=%s SELECT=%s',
       v_upd, v_ins, v_anon, v_tabla, v_select));
@@ -9759,6 +9761,330 @@ begin
   perform public._test_chk(c_caso,
     v_reint > 0 and v_lock > v_reint and v_count > v_lock and v_a and not v_sin,
     format('posiciones: reintento=%s candado=%s conteo=%s | candado de A=%s | candado del usuario sin cuenta=%s', v_reint, v_lock, v_count, v_a, v_sin));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+-- ---------------------------------------------------------------------
+-- 25) Recorrido de bienvenida: miembros.tour_version_vista (migración 017)
+-- ---------------------------------------------------------------------
+-- Requiere 017_tour_version_vista.sql aplicada. Prueba la columna nueva de
+-- miembros: tipo, NOT NULL, default 0 y CHECK de 0 a 1000; GRANT UPDATE por
+-- columna (y nada más); el valor inicial en las filas cargadas antes y en el
+-- miembro que crea create_transportista; el UPDATE condicional del front (no
+-- baja la versión, y repetirlo no falla); que cada usuario cambia solo la
+-- suya; que no habilita cambiar otras columnas; anon; y que el trigger del
+-- camión activo no se mete (con el camión activo archivado igual se marca).
+-- Casos 25.0 a 25.10.
+--
+-- Datos propios con uuid fijos (25000000-0000-4000-8000-...): cuenta A (a0,
+-- admin a1 con un camión activo archivado ca01, y un miembro chofer a2), cuenta
+-- B (b0, admin b1) y un usuario sin cuenta e1 para create_transportista. Usa
+-- además el helper _test_sqlstate (13), así que da lo mismo en el archivo
+-- completo y sola (s25.sql). Repetible en la base real: todo se filtra por los
+-- ids de la sección (ningún caso supone tablas vacías ni totales). Los
+-- mensajes de permiso que se comparan son los de Postgres en inglés
+-- ("permission denied for table miembros"), como en Supabase. Sin la 017, los
+-- casos fallan solos sin cortar el script (25.0 pasa igual: no usa la columna).
+
+select set_config('request.jwt.claims', '', true);
+reset role;
+
+-- Como postgres, sin JWT. Un solo bloque: si algo falla, no queda nada y 25.0 lo informa.
+do $$
+begin
+  insert into auth.users (instance_id, id, aud, role, email) values
+    ('00000000-0000-0000-0000-000000000000', '25000000-0000-4000-8000-0000000000a1', 'authenticated', 'authenticated', 's25-a1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '25000000-0000-4000-8000-0000000000a2', 'authenticated', 'authenticated', 's25-a2@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '25000000-0000-4000-8000-0000000000b1', 'authenticated', 'authenticated', 's25-b1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '25000000-0000-4000-8000-0000000000e1', 'authenticated', 'authenticated', 's25-e1@test.elan');
+  insert into public.transportistas (id, nombre) values
+    ('25000000-0000-4000-8000-0000000000a0', 'S25 A'), ('25000000-0000-4000-8000-0000000000b0', 'S25 B');
+  insert into public.miembros (user_id, transportista_id, rol) values
+    ('25000000-0000-4000-8000-0000000000a1', '25000000-0000-4000-8000-0000000000a0', 'admin'),
+    ('25000000-0000-4000-8000-0000000000a2', '25000000-0000-4000-8000-0000000000a0', 'chofer'),
+    ('25000000-0000-4000-8000-0000000000b1', '25000000-0000-4000-8000-0000000000b0', 'admin');
+  -- Camión activo del admin de A, archivado después de elegirlo (estado válido: 012).
+  insert into public.camiones (id, transportista_id, patente) values
+    ('25000000-0000-4000-8000-00000000ca01', '25000000-0000-4000-8000-0000000000a0', 'S25X');
+  update public.miembros set camion_activo_id = '25000000-0000-4000-8000-00000000ca01'
+   where user_id = '25000000-0000-4000-8000-0000000000a1';
+  update public.camiones set activa = false where id = '25000000-0000-4000-8000-00000000ca01';
+exception when others then
+  perform public._test_set('s25_error_setup', sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.0 setup: dos cuentas de la sección (A con su admin, que tiene su camión activo archivado, y un miembro chofer; B con su admin) y un usuario sin cuenta para create_transportista';
+  v_cu int; v_mi int; v_sin int; v_cam boolean;
+begin
+  select count(*) into v_cu from public.transportistas
+   where id in ('25000000-0000-4000-8000-0000000000a0', '25000000-0000-4000-8000-0000000000b0');
+  select count(*) into v_mi from public.miembros
+   where user_id in ('25000000-0000-4000-8000-0000000000a1', '25000000-0000-4000-8000-0000000000a2', '25000000-0000-4000-8000-0000000000b1');
+  select count(*) into v_sin from auth.users u
+   where u.id = '25000000-0000-4000-8000-0000000000e1'
+     and not exists (select 1 from public.miembros m where m.user_id = u.id);
+  select exists (select 1 from public.miembros m join public.camiones c on c.id = m.camion_activo_id
+                  where m.user_id = '25000000-0000-4000-8000-0000000000a1' and c.activa is false) into v_cam;
+  perform public._test_chk(c_caso,
+    public._test_get('s25_error_setup') is null and v_cu = 2 and v_mi = 3 and v_sin = 1 and v_cam,
+    format('error=%s cuentas=%s miembros=%s usuario sin cuenta=%s camión activo archivado=%s',
+      public._test_get('s25_error_setup'), v_cu, v_mi, v_sin, v_cam));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.1 Migración 017: miembros.tour_version_vista es smallint NOT NULL con default 0, con el CHECK miembros_tour_version_vista_chk (de 0 a 1000) y comentario; los triggers de miembros siguen siendo los mismos tres (trg_10_bloquear_cambio_rol, trg_15_validar_camion_activo y trg_20_set_updated_at)';
+  v_col text; v_chk text; v_com boolean; v_trg text;
+begin
+  select format_type(a.atttypid, a.atttypmod) || ':' || case when a.attnotnull then 'nn' else 'null' end
+         || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-'),
+         col_description(a.attrelid, a.attnum) is not null
+    into v_col, v_com
+    from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+   where a.attrelid = 'public.miembros'::regclass and a.attname = 'tour_version_vista' and not a.attisdropped;
+  select pg_get_constraintdef(oid) into v_chk from pg_constraint
+   where conrelid = 'public.miembros'::regclass and conname = 'miembros_tour_version_vista_chk';
+  select string_agg(tgname, ' ' order by tgname) into v_trg from pg_trigger
+   where tgrelid = 'public.miembros'::regclass and not tgisinternal;
+  perform public._test_chk(c_caso,
+    v_col = 'smallint:nn:0' and v_com
+      and v_chk = 'CHECK (((tour_version_vista >= 0) AND (tour_version_vista <= 1000)))'
+      and v_trg = 'trg_10_bloquear_cambio_rol trg_15_validar_camion_activo trg_20_set_updated_at',
+    format('columna=%s comentario=%s | check=%s | triggers=%s', v_col, v_com, v_chk, v_trg));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.2 Permisos: authenticated tiene UPDATE en miembros solo sobre camion_activo_id, color_acento, tema y tour_version_vista (ningún UPDATE de tabla ni INSERT); anon y public no tienen UPDATE en ninguna columna; el SELECT de authenticated sigue';
+  v_upd text[]; v_ins int; v_otros int; v_tabla boolean; v_select boolean;
+begin
+  select array_agg(a.attname::text order by a.attname) into v_upd
+    from pg_attribute a
+   where a.attrelid = 'public.miembros'::regclass and a.attnum > 0 and not a.attisdropped
+     and has_column_privilege('authenticated', a.attrelid, a.attnum, 'UPDATE');
+  select count(*) into v_ins from pg_attribute a
+   where a.attrelid = 'public.miembros'::regclass and a.attnum > 0 and not a.attisdropped
+     and has_column_privilege('authenticated', a.attrelid, a.attnum, 'INSERT');
+  select count(*) into v_otros from pg_attribute a, unnest(array['anon', 'public']) r
+   where a.attrelid = 'public.miembros'::regclass and a.attnum > 0 and not a.attisdropped
+     and has_column_privilege(r, a.attrelid, a.attnum, 'UPDATE');
+  select has_table_privilege('authenticated', 'public.miembros', 'UPDATE'),
+         has_table_privilege('authenticated', 'public.miembros', 'SELECT')
+    into v_tabla, v_select;
+  perform public._test_chk(c_caso,
+    v_upd = array['camion_activo_id', 'color_acento', 'tema', 'tour_version_vista']::text[]
+      and v_ins = 0 and v_otros = 0 and v_tabla is false and v_select,
+    format('UPDATE de authenticated en=%s | INSERT en %s columnas | UPDATE de anon/public en %s columnas | UPDATE de tabla=%s SELECT=%s',
+      v_upd, v_ins, v_otros, v_tabla, v_select));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.3 Valor inicial 0: los miembros cargados antes (el admin y el chofer de A, el admin de B) quedan en 0, y create_transportista de un usuario nuevo crea su miembro (admin) en 0';
+  v_previos text; v_r text; r record;
+begin
+  select string_agg(tour_version_vista::text, ',' order by user_id) into v_previos from public.miembros
+   where user_id in ('25000000-0000-4000-8000-0000000000a1', '25000000-0000-4000-8000-0000000000a2', '25000000-0000-4000-8000-0000000000b1');
+  perform set_config('request.jwt.claims', '{"sub":"25000000-0000-4000-8000-0000000000e1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_sqlstate($q$select public.create_transportista('S25 Nueva')$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select rol::text as rol, tour_version_vista into r from public.miembros where user_id = '25000000-0000-4000-8000-0000000000e1';
+  perform public._test_chk(c_caso,
+    v_previos = '0,0,0' and v_r = 'OK' and r.rol = 'admin' and r.tour_version_vista = 0,
+    format('previos=%s | create_transportista=%s nuevo=%s', v_previos, v_r, to_jsonb(r)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.4 El admin de A marca el recorrido como visto con el UPDATE condicional del front (versión 1): afecta 1 fila y queda en 1; repetirlo afecta 0 filas sin error; el resto de su fila no cambia';
+  v_antes jsonb; v_despues jsonb; v_n1 int; v_n2 int; v_val int;
+begin
+  select to_jsonb(m) - 'tour_version_vista' - 'updated_at' into v_antes from public.miembros m
+   where m.user_id = '25000000-0000-4000-8000-0000000000a1';
+  perform set_config('request.jwt.claims', '{"sub":"25000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  update public.miembros set tour_version_vista = 1
+   where user_id = '25000000-0000-4000-8000-0000000000a1' and tour_version_vista < 1;
+  get diagnostics v_n1 = row_count;
+  update public.miembros set tour_version_vista = 1
+   where user_id = '25000000-0000-4000-8000-0000000000a1' and tour_version_vista < 1;
+  get diagnostics v_n2 = row_count;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select to_jsonb(m) - 'tour_version_vista' - 'updated_at', m.tour_version_vista into v_despues, v_val from public.miembros m
+   where m.user_id = '25000000-0000-4000-8000-0000000000a1';
+  perform public._test_chk(c_caso,
+    v_n1 = 1 and v_n2 = 0 and v_val = 1 and v_despues = v_antes,
+    format('primera=%s filas, repetida=%s filas, valor=%s | resto igual=%s', v_n1, v_n2, v_val, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.5 La versión no baja con el UPDATE condicional: con 2 guardado, el de un front viejo (versión 1) afecta 0 filas y queda en 2; desde una conexión directa (como postgres, el panel) sí se puede volver a 0';
+  v_n2 int; v_n1 int; v_val int; v_reset int; v_final int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"25000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  update public.miembros set tour_version_vista = 2
+   where user_id = '25000000-0000-4000-8000-0000000000a1' and tour_version_vista < 2;
+  get diagnostics v_n2 = row_count;
+  update public.miembros set tour_version_vista = 1
+   where user_id = '25000000-0000-4000-8000-0000000000a1' and tour_version_vista < 1;
+  get diagnostics v_n1 = row_count;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select tour_version_vista into v_val from public.miembros where user_id = '25000000-0000-4000-8000-0000000000a1';
+  update public.miembros set tour_version_vista = 0 where user_id = '25000000-0000-4000-8000-0000000000a1';
+  get diagnostics v_reset = row_count;
+  select tour_version_vista into v_final from public.miembros where user_id = '25000000-0000-4000-8000-0000000000a1';
+  perform public._test_chk(c_caso,
+    v_n2 = 1 and v_n1 = 0 and v_val = 2 and v_reset = 1 and v_final = 0,
+    format('a 2: %s filas | front viejo a 1: %s filas | valor=%s | vuelta a 0 desde el panel: %s filas, valor=%s', v_n2, v_n1, v_val, v_reset, v_final));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.6 Solo la fila propia: el admin de A no puede cambiar la versión del admin de B ni la del chofer de su misma cuenta (0 filas), y un UPDATE sin filtro le cambia solo la suya (1 fila); B y el chofer quedan en 0';
+  v_b int; v_cho int; v_todo int; v_vals text;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"25000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  update public.miembros set tour_version_vista = 7 where user_id = '25000000-0000-4000-8000-0000000000b1';
+  get diagnostics v_b = row_count;
+  update public.miembros set tour_version_vista = 7 where user_id = '25000000-0000-4000-8000-0000000000a2';
+  get diagnostics v_cho = row_count;
+  update public.miembros set tour_version_vista = 5;
+  get diagnostics v_todo = row_count;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select string_agg(right(user_id::text, 2) || '=' || tour_version_vista, ' ' order by user_id) into v_vals from public.miembros
+   where user_id in ('25000000-0000-4000-8000-0000000000a1', '25000000-0000-4000-8000-0000000000a2', '25000000-0000-4000-8000-0000000000b1');
+  perform public._test_chk(c_caso,
+    v_b = 0 and v_cho = 0 and v_todo = 1 and v_vals = 'a1=5 a2=0 b1=0',
+    format('sobre B=%s filas, sobre el chofer=%s filas, sin filtro=%s filas | valores %s', v_b, v_cho, v_todo, v_vals));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.7 CHECK y NOT NULL: -1 y 1001 fallan con 23514 miembros_tour_version_vista_chk y NULL con 23502, sin guardar nada; los bordes 1000 y 0 pasan';
+  v_r text[]; v_medio int; v_r0 text; v_final int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"25000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_sqlstate($q$update public.miembros set tour_version_vista = 1000 where user_id = '25000000-0000-4000-8000-0000000000a1'$q$),
+    public._test_sqlstate($q$update public.miembros set tour_version_vista = -1 where user_id = '25000000-0000-4000-8000-0000000000a1'$q$),
+    public._test_sqlstate($q$update public.miembros set tour_version_vista = 1001 where user_id = '25000000-0000-4000-8000-0000000000a1'$q$),
+    split_part(public._test_sqlstate($q$update public.miembros set tour_version_vista = null where user_id = '25000000-0000-4000-8000-0000000000a1'$q$), '|', 1)];
+  reset role;
+  select tour_version_vista into v_medio from public.miembros where user_id = '25000000-0000-4000-8000-0000000000a1';
+  set local role authenticated;
+  v_r0 := public._test_sqlstate($q$update public.miembros set tour_version_vista = 0 where user_id = '25000000-0000-4000-8000-0000000000a1'$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select tour_version_vista into v_final from public.miembros where user_id = '25000000-0000-4000-8000-0000000000a1';
+  perform public._test_chk(c_caso,
+    (select array_agg(split_part(x, '|', 1) || '|' || split_part(x, '|', 2) order by o) from unnest(v_r) with ordinality as t(x, o))
+      = array['OK|', '23514|miembros_tour_version_vista_chk', '23514|miembros_tour_version_vista_chk', '23502|']
+      and v_medio = 1000 and v_r0 = 'OK' and v_final = 0,
+    format('%s | valor después de los rechazos=%s | a 0=%s, valor final=%s', v_r, v_medio, v_r0, v_final));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.8 Nombrar en el mismo UPDATE otra columna sin GRANT (rol, transportista_id o updated_at) da 42501 "permission denied for table miembros" y la fila no cambia en nada';
+  v_e constant text := '42501||permission denied for table miembros';
+  v_antes jsonb; v_despues jsonb; v_r text[];
+begin
+  select to_jsonb(m) into v_antes from public.miembros m where m.user_id = '25000000-0000-4000-8000-0000000000a1';
+  perform set_config('request.jwt.claims', '{"sub":"25000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_sqlstate($q$update public.miembros set tour_version_vista = 3, rol = 'chofer' where user_id = '25000000-0000-4000-8000-0000000000a1'$q$),
+    public._test_sqlstate($q$update public.miembros set tour_version_vista = 3, transportista_id = '25000000-0000-4000-8000-0000000000b0' where user_id = '25000000-0000-4000-8000-0000000000a1'$q$),
+    public._test_sqlstate($q$update public.miembros set tour_version_vista = 3, updated_at = now() where user_id = '25000000-0000-4000-8000-0000000000a1'$q$)];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select to_jsonb(m) into v_despues from public.miembros m where m.user_id = '25000000-0000-4000-8000-0000000000a1';
+  perform public._test_chk(c_caso, v_r = array[v_e, v_e, v_e] and v_despues = v_antes,
+    format('%s | fila igual=%s', v_r, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.9 anon no puede cambiar la versión de nadie: 42501 "permission denied for table miembros", y las filas de la sección quedan igual';
+  v_antes text; v_despues text; v_r text;
+begin
+  select string_agg(to_jsonb(m)::text, '|' order by m.user_id) into v_antes from public.miembros m
+   where m.user_id::text like '25000000-0000-4000-8000-0000000000__';
+  perform set_config('request.jwt.claims', '', true);
+  set local role anon;
+  v_r := public._test_sqlstate($q$update public.miembros set tour_version_vista = 9$q$);
+  reset role;
+  select string_agg(to_jsonb(m)::text, '|' order by m.user_id) into v_despues from public.miembros m
+   where m.user_id::text like '25000000-0000-4000-8000-0000000000__';
+  perform public._test_chk(c_caso, v_r = '42501||permission denied for table miembros' and v_despues = v_antes,
+    format('%s | filas de la sección iguales=%s', v_r, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '25.10 Con su camión activo archivado, el admin de A igual marca el recorrido (trg_15_validar_camion_activo solo corre cuando cambia camion_activo_id): 1 fila, queda en 3 y el camión activo sigue siendo el mismo';
+  v_n int; r record;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"25000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  update public.miembros set tour_version_vista = 3
+   where user_id = '25000000-0000-4000-8000-0000000000a1' and tour_version_vista < 3;
+  get diagnostics v_n = row_count;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select m.tour_version_vista, m.camion_activo_id, c.activa into r
+    from public.miembros m left join public.camiones c on c.id = m.camion_activo_id
+   where m.user_id = '25000000-0000-4000-8000-0000000000a1';
+  perform public._test_chk(c_caso,
+    v_n = 1 and r.tour_version_vista = 3 and r.camion_activo_id = '25000000-0000-4000-8000-00000000ca01' and r.activa is false,
+    format('filas=%s | %s', v_n, to_jsonb(r)));
 exception when others then
   perform public._test_chk(c_caso, false, sqlerrm);
 end

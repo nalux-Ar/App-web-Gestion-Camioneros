@@ -348,6 +348,7 @@ export type Database = {
           id: string
           rol: Database["public"]["Enums"]["rol_miembro"]
           tema: string
+          tour_version_vista: number
           transportista_id: string
           updated_at: string
           user_id: string
@@ -359,6 +360,7 @@ export type Database = {
           id?: string
           rol?: Database["public"]["Enums"]["rol_miembro"]
           tema?: string
+          tour_version_vista?: number
           transportista_id: string
           updated_at?: string
           user_id: string
@@ -370,6 +372,7 @@ export type Database = {
           id?: string
           rol?: Database["public"]["Enums"]["rol_miembro"]
           tema?: string
+          tour_version_vista?: number
           transportista_id?: string
           updated_at?: string
           user_id?: string
