@@ -20,6 +20,11 @@ const VARIABLES_REQUERIDAS: readonly string[] = [
   ...(TURNSTILE_ENABLED ? ['VITE_TURNSTILE_SITE_KEY'] : []),
 ];
 
+// Versión desplegada, para "Reportar un problema" (src/lib/version.ts): los primeros 7 caracteres del commit que Vercel
+// pone en el entorno del build (VERCEL_GIT_COMMIT_SHA), o 'local' fuera de Vercel. Solo hex: nada más viaja al bundle.
+const COMMIT = (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7).toLowerCase();
+const APP_VERSION = /^[0-9a-f]{7}$/.test(COMMIT) ? COMMIT : 'local';
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   if (mode === 'production') {
@@ -32,6 +37,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    define: {
+      __APP_VERSION__: JSON.stringify(APP_VERSION),
+    },
     resolve: {
       alias: {
         // import.meta.dirname (Node >=20.11) en vez de __dirname: Vite 8

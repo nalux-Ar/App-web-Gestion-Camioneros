@@ -1,6 +1,7 @@
-import { QueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 
 import { classifyDataError } from '@/lib/data-errors';
+import { operacionDeQueryKey, registrarErrorDeDatos } from '@/lib/errores-recientes';
 
 /**
  * Cliente de TanStack Query de toda la app (un único singleton, montado en
@@ -19,7 +20,23 @@ const QUERY_GC_TIME_MS = 10 * 60_000;
 const MAX_QUERY_RETRIES = 2;
 const MAX_RETRY_DELAY_MS = 8_000;
 
+/** `meta` de una mutación cuyos errores NO van al registro de errores recientes (el envío de un reporte de problema). */
+export const SIN_REGISTRO_DE_ERRORES = { sinRegistroDeErrores: true } as const;
+
 export const queryClient = new QueryClient({
+  // Registro de errores técnicos recientes (src/lib/errores-recientes.ts), para "Reportar un problema": de forma central,
+  // sin tocar cada pantalla. Solo se ANOTA (una lista blanca, nunca el texto del error); no cambia nada de cómo se
+  // manejan los errores. `onError` de la caché corre una vez por consulta fallida (después de sus reintentos) y una vez
+  // por guardado fallido.
+  queryCache: new QueryCache({
+    onError: (error, query) => registrarErrorDeDatos(error, operacionDeQueryKey(query.queryKey)),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      if (mutation.meta?.sinRegistroDeErrores === true) return;
+      registrarErrorDeDatos(error, mutation.options.scope?.id);
+    },
+  }),
   defaultOptions: {
     queries: {
       // 30 s: al volver a una lista (p.ej. de Gastos a Inicio y de vuelta) se

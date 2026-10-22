@@ -391,6 +391,53 @@ export type Database = {
           },
         ]
       }
+      reportes: {
+        Row: {
+          client_ref: string
+          contexto: Json
+          created_at: string
+          estado: string
+          id: string
+          mensaje: string
+          nota: string | null
+          pantalla: string | null
+          transportista_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          client_ref: string
+          contexto?: Json
+          created_at?: string
+          estado?: string
+          id?: string
+          mensaje: string
+          nota?: string | null
+          pantalla?: string | null
+          transportista_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          client_ref?: string
+          contexto?: Json
+          created_at?: string
+          estado?: string
+          id?: string
+          mensaje?: string
+          nota?: string | null
+          pantalla?: string | null
+          transportista_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reportes_transportista_id_fkey"
+            columns: ["transportista_id"]
+            isOneToOne: false
+            referencedRelation: "transportistas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transportistas: {
         Row: {
           created_at: string

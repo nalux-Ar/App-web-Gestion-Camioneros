@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { Outlet } from 'react-router';
 
 import { Spinner } from '@/components/shared/spinner';
+import { useRegistrarUltimaPantalla } from '@/features/reportar/use-registrar-ultima-pantalla';
 import { Header } from './header';
 import { SidebarNav } from './sidebar-nav';
 import { BottomNav } from './bottom-nav';
@@ -12,6 +13,8 @@ import { BottomNav } from './bottom-nav';
  *  navegación queden fijos mientras carga el chunk de cada sección (ver
  *  src/app/router.tsx). */
 export function AppShell() {
+  // Para "Reportar un problema": en qué pantalla se estaba (src/features/reportar/ultima-pantalla.ts).
+  useRegistrarUltimaPantalla();
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <Header />

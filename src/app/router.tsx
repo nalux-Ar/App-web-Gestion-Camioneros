@@ -57,6 +57,7 @@ const CamionFormPage = lazy(() =>
 const ConfiguracionPage = lazy(() =>
   import('@/features/configuracion/configuracion-page').then((m) => ({ default: m.ConfiguracionPage })),
 );
+const ReportarPage = lazy(() => import('@/features/reportar/reportar-page').then((m) => ({ default: m.ReportarPage })));
 
 /** `/reportes?mes=2026-08` -> `/resumen?mes=2026-08` (con `replace`: el "atrás" no vuelve a la ruta vieja). La búsqueda pasa tal
  *  cual: la valida la pantalla (`readResumenFiltro`). */
@@ -153,6 +154,8 @@ export function AppRouter() {
           <Route path="resumen" element={<ResumenPage />} />
           <Route path="reportes" element={<RedirigirAResumen />} />
           <Route path="configuracion" element={<ConfiguracionPage />} />
+          {/* "Reportar un problema": se llega desde el atajo del header y desde Configuración (no está en la barra de abajo). */}
+          <Route path="reportar" element={<ReportarPage />} />
         </Route>
 
         {/* Ruta desconocida -> Inicio (que a su vez, sin sesión, manda a

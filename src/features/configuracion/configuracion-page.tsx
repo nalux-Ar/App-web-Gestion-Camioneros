@@ -23,6 +23,7 @@ import { writeCachedThemePreference } from '@/lib/theme-cache';
 import { useAuth } from '@/features/auth/use-auth';
 import { CamionesCard } from '@/features/camiones/camiones-card';
 import { useMember } from '@/features/member/use-member';
+import { ReportarCard } from '@/features/reportar/reportar-card';
 import { NombreCard } from './nombre-card';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -282,6 +283,9 @@ export function ConfiguracionPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Para avisar de un error o algo raro (también hay un atajo en el header). */}
+      <ReportarCard />
     </div>
   );
 }

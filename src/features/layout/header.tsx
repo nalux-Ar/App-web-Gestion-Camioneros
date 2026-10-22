@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { AlertTriangle, LogOut, Settings, X } from 'lucide-react';
+import { AlertTriangle, LogOut, MessageCircleWarning, Settings, X } from 'lucide-react';
 
 import logoHeader from '@/assets/branding/logo-header.webp';
 import { useAuth } from '@/features/auth/use-auth';
 import { useMember } from '@/features/member/use-member';
+import { ETIQUETA_ATAJO, RUTA_REPORTAR } from '@/features/reportar/reportar-textos';
 
 const SIGN_OUT_FALLBACK_MESSAGE = 'No pudimos cerrar tu sesión. Revisa tu conexión e inténtalo de nuevo.';
 
@@ -17,7 +18,8 @@ const SIGN_OUT_FALLBACK_MESSAGE = 'No pudimos cerrar tu sesión. Revisa tu conex
  *
  * Configuración solo aparece acá en mobile (`md:hidden`): en escritorio ya
  * está como sexto ítem de la barra lateral, y duplicarla sería ruido. El
- * botón de salir sí va siempre en el header, en los dos tamaños.
+ * atajo a "Reportar un problema" y el botón de salir sí van siempre en el
+ * header, en los dos tamaños.
  *
  * Si no se pudo cerrar la sesión (`signOut` devuelve `ok: false`: la sesión
  * sigue viva), se avisa acá abajo en vez de navegar a /ingresar. El aviso usa
@@ -58,6 +60,15 @@ export function Header() {
           ) : null}
         </div>
         <div className="flex items-center gap-1">
+          {/* Atajo a "Reportar un problema", en los dos tamaños (también está la tarjeta en Configuración). */}
+          <Link
+            to={RUTA_REPORTAR}
+            className="flex h-12 w-12 items-center justify-center rounded-md text-brand-plate-foreground transition-colors hover:bg-brand-plate-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-brand-plate"
+            aria-label={ETIQUETA_ATAJO}
+            title={ETIQUETA_ATAJO}
+          >
+            <MessageCircleWarning className="size-5" aria-hidden="true" />
+          </Link>
           <Link
             to="/configuracion"
             className="flex h-12 w-12 items-center justify-center rounded-md text-brand-plate-foreground transition-colors hover:bg-brand-plate-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-brand-plate md:hidden"

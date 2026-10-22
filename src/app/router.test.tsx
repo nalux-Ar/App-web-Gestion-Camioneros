@@ -121,6 +121,10 @@ function installResponder() {
       );
     }
     if (call.table === 'rpc:resumen_combustible' || call.table === 'rpc:resumen_viajes') return ok([]);
+    // Reportar un problema: solo INSERT (sin `.select()`), responde sin filas.
+    if (call.table === 'reportes' && call.ops.some((o) => o.m === 'insert') && !call.ops.some((o) => o.m === 'select')) {
+      return { data: null, error: null, status: 201 };
+    }
     throw new Error(`pedido inesperado: ${call.table} ${call.ops.map((o) => o.m).join('.')}`);
   };
 }
@@ -510,5 +514,117 @@ describe('router: el Resumen (antes "Reportes")', () => {
     await mount('/reportes?mes=2025-03', false);
     await settle(6);
     expect(pedidosDelResumen()).toHaveLength(0);
+  });
+});
+
+describe('router: Reportar un problema', () => {
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+  const pedidosDeReportes = () => h.calls.filter((c) => c.table === 'reportes');
+  const atajo = () => document.querySelector<HTMLAnchorElement>('header a[aria-label="Reportar un problema"]');
+  async function tocar(el: HTMLElement | null | undefined) {
+    if (!el) throw new Error('no se encontró el elemento a tocar');
+    await act(async () => {
+      el.click();
+    });
+    await settle(2);
+  }
+  async function escribirReporte(valor: string) {
+    const campo = document.getElementById('reporte-mensaje') as HTMLTextAreaElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(campo, valor);
+      campo.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  const botonEnviar = () => [...document.querySelectorAll<HTMLButtonElement>('button[type="submit"]')].find((b) => b.textContent === 'Enviar reporte');
+
+  it('/reportar es la pantalla (carga diferida), dentro del layout, y no lee nada de `reportes`', async () => {
+    await mount('/reportar');
+    await until(() => h1() === 'Reportar un problema');
+    expect(h1()).toBe('Reportar un problema');
+    expect(document.querySelector('header')).not.toBeNull();
+    expect(document.getElementById('reporte-mensaje')).not.toBeNull();
+    expect(pedidosDeReportes()).toHaveLength(0);
+  });
+
+  it('está detrás de la sesión: sin sesión no se muestra ni se pide nada', async () => {
+    await mount('/reportar', false);
+    await settle(6);
+    expect(h1()).not.toBe('Reportar un problema');
+    expect(document.getElementById('reporte-mensaje')).toBeNull();
+    expect(pedidosDeReportes()).toHaveLength(0);
+  });
+
+  it('rutas parecidas que no existen caen en Inicio', async () => {
+    for (const ruta of ['/reportar/x', '/reportar/nuevo', '/reporte']) {
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola'));
+      expect(h1(), ruta).toMatch(/^Hola/);
+      await desmontar();
+    }
+  });
+
+  it('el atajo del header: ícono con nombre accesible, 48 px, visible también en escritorio, y lleva a /reportar', async () => {
+    await mount('/');
+    await until(() => h1().startsWith('Hola'));
+    const enlace = atajo()!;
+    expect(enlace.getAttribute('href')).toBe('/reportar');
+    expect(enlace.className).toContain('h-12');
+    expect(enlace.className).toContain('w-12');
+    expect(enlace.className).not.toContain('hidden');
+    expect(enlace.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect([...enlace.closest('header')!.querySelectorAll('a, button')].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Reportar un problema',
+      'Configuración',
+      'Salir',
+    ]);
+    await tocar(enlace);
+    await until(() => h1() === 'Reportar un problema');
+    expect(ubicacion().pathname).toBe('/reportar');
+  });
+
+  it('la tarjeta de Configuración lleva a /reportar', async () => {
+    await mount('/configuracion');
+    await until(() => [...document.querySelectorAll('a')].some((a) => a.textContent?.includes('Reportar un problema')));
+    const enlace = [...document.querySelectorAll<HTMLAnchorElement>('main a')].find((a) => a.textContent?.includes('Reportar un problema'))!;
+    expect(enlace.getAttribute('href')).toBe('/reportar');
+    expect(enlace.closest('header')).toBeNull();
+    await tocar(enlace);
+    await until(() => h1() === 'Reportar un problema');
+    expect(ubicacion().pathname).toBe('/reportar');
+  });
+
+  it('desde el atajo: el reporte lleva la pantalla donde se estaba', async () => {
+    await mount('/gastos?mes=2025-03');
+    await until(() => h1() === 'Gastos');
+    await tocar(atajo());
+    await until(() => document.getElementById('reporte-mensaje') !== null);
+    await escribirReporte('No me deja guardar');
+    await tocar(botonEnviar());
+    await until(() => pedidosDeReportes().length > 0 && document.body.textContent!.includes('Gracias, lo recibimos'));
+    const insert = pedidosDeReportes()[0]!.ops.find((o) => o.m === 'insert')!.args[0] as Record<string, unknown>;
+    expect(insert.pantalla).toBe('/gastos'); // al servidor, solo el nombre de la pantalla
+    expect(pedidosDeReportes()[0]!.ops.map((o) => o.m)).toEqual(['insert', 'abortSignal']);
+    const volver = [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent === 'Volver')!;
+    expect(volver.getAttribute('href')).toBe('/gastos?mes=2025-03');
+  });
+
+  it('desde la tarjeta de Configuración: la pantalla es la de ANTES de Configuración (Configuración no cuenta)', async () => {
+    await mount('/clientes');
+    await until(() => h1() === 'Clientes');
+    await tocar(document.querySelector<HTMLAnchorElement>('header a[aria-label="Configuración"]'));
+    await until(() => [...document.querySelectorAll('main a')].some((a) => a.textContent?.includes('Reportar un problema')));
+    await tocar([...document.querySelectorAll<HTMLAnchorElement>('main a')].find((a) => a.textContent?.includes('Reportar un problema')));
+    await until(() => document.getElementById('reporte-mensaje') !== null);
+    await escribirReporte('Algo raro en clientes');
+    await tocar(botonEnviar());
+    await until(() => pedidosDeReportes().length > 0);
+    expect((pedidosDeReportes()[0]!.ops.find((o) => o.m === 'insert')!.args[0] as Record<string, unknown>).pantalla).toBe('/clientes');
   });
 });

@@ -3,12 +3,23 @@ import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 
+import { limpiarUltimaPantalla } from '@/features/reportar/ultima-pantalla';
+import { limpiarErroresRecientes } from '@/lib/errores-recientes';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_THEME, applyTheme, resetAccentColor } from '@/lib/theme';
 import { clearCachedThemePreference } from '@/lib/theme-cache';
 import { AuthContext, type AuthContextValue, type AuthStatus, type SignOutResult } from './auth-context';
 
 const SIGN_OUT_FAILED_MESSAGE = 'No pudimos cerrar tu sesión. Revisa tu conexión e inténtalo de nuevo.';
+
+/**
+ * Lo que "Reportar un problema" junta en memoria durante la sesión (los errores técnicos recientes y la última pantalla de
+ * trabajo) es del usuario que la usó: se vacía en los mismos momentos que la caché de datos.
+ */
+function limpiarRegistrosDeLaSesion() {
+  limpiarErroresRecientes();
+  limpiarUltimaPantalla();
+}
 
 /**
  * Sesión: `getSession()` inicial + un único listener `onAuthStateChange`
@@ -54,7 +65,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const nextUserId = nextSession?.user.id ?? null;
       const userChanged = nextUserId !== lastUserIdRef.current;
       lastUserIdRef.current = nextUserId;
-      if (nextUserId === null || userChanged) queryClient.clear();
+      if (nextUserId === null || userChanged) {
+        queryClient.clear();
+        limpiarRegistrosDeLaSesion();
+      }
     }
 
     supabase.auth.getSession().then(({ data }) => {
@@ -126,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // porque es el logout manual y lo más delicado: si el evento no llegara,
     // igual no queda nada del usuario que se va. Vaciar dos veces es gratis.
     queryClient.clear();
+    limpiarRegistrosDeLaSesion();
     navigate('/ingresar', { replace: true });
     return { ok: true };
   }, [navigate, queryClient]);

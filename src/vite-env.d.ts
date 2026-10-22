@@ -10,3 +10,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Versión desplegada (7 caracteres del commit, o 'local'): la define `vite.config.ts`. Leerla con `APP_VERSION` (src/lib/version.ts). */
+declare const __APP_VERSION__: string;

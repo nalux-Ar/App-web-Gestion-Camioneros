@@ -2,6 +2,7 @@ import { Component, type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { registrarErrorDeRender } from '@/lib/errores-recientes';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -32,6 +33,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   static getDerivedStateFromError(): ErrorBoundaryState {
     return { hasError: true };
+  }
+
+  /** Se anota en los errores recientes (para "Reportar un problema") SOLO que hubo un error al dibujar: nada del error. */
+  componentDidCatch() {
+    registrarErrorDeRender();
   }
 
   render() {
