@@ -1,9 +1,8 @@
 import { Link } from 'react-router';
-import { Compass } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { pedirRecorrido } from '@/features/ayuda/pedido-recorrido';
+import { AYUDA_INICIO } from '@/features/ayuda/ayuda-pantallas';
+import { BotonAyuda } from '@/features/ayuda/boton-ayuda';
 import { CamionActivoCard } from '@/features/camiones/camion-activo-card';
 import { CargarCamionCard } from '@/features/camiones/cargar-camion-card';
 import { useMember } from '@/features/member/use-member';
@@ -19,9 +18,13 @@ export function InicioPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="break-words text-2xl font-semibold">
-          Hola{member?.transportistaNombre ? `, ${member.transportistaNombre}` : ''}
-        </h1>
+        {/* La "i" de Inicio es el último paso del recorrido (`data-ayuda`); ahí también se repite el recorrido. */}
+        <div className="flex items-center gap-1">
+          <h1 className="min-w-0 break-words text-2xl font-semibold">
+            Hola{member?.transportistaNombre ? `, ${member.transportistaNombre}` : ''}
+          </h1>
+          <BotonAyuda ayuda={AYUDA_INICIO} dataAyuda="ayuda-inicio" conRecorrido />
+        </div>
         <p className="text-muted-foreground">¿Qué quieres hacer hoy?</p>
       </div>
       {/* Solo mientras la cuenta no tiene ningún camión (y solo para el administrador). */}
@@ -41,10 +44,6 @@ export function InicioPage() {
           </Link>
         ))}
       </div>
-      {/* Repite el recorrido de bienvenida (sin guardar nada). Discreto: un botón fantasma al pie, de 48 px. */}
-      <Button type="button" variant="ghost" onClick={pedirRecorrido} className="-ml-4 text-muted-foreground">
-        <Compass aria-hidden="true" /> Ver el recorrido otra vez
-      </Button>
     </div>
   );
 }

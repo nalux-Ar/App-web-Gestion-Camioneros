@@ -3,6 +3,8 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_VIAJE_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { useCamiones } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { useClientes } from '@/features/clientes/use-clientes';
@@ -92,7 +94,7 @@ export function ViajeFormPage({ modo }: ViajeFormPageProps) {
         >
           <ChevronLeft className="size-5" aria-hidden="true" /> {desdeDetalle ? 'Viaje' : 'Viajes'}
         </Link>
-        <h1 className="text-2xl font-semibold">{titulo}</h1>
+        <PageHeader title={titulo} ayuda={AYUDA_VIAJE_FORM} />
       </div>
       {contenido}
     </div>

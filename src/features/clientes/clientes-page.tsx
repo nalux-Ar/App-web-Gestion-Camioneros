@@ -11,6 +11,7 @@ import { FixedActionBar } from '@/components/shared/fixed-action-bar';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_CLIENTES } from '@/features/ayuda/ayuda-pantallas';
 import { mapDataError } from '@/lib/data-errors';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import {
@@ -186,7 +187,7 @@ export function ClientesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Clientes" action={nuevoCliente} actionDesktopOnly />
+      <PageHeader title="Clientes" ayuda={AYUDA_CLIENTES} action={nuevoCliente} actionDesktopOnly />
 
       {aviso ? (
         <Alert role="status" className="border-primary/50 bg-primary/10">

@@ -81,6 +81,8 @@ async function montar(objetivos: string, pasos: readonly PasoTour[] = PASOS, onT
   await act(async () => {
     root.render(<TourAyuda pasos={pasos} onTerminar={onTerminar} esperaMs={esperaMs} />);
   });
+  // El componente revisa los objetivos hasta `esperaMs`: sin esta espera, con la máquina cargada el render no alcanzaba a asentarse.
+  await esperar(esperaMs + 40);
   await asentar();
 }
 

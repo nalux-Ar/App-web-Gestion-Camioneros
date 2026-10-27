@@ -66,11 +66,11 @@ export const TOUR_PASOS: readonly PasoTour[] = [
     siFalta: 'saltar',
   },
   {
-    // La "i" de Inicio llega en el paso 3; mientras no exista, este cierre va centrado.
+    // La "i" de Inicio (con el botón de repetir el recorrido); si no se ve, este cierre va centrado.
     id: 'cierre',
     objetivo: 'ayuda-inicio',
     titulo: 'Listo',
-    texto: 'Eso es todo. Si quieres verlo otra vez, en Inicio tienes «Ver el recorrido otra vez».',
+    texto: 'Eso es todo. Si quieres verlo otra vez, toca esta «i»: ahí está «Ver el recorrido otra vez».',
     siFalta: 'centrado',
   },
 ];

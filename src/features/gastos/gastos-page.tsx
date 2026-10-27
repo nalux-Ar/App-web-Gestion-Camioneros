@@ -10,6 +10,7 @@ import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { MonthPicker } from '@/components/shared/month-picker';
 import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_GASTOS } from '@/features/ayuda/ayuda-pantallas';
 import { SelectField } from '@/components/shared/select-field';
 import { mapDataError } from '@/lib/data-errors';
 import { formatMonthLabel } from '@/lib/dates';
@@ -195,7 +196,7 @@ export function GastosPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Gastos" action={nuevoGasto} actionDesktopOnly />
+      <PageHeader title="Gastos" ayuda={AYUDA_GASTOS} action={nuevoGasto} actionDesktopOnly />
 
       {aviso ? (
         <Alert role="status" className="border-primary/50 bg-primary/10">

@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router';
 
 import { MonthPicker } from '@/components/shared/month-picker';
 import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_RESUMEN } from '@/features/ayuda/ayuda-pantallas';
 import { formatMonthLabel, todayLocal, type YearMonth } from '@/lib/dates';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { ResumenDelAnio } from './resumen-anio';
@@ -42,7 +43,7 @@ export function ResumenPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title={RESUMEN_TITULO} />
+      <PageHeader title={RESUMEN_TITULO} ayuda={AYUDA_RESUMEN} />
       <SelectorDeVista filtro={filtro} />
       {/* `key`: al cambiar de período los bloques se arman de nuevo (sin estados de despliegue del período anterior). */}
       {filtro.vista === 'mes' ? (

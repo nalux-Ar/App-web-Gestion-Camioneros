@@ -503,7 +503,7 @@ describe('Inicio: lo que usa el recorrido de bienvenida', () => {
     expect(objetivos()[0]!.textContent).toContain(titulo);
   });
 
-  it('el botón "Ver el recorrido otra vez" pide el recorrido (sube el contador) y no manda nada a la base', async () => {
+  it('"Ver el recorrido otra vez" (dentro de la ayuda de Inicio, ya no al pie) pide el recorrido (sube el contador) y no manda nada a la base', async () => {
     const { usePedidosDeRecorrido } = await import('@/features/ayuda/pedido-recorrido');
     const visto: { n: number } = { n: -1 };
     function Pedidos() {
@@ -517,10 +517,13 @@ describe('Inicio: lo que usa el recorrido de bienvenida', () => {
     await act(async () => otraRaiz.render(<Pedidos />));
     const antes = visto.n;
     const llamadas = h.calls.length;
+    expect(buttonByText('Ver el recorrido otra vez')).toBeUndefined();
+    await click(document.querySelector<HTMLElement>('button[aria-label="Ayuda de esta pantalla"]'));
+    for (let i = 0; i < 100 && !buttonByText('Ver el recorrido otra vez'); i++) await act(async () => void (await new Promise((r) => setTimeout(r, 20))));
+    expect(buttonByText('Ver el recorrido otra vez')!.type).toBe('button');
     await click(buttonByText('Ver el recorrido otra vez'));
     expect(visto.n).toBe(antes + 1);
     expect(h.calls.length).toBe(llamadas);
-    expect(buttonByText('Ver el recorrido otra vez')!.type).toBe('button');
     await act(async () => otraRaiz.unmount());
     otro.remove();
   });

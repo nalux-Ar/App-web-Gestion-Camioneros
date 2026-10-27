@@ -10,6 +10,7 @@ import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { MonthPicker } from '@/components/shared/month-picker';
 import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_VIAJES } from '@/features/ayuda/ayuda-pantallas';
 import { DevolucionesDelMes } from '@/features/devoluciones/devoluciones-del-mes';
 import { mapDataError } from '@/lib/data-errors';
 import { formatMonthLabel } from '@/lib/dates';
@@ -74,7 +75,7 @@ export function ViajesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Viajes" action={enDevoluciones ? undefined : nuevoViaje} actionDesktopOnly />
+      <PageHeader title="Viajes" ayuda={AYUDA_VIAJES} action={enDevoluciones ? undefined : nuevoViaje} actionDesktopOnly />
 
       <ViajesPestanas filtro={filtro} />
 

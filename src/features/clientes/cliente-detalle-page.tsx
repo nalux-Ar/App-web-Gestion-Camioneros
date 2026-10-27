@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_CLIENTE_DETALLE } from '@/features/ayuda/ayuda-pantallas';
 import { MOTIVO_LABELS } from '@/features/devoluciones/constants';
 import { estadoEditarDesdeCliente, rutaDelViaje, rutaEditarDevolucion } from '@/features/viajes/viaje-navegacion';
 import { mapDataError } from '@/lib/data-errors';
@@ -124,7 +125,7 @@ export function ClienteDetallePage() {
         >
           <ChevronLeft className="size-5" aria-hidden="true" /> Clientes
         </Link>
-        <PageHeader title={cliente ? cliente.nombre : 'Cliente'} />
+        <PageHeader title={cliente ? cliente.nombre : 'Cliente'} ayuda={AYUDA_CLIENTE_DETALLE} />
       </div>
 
       {aviso ? (

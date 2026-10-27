@@ -3,6 +3,8 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_CAMION_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { useMember } from '@/features/member/use-member';
 import { mapDataError } from '@/lib/data-errors';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
@@ -74,7 +76,7 @@ export function CamionFormPage({ modo }: CamionFormPageProps) {
         >
           <ChevronLeft className="size-5" aria-hidden="true" /> Camiones
         </Link>
-        <h1 className="text-2xl font-semibold">{titulo}</h1>
+        <PageHeader title={titulo} ayuda={AYUDA_CAMION_FORM} />
       </div>
       {contenido}
     </div>

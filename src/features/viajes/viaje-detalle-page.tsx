@@ -8,6 +8,7 @@ import { FixedActionBar } from '@/components/shared/fixed-action-bar';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_VIAJE_DETALLE } from '@/features/ayuda/ayuda-pantallas';
 import { LIMITE_ALCANZADO_MESSAGE, SIN_DEVOLUCIONES_MESSAGE } from '@/features/devoluciones/constants';
 import { DevolucionItem } from '@/features/devoluciones/devolucion-item';
 import { useDevolucionesDelViaje } from '@/features/devoluciones/use-devoluciones';
@@ -177,6 +178,7 @@ export function ViajeDetallePage() {
         </Link>
         <PageHeader
           title={viaje ? <Recorrido origen={viaje.origen} destino={viaje.destino} /> : 'Viaje'}
+          ayuda={AYUDA_VIAJE_DETALLE}
           action={cargarGasto}
           actionDesktopOnly
         />

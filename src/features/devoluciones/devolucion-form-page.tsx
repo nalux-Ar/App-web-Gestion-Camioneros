@@ -4,6 +4,8 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_DEVOLUCION_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { estadoDesdeCliente, leerDesdeCliente, rutaDelCliente } from '@/features/clientes/cliente-navegacion';
 import { useClientes } from '@/features/clientes/use-clientes';
 import { useViajeVista } from '@/features/viajes/use-viajes';
@@ -168,7 +170,7 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
         >
           <ChevronLeft className="size-5" aria-hidden="true" /> {enlaceVolver.texto}
         </Link>
-        <h1 className="text-2xl font-semibold">{titulo}</h1>
+        <PageHeader title={titulo} ayuda={AYUDA_DEVOLUCION_FORM} />
       </div>
       {contenido}
     </div>

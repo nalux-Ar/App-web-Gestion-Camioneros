@@ -9,6 +9,7 @@ import { FixedActionBar } from '@/components/shared/fixed-action-bar';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_CAMIONES } from '@/features/ayuda/ayuda-pantallas';
 import { useMember } from '@/features/member/use-member';
 import { mapDataError } from '@/lib/data-errors';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
@@ -149,7 +150,7 @@ export function CamionesPage() {
         >
           <ChevronLeft className="size-5" aria-hidden="true" /> Configuración
         </Link>
-        <PageHeader title="Camiones" action={nuevoCamion ?? undefined} actionDesktopOnly />
+        <PageHeader title="Camiones" ayuda={AYUDA_CAMIONES} action={nuevoCamion ?? undefined} actionDesktopOnly />
       </div>
 
       {aviso ? (

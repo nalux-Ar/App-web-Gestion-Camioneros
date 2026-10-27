@@ -48,6 +48,8 @@ import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context
 import { MemberProvider } from '@/features/member/member-provider';
 // Se monta por la MISMA entrada diferida que usa el AppShell.
 import { DisparadorTourDiferido } from './ayuda-lazy';
+import { AYUDA_INICIO } from './ayuda-pantallas';
+import { BotonAyuda } from './boton-ayuda';
 import { pedirRecorrido } from './pedido-recorrido';
 import type { Rect } from './posicion';
 import { leerTourVistoLocal } from './tour-version';
@@ -104,14 +106,12 @@ function NavFalsa() {
   );
 }
 
-/** Una Inicio falsa: la tarjeta del camión y el botón de repetir el recorrido. */
+/** Una Inicio falsa: la tarjeta del camión y la "i" REAL de Inicio (con "Ver el recorrido otra vez" adentro de su hoja). */
 function InicioFalsa() {
   return (
     <div>
       <div data-ayuda="camion">camión</div>
-      <button type="button" onClick={pedirRecorrido}>
-        Ver el recorrido otra vez
-      </button>
+      <BotonAyuda ayuda={AYUDA_INICIO} dataAyuda="ayuda-inicio" conRecorrido />
     </div>
   );
 }
@@ -165,6 +165,12 @@ async function aparece() {
   return dialogo() !== null;
 }
 const boton = (texto: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === texto);
+/** Abre la hoja de la "i" de Inicio y toca "Ver el recorrido otra vez" adentro. */
+async function pedirDesdeLaAyuda() {
+  await tocar(document.querySelector<HTMLElement>('button[aria-label="Ayuda de esta pantalla"]'));
+  for (let i = 0; i < 100 && !boton('Ver el recorrido otra vez'); i++) await settle(1);
+  await tocar(boton('Ver el recorrido otra vez'));
+}
 async function tocar(el: HTMLElement | undefined | null) {
   if (!el) throw new Error('no se encontró el elemento');
   await act(async () => el.click());
@@ -188,6 +194,7 @@ beforeEach(() => {
   rects.set('nav-viajes', { top: 744, left: 75, width: 75, height: 56 });
   rects.set('nav-gastos', { top: 744, left: 150, width: 75, height: 56 });
   rects.set('camion', { top: 150, left: 16, width: 343, height: 160 });
+  rects.set('ayuda-inicio', { top: 20, left: 300, width: 48, height: 48 });
   Element.prototype.getBoundingClientRect = function (this: Element) {
     const clave = this.getAttribute('data-ayuda');
     const r = (clave && rects.get(clave)) || { top: 0, left: 0, width: 0, height: 0 };
@@ -299,7 +306,7 @@ describe('DisparadorTour: "Ver el recorrido otra vez"', () => {
     versionEnBase = 1;
     await montar('/');
     expect(await aparece()).toBe(false);
-    await tocar(boton('Ver el recorrido otra vez'));
+    await pedirDesdeLaAyuda();
     expect(await aparece()).toBe(true);
     await tocar(boton('Saltar'));
     expect(dialogo()).toBeNull();
@@ -329,14 +336,41 @@ describe('DisparadorTour: "Ver el recorrido otra vez"', () => {
     expect(busquedas.n).toBe(0);
   });
 
+  it('desde la "i": la hoja se cierra, queda UN solo diálogo (el recorrido), la app inerte una sola vez y, al saltar, el foco vuelve a la "i"', async () => {
+    versionEnBase = 1;
+    await montar('/');
+    const i = document.querySelector<HTMLElement>('button[aria-label="Ayuda de esta pantalla"]')!;
+    await pedirDesdeLaAyuda();
+    expect(await aparece()).toBe(true);
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(dialogo()!.querySelector('h2')!.textContent).toBe('Te mostramos la app');
+    expect(document.querySelectorAll('[data-velo]')).toHaveLength(1);
+    expect(app.hasAttribute('inert')).toBe(true);
+    await tocar(boton('Saltar'));
+    expect(dialogo()).toBeNull();
+    expect(app.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement).toBe(i);
+    expect(escrituras()).toHaveLength(0);
+  });
+
+  it('el último paso señala la "i" de Inicio (ya no cae centrado) y su texto dice dónde repetir el recorrido', async () => {
+    await montar('/');
+    expect(await aparece()).toBe(true);
+    for (let n = 0; n < 12 && boton('Siguiente'); n++) await tocar(boton('Siguiente'));
+    expect(dialogo()!.querySelector('h2')!.textContent).toBe('Listo');
+    expect(dialogo()!.textContent).toContain('toca esta «i»');
+    expect(dialogo()!.getAttribute('data-posicion')).not.toBe('centrado');
+    expect(document.querySelector('[data-aro]')).not.toBeNull();
+  });
+
   it('se puede pedir otra vez después de cerrarlo', async () => {
     versionEnBase = 1;
     await montar('/');
-    await tocar(boton('Ver el recorrido otra vez'));
+    await pedirDesdeLaAyuda();
     expect(await aparece()).toBe(true);
     await tocar(boton('Saltar'));
     expect(dialogo()).toBeNull();
-    await tocar(boton('Ver el recorrido otra vez'));
+    await pedirDesdeLaAyuda();
     expect(await aparece()).toBe(true);
   });
 });

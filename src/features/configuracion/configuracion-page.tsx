@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OfflineBanner } from '@/components/shared/offline-banner';
+import { PageHeader } from '@/components/shared/page-header';
 import { Spinner } from '@/components/shared/spinner';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ import {
   type ThemeMode,
 } from '@/lib/theme';
 import { writeCachedThemePreference } from '@/lib/theme-cache';
+import { AYUDA_CONFIGURACION } from '@/features/ayuda/ayuda-pantallas';
 import { useAuth } from '@/features/auth/use-auth';
 import { CamionesCard } from '@/features/camiones/camiones-card';
 import { useMember } from '@/features/member/use-member';
@@ -131,10 +133,7 @@ export function ConfiguracionPage() {
 
   return (
     <div className="max-w-xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Configuración</h1>
-        <p className="text-muted-foreground">Tu cuenta y cómo se ve la app para ti.</p>
-      </div>
+      <PageHeader title="Configuración" description="Tu cuenta y cómo se ve la app para ti." ayuda={AYUDA_CONFIGURACION} />
 
       <OfflineBanner />
 

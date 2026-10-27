@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { BOTON_CERRAR } from './ayuda-textos';
@@ -12,13 +12,15 @@ interface HojaAyudaProps {
   /** Los puntos de la ayuda: textos planos. */
   puntos: readonly string[];
   onCerrar: () => void;
+  /** Un botón al final de la ayuda (p. ej. "Ver el recorrido otra vez" en Inicio). */
+  accion?: ReactNode;
 }
 
 /**
  * La ayuda de una pantalla (la que abre la "i"): el mismo diálogo que el recorrido, sin objetivo. En el celular, hoja
  * abajo; en escritorio, centrada. "Cerrar", Esc o tocar el velo la cierran, y el foco vuelve a la "i".
  */
-export function HojaAyuda({ titulo, puntos, onCerrar }: HojaAyudaProps) {
+export function HojaAyuda({ titulo, puntos, onCerrar, accion }: HojaAyudaProps) {
   const [viewport, setViewport] = useState(leerViewport);
   useEffect(() => {
     const actualizar = () => setViewport(leerViewport());
@@ -44,6 +46,7 @@ export function HojaAyuda({ titulo, puntos, onCerrar }: HojaAyudaProps) {
             <li key={punto}>{punto}</li>
           ))}
         </ul>
+        {accion ? <div className="pt-3">{accion}</div> : null}
       </DialogoAyuda>
     </>
   );

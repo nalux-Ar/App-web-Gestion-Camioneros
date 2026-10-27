@@ -3,6 +3,8 @@ import { ChevronLeft } from 'lucide-react';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
+import { PageHeader } from '@/components/shared/page-header';
+import { AYUDA_GASTO_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { useCamiones } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
 import { useViajeOpcion, useViajesRecientes } from '@/features/viajes/use-viajes';
@@ -127,7 +129,7 @@ export function GastoFormPage({ modo }: GastoFormPageProps) {
         >
           <ChevronLeft className="size-5" aria-hidden="true" /> {desdeViaje ? 'Viaje' : 'Gastos'}
         </Link>
-        <h1 className="text-2xl font-semibold">{titulo}</h1>
+        <PageHeader title={titulo} ayuda={AYUDA_GASTO_FORM} />
       </div>
       {contenido}
     </div>

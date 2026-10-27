@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import type { AyudaPantalla } from '@/features/ayuda/ayuda-pantallas';
+import { BotonAyuda } from '@/features/ayuda/boton-ayuda';
 import { cn } from '@/lib/utils';
 
 interface PageHeaderProps {
@@ -20,14 +22,24 @@ interface PageHeaderProps {
    * `FixedActionBar` fijo abajo (así no hay dos botones iguales a la vista).
    */
   actionDesktopOnly?: boolean;
+  /** La ayuda de la pantalla: pinta la "i" junto al título. Sin esto, no hay "i". */
+  ayuda?: AyudaPantalla;
 }
 
 /** Encabezado de pantalla: título (`h1`) + acción primaria. */
-export function PageHeader({ title, description, action, actionDesktopOnly = false }: PageHeaderProps) {
+export function PageHeader({ title, description, action, actionDesktopOnly = false, ayuda }: PageHeaderProps) {
+  const h1 = <h1 className="min-w-0 break-words text-2xl font-semibold">{title}</h1>;
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 space-y-1">
-        <h1 className="break-words text-2xl font-semibold">{title}</h1>
+        {ayuda ? (
+          <div className="flex items-center gap-1">
+            {h1}
+            <BotonAyuda ayuda={ayuda} />
+          </div>
+        ) : (
+          h1
+        )}
         {description ? <p className="text-muted-foreground">{description}</p> : null}
       </div>
       {action ? (
