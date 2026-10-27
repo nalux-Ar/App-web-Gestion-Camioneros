@@ -9,7 +9,7 @@ import { VeloAyuda } from './velo-ayuda';
 
 export type FinDelTour = 'completo' | 'saltado';
 
-interface TourAyudaProps {
+export interface TourAyudaProps {
   pasos: readonly PasoTour[];
   /** Al tocar "Listo" en el último paso ('completo'), o "Saltar" / Esc ('saltado'). */
   onTerminar: (motivo: FinDelTour) => void;

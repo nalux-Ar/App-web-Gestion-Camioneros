@@ -7,7 +7,7 @@ import { calcularPosicion } from './posicion';
 import { leerViewport } from './use-dialogo-ayuda';
 import { VeloAyuda } from './velo-ayuda';
 
-interface HojaAyudaProps {
+export interface HojaAyudaProps {
   titulo: string;
   /** Los puntos de la ayuda: textos planos. */
   puntos: readonly string[];
