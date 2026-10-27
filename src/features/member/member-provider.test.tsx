@@ -154,7 +154,7 @@ describe('MemberProvider: el camión activo se lee con el miembro', () => {
     expect(lecturasDeMiembros()).toHaveLength(1);
     const lectura = lecturasDeMiembros()[0]!;
     expect(lectura.ops.find((o) => o.m === 'select')!.args).toEqual([
-      'rol, tema, color_acento, transportista_id, camion_activo_id, transportistas(nombre)',
+      'rol, tema, color_acento, transportista_id, camion_activo_id, tour_version_vista, transportistas(nombre)',
     ]);
     expect(lectura.ops.find((o) => o.m === 'eq')!.args).toEqual(['user_id', 'user-a']);
     expect(member().camionActivoId).toBe(CAMION_1);

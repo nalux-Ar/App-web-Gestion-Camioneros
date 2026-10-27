@@ -9,13 +9,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // el AuthProvider es el REAL.
 const h = vi.hoisted(() => ({
   session: null as unknown,
+  /** Si está, `getSession` espera a esta promesa (así el evento INITIAL_SESSION puede llegar antes). */
+  esperaGetSession: null as null | Promise<void>,
   listener: null as null | ((event: string, session: unknown) => void),
 }));
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     auth: {
-      getSession: () => Promise.resolve({ data: { session: h.session }, error: null }),
+      getSession: () => (h.esperaGetSession ?? Promise.resolve()).then(() => ({ data: { session: h.session }, error: null })),
       onAuthStateChange: (callback: (event: string, session: unknown) => void) => {
         h.listener = callback;
         return { data: { subscription: { unsubscribe: () => {} } } };
@@ -30,6 +32,7 @@ import { useAuth } from './use-auth';
 import type { AuthContextValue } from './auth-context';
 import { leerUltimaPantalla, limpiarUltimaPantalla, registrarPantalla } from '@/features/reportar/ultima-pantalla';
 import { erroresRecientes, limpiarErroresRecientes, registrarErrorDeDatos } from '@/lib/errores-recientes';
+import { guardarTourVistoLocal, leerTourVistoLocal } from '@/features/ayuda/tour-version';
 import { queryClient } from '@/lib/query-client';
 
 const sesion = (id: string) => ({ access_token: 't', user: { id, email: `${id}@correo.test` } });
@@ -77,6 +80,7 @@ async function montar() {
 function usarLaApp() {
   registrarErrorDeDatos({ code: '23514', message: 'x' }, 'crear-gasto');
   registrarPantalla('/gastos', '?mes=2026-08');
+  guardarTourVistoLocal('user-a', 1);
 }
 
 async function emitir(evento: string, session: unknown) {
@@ -88,6 +92,8 @@ beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   h.session = sesion('user-a');
   h.listener = null;
+  h.esperaGetSession = null;
+  localStorage.clear();
   limpiarErroresRecientes();
   limpiarUltimaPantalla();
 });
@@ -105,6 +111,7 @@ describe('AuthProvider: limpia lo de "Reportar un problema" junto con la caché'
     await emitir('SIGNED_OUT', null);
     expect(erroresRecientes()).toEqual([]);
     expect(leerUltimaPantalla()).toBeNull();
+    expect(leerTourVistoLocal('user-a')).toBe(0);
   });
 
   it('al cambiar de usuario (otra cuenta en otra pestaña): se vacían', async () => {
@@ -113,6 +120,7 @@ describe('AuthProvider: limpia lo de "Reportar un problema" junto con la caché'
     await emitir('SIGNED_IN', sesion('user-b'));
     expect(erroresRecientes()).toEqual([]);
     expect(leerUltimaPantalla()).toBeNull();
+    expect(leerTourVistoLocal('user-a')).toBe(0);
   });
 
   it('el MISMO usuario re-emitido (volver a la pestaña): NO se vacían', async () => {
@@ -121,6 +129,7 @@ describe('AuthProvider: limpia lo de "Reportar un problema" junto con la caché'
     await emitir('SIGNED_IN', sesion('user-a'));
     expect(erroresRecientes()).toHaveLength(1);
     expect(leerUltimaPantalla()).toBe('/gastos?mes=2026-08');
+    expect(leerTourVistoLocal('user-a')).toBe(1);
   });
 
   it('"Salir" a mano: se vacían aunque el evento no llegue', async () => {
@@ -133,5 +142,65 @@ describe('AuthProvider: limpia lo de "Reportar un problema" junto con la caché'
     expect(resultado).toEqual({ ok: true });
     expect(erroresRecientes()).toEqual([]);
     expect(leerUltimaPantalla()).toBeNull();
+    expect(leerTourVistoLocal('user-a')).toBe(0);
+  });
+});
+
+// La copia local del recorrido (`elan:tour-visto`) vive en localStorage: una RECARGA con la misma sesión no es un cambio de
+// usuario y no la borra (si no, el reintento al arrancar de MemberProvider nunca la encontraría).
+describe('AuthProvider: la copia local del recorrido sobrevive a una recarga', () => {
+  it('recarga con el MISMO usuario ya logueado: la copia local queda (y lo de en memoria se vacía como siempre)', async () => {
+    guardarTourVistoLocal('user-a', 1);
+    registrarErrorDeDatos({ code: '23514', message: 'x' }, 'crear-gasto');
+    await montar();
+    expect(leerTourVistoLocal('user-a')).toBe(1);
+    expect(erroresRecientes()).toEqual([]);
+    // El INITIAL_SESSION / TOKEN_REFRESHED de supabase-js con el mismo usuario tampoco.
+    await emitir('INITIAL_SESSION', sesion('user-a'));
+    await emitir('TOKEN_REFRESHED', sesion('user-a'));
+    expect(leerTourVistoLocal('user-a')).toBe(1);
+  });
+
+  it('recarga en la que el evento INITIAL_SESSION llega ANTES que getSession: tampoco la borra', async () => {
+    guardarTourVistoLocal('user-a', 1);
+    let soltar: () => void = () => {};
+    h.esperaGetSession = new Promise<void>((r) => (soltar = r));
+    await montar();
+    await emitir('INITIAL_SESSION', sesion('user-a'));
+    expect(leerTourVistoLocal('user-a')).toBe(1);
+    await act(async () => soltar());
+    await settle();
+    expect(leerTourVistoLocal('user-a')).toBe(1);
+  });
+
+  it('arranque SIN sesión (la sesión venció con la app cerrada): se borra', async () => {
+    guardarTourVistoLocal('user-a', 1);
+    h.session = null;
+    await montar();
+    expect(localStorage.getItem('elan:tour-visto')).toBeNull();
+  });
+
+  it('después de la recarga, un cierre de sesión real SÍ la borra', async () => {
+    guardarTourVistoLocal('user-a', 1);
+    await montar();
+    expect(leerTourVistoLocal('user-a')).toBe(1);
+    await emitir('SIGNED_OUT', null);
+    expect(localStorage.getItem('elan:tour-visto')).toBeNull();
+  });
+
+  it('después de la recarga, un cambio REAL de usuario SÍ la borra', async () => {
+    guardarTourVistoLocal('user-a', 1);
+    await montar();
+    await emitir('SIGNED_IN', sesion('user-b'));
+    expect(localStorage.getItem('elan:tour-visto')).toBeNull();
+  });
+
+  it('después de la recarga, Salir a mano SÍ la borra', async () => {
+    guardarTourVistoLocal('user-a', 1);
+    await montar();
+    await act(async () => {
+      await capturado.auth!.signOut();
+    });
+    expect(localStorage.getItem('elan:tour-visto')).toBeNull();
   });
 });

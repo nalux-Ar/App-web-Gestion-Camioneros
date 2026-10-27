@@ -63,6 +63,7 @@ export function Header() {
           {/* Atajo a "Reportar un problema", en los dos tamaños (también está la tarjeta en Configuración). */}
           <Link
             to={RUTA_REPORTAR}
+            data-ayuda="reportar"
             className="flex h-12 w-12 items-center justify-center rounded-md text-brand-plate-foreground transition-colors hover:bg-brand-plate-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-brand-plate"
             aria-label={ETIQUETA_ATAJO}
             title={ETIQUETA_ATAJO}
@@ -71,6 +72,7 @@ export function Header() {
           </Link>
           <Link
             to="/configuracion"
+            data-ayuda="nav-configuracion"
             className="flex h-12 w-12 items-center justify-center rounded-md text-brand-plate-foreground transition-colors hover:bg-brand-plate-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-brand-plate md:hidden"
             aria-label="Configuración"
           >

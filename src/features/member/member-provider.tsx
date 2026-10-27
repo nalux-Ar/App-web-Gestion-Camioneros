@@ -12,12 +12,14 @@ import {
 import { clearCachedThemePreference, writeCachedThemePreference } from '@/lib/theme-cache';
 import { useAuth } from '@/features/auth/use-auth';
 import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
+import { guardarTourVistoLocal, leerTourVistoLocal, limpiarTourVistoLocal, normalizarVersion } from '@/features/ayuda/tour-version';
 import type { Enums } from '@/lib/database.types';
 import { isUuid } from '@/lib/uuid';
 import { MemberContext, type MemberContextValue, type MemberInfo, type MemberStatus } from './member-context';
 
-/** Columnas de la ÚNICA lectura de `miembros` al arrancar (el camión activo viaja acá: no hay un pedido aparte). */
-const MEMBER_COLUMNS = 'rol, tema, color_acento, transportista_id, camion_activo_id, transportistas(nombre)' as const;
+/** Columnas de la ÚNICA lectura de `miembros` al arrancar (el camión activo y la versión del recorrido viajan acá: no hay un pedido aparte). */
+const MEMBER_COLUMNS =
+  'rol, tema, color_acento, transportista_id, camion_activo_id, tour_version_vista, transportistas(nombre)' as const;
 
 interface RawMemberRow {
   rol: Enums<'rol_miembro'>;
@@ -26,6 +28,8 @@ interface RawMemberRow {
   transportista_id: string;
   /** `unknown` y opcional a propósito: se valida acá (uuid o nada) y una fila sin la columna se lee como "ninguno". */
   camion_activo_id?: unknown;
+  /** Idem: sin la columna, o con cualquier cosa rara, se lee como 0 ("nunca lo vio"). */
+  tour_version_vista?: unknown;
   transportistas: { nombre: string } | null;
 }
 
@@ -42,6 +46,7 @@ function normalizeMember(row: RawMemberRow): MemberInfo {
     transportistaId: row.transportista_id,
     transportistaNombre: row.transportistas?.nombre ?? '',
     camionActivoId: normalizeCamionActivoId(row.camion_activo_id),
+    tourVersionVista: normalizarVersion(row.tour_version_vista),
   };
 }
 
@@ -90,6 +95,7 @@ export function MemberProvider({ children }: { children: ReactNode }) {
       resetAccentColor();
       applyTheme(DEFAULT_THEME);
       clearCachedThemePreference();
+      limpiarTourVistoLocal();
     }
   }, [userId]);
 
@@ -175,6 +181,43 @@ export function MemberProvider({ children }: { children: ReactNode }) {
     setMember((prev) => (prev ? { ...prev, ...patch } : prev));
   }, []);
 
+  // Guarda primero LOCAL (así no se vuelve a mostrar aunque la base falle) y después en la base, con `lt` para nunca bajar
+  // la versión guardada. El id se fija al arrancar (no el de un render viejo): si para cuando vuelve la respuesta ya cambió
+  // el usuario, ni se toca localStorage del nuevo ni se actualiza su `member`. Nunca tira: sin señal, queda la copia local
+  // y MemberProvider la reintenta solo al arrancar.
+  const marcarTourVisto = useCallback(async (version: number) => {
+    const id = currentUserIdRef.current;
+    if (!id) return;
+    const objetivo = normalizarVersion(version);
+    guardarTourVistoLocal(id, objetivo);
+    try {
+      const { error } = await supabase
+        .from('miembros')
+        .update({ tour_version_vista: objetivo })
+        .eq('user_id', id)
+        .lt('tour_version_vista', objetivo);
+      if (error) return;
+    } catch {
+      return;
+    }
+    if (id !== currentUserIdRef.current) return;
+    setMember((prev) => (prev && prev.tourVersionVista < objetivo ? { ...prev, tourVersionVista: objetivo } : prev));
+  }, []);
+
+  // Si una escritura anterior de `marcarTourVisto` quedó sin señal, la copia local queda adelante de la base: al arrancar
+  // (una vez por usuario+versión, para no insistir en la misma sesión) se reintenta en silencio.
+  const reintentadoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!member || !userId) return;
+    const local = leerTourVistoLocal(userId);
+    const versionBase = member.tourVersionVista;
+    if (local <= versionBase) return;
+    const clave = `${userId}:${local}`;
+    if (reintentadoRef.current === clave) return;
+    reintentadoRef.current = clave;
+    void marcarTourVisto(local);
+  }, [member, userId, marcarTourVisto]);
+
   // Update funcional: la comparación de tenant se hace contra el estado MÁS
   // RECIENTE (`prev`), no contra el de un render viejo. Así, si mientras volvía
   // la respuesta de la base cambió el usuario o el tenant (`member` pasó a
@@ -209,8 +252,18 @@ export function MemberProvider({ children }: { children: ReactNode }) {
       updateLocalPreferences,
       updateLocalTransportistaNombre,
       updateLocalCamionActivo,
+      marcarTourVisto,
     }),
-    [member, status, error, fetchMember, updateLocalPreferences, updateLocalTransportistaNombre, updateLocalCamionActivo],
+    [
+      member,
+      status,
+      error,
+      fetchMember,
+      updateLocalPreferences,
+      updateLocalTransportistaNombre,
+      updateLocalCamionActivo,
+      marcarTourVisto,
+    ],
   );
 
   return <MemberContext.Provider value={value}>{children}</MemberContext.Provider>;

@@ -23,6 +23,7 @@ export function BottomNav() {
             <NavLink
               to={item.to}
               end={item.to === '/'}
+              data-ayuda={item.ayuda}
               className={({ isActive }) =>
                 cn(
                   'flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2 text-center text-[11px] font-medium leading-tight transition-colors',

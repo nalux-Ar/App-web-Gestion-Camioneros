@@ -5,16 +5,18 @@ export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
+  /** El `data-ayuda` del ítem (lo señala el recorrido de bienvenida): el mismo en la barra de abajo y en la lateral. */
+  ayuda?: string;
 }
 
 /** Las 5 secciones de uso diario: van en la barra inferior en mobile y
  *  arriba en la barra lateral de escritorio. */
 export const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
   { to: '/', label: 'Inicio', icon: Home },
-  { to: '/viajes', label: 'Viajes', icon: Truck },
-  { to: '/gastos', label: 'Gastos', icon: Package },
-  { to: '/clientes', label: 'Clientes', icon: Users },
-  { to: '/resumen', label: 'Resumen', icon: BarChart3 },
+  { to: '/viajes', label: 'Viajes', icon: Truck, ayuda: 'nav-viajes' },
+  { to: '/gastos', label: 'Gastos', icon: Package, ayuda: 'nav-gastos' },
+  { to: '/clientes', label: 'Clientes', icon: Users, ayuda: 'nav-clientes' },
+  { to: '/resumen', label: 'Resumen', icon: BarChart3, ayuda: 'nav-resumen' },
 ];
 
 /**
@@ -26,6 +28,6 @@ export const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
  * con un botón en el header en mobile, y como sexto ítem en la barra
  * lateral de escritorio (ahí sí hay lugar de sobra). Ver Header/SidebarNav.
  */
-export const CONFIGURACION_ITEM: NavItem = { to: '/configuracion', label: 'Configuración', icon: Settings };
+export const CONFIGURACION_ITEM: NavItem = { to: '/configuracion', label: 'Configuración', icon: Settings, ayuda: 'nav-configuracion' };
 
 export const ALL_NAV_ITEMS: readonly NavItem[] = [...PRIMARY_NAV_ITEMS, CONFIGURACION_ITEM];

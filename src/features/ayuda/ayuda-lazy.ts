@@ -6,3 +6,5 @@ import { lazy } from 'react';
  */
 export const TourAyudaDiferido = lazy(() => import('./tour-ayuda').then((m) => ({ default: m.TourAyuda })));
 export const HojaAyudaDiferida = lazy(() => import('./hoja-ayuda').then((m) => ({ default: m.HojaAyuda })));
+/** El que decide cuándo mostrar el recorrido (va en el AppShell): con sus 9 pasos, también diferido. */
+export const DisparadorTourDiferido = lazy(() => import('./disparador-tour').then((m) => ({ default: m.DisparadorTour })));

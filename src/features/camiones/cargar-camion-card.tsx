@@ -20,7 +20,7 @@ export function CargarCamionCard() {
   if (!esAdmin || camiones.data === undefined || camiones.data.items.length > 0) return null;
 
   return (
-    <Card className="border-primary/50">
+    <Card data-ayuda="camion" className="border-primary/50">
       <CardHeader>
         <CardTitle>Carga tu camión</CardTitle>
         <CardDescription>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 
+import { limpiarTourVistoLocal } from '@/features/ayuda/tour-version';
 import { limpiarUltimaPantalla } from '@/features/reportar/ultima-pantalla';
 import { limpiarErroresRecientes } from '@/lib/errores-recientes';
 import { supabase } from '@/lib/supabase';
@@ -15,10 +16,17 @@ const SIGN_OUT_FAILED_MESSAGE = 'No pudimos cerrar tu sesión. Revisa tu conexi�
 /**
  * Lo que "Reportar un problema" junta en memoria durante la sesión (los errores técnicos recientes y la última pantalla de
  * trabajo) es del usuario que la usó: se vacía en los mismos momentos que la caché de datos.
+ *
+ * La copia local de la versión del recorrido vista (`elan:tour-visto`) es distinta: vive en localStorage y TIENE que
+ * sobrevivir a una recarga (si la base falló sin señal, MemberProvider la reintenta al arrancar). Por eso NO se borra en el
+ * ARRANQUE con una sesión que ya existía (la primera resolución, que `syncQueryCache` cuenta como "cambio" porque antes no
+ * había nadie): solo en una transición real (a "sin sesión", de un usuario conocido a otro, o el "Salir" manual).
  */
-function limpiarRegistrosDeLaSesion() {
+function limpiarRegistrosDeLaSesion({ arranqueConSesion = false }: { arranqueConSesion?: boolean } = {}) {
   limpiarErroresRecientes();
   limpiarUltimaPantalla();
+  if (arranqueConSesion) return;
+  limpiarTourVistoLocal();
 }
 
 /**
@@ -64,10 +72,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     function syncQueryCache(nextSession: Session | null) {
       const nextUserId = nextSession?.user.id ?? null;
       const userChanged = nextUserId !== lastUserIdRef.current;
+      // Arranque (recarga, pestaña nueva) con una sesión que ya estaba: no es un cambio de usuario real.
+      const arranqueConSesion = lastUserIdRef.current === undefined && nextUserId !== null;
       lastUserIdRef.current = nextUserId;
       if (nextUserId === null || userChanged) {
         queryClient.clear();
-        limpiarRegistrosDeLaSesion();
+        limpiarRegistrosDeLaSesion({ arranqueConSesion });
       }
     }
 

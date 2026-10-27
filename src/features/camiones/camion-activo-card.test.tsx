@@ -485,3 +485,43 @@ describe('pantalla de Camiones: etiqueta "Camión activo"', () => {
     expect(cuantas()).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Objetivo del recorrido de bienvenida (`data-ayuda="camion"`) y "Ver el recorrido otra vez"
+// ---------------------------------------------------------------------------
+describe('Inicio: lo que usa el recorrido de bienvenida', () => {
+  const objetivos = () => [...document.querySelectorAll<HTMLElement>('[data-ayuda="camion"]')];
+
+  it.each([
+    ['0 camiones ("Carga tu camión")', [] as Fila[], 'Carga tu camión'],
+    ['1 camión activo ("Tu camión")', [A], 'Tu camión'],
+    ['2 o más ("Camión activo")', [A, B], 'Camión activo'],
+  ])('la tarjeta del camión es el objetivo "camion" con %s, y es UNA sola', async (_caso, lista, titulo) => {
+    LISTA = lista;
+    await mount();
+    expect(objetivos()).toHaveLength(1);
+    expect(objetivos()[0]!.textContent).toContain(titulo);
+  });
+
+  it('el botón "Ver el recorrido otra vez" pide el recorrido (sube el contador) y no manda nada a la base', async () => {
+    const { usePedidosDeRecorrido } = await import('@/features/ayuda/pedido-recorrido');
+    const visto: { n: number } = { n: -1 };
+    function Pedidos() {
+      visto.n = usePedidosDeRecorrido();
+      return null;
+    }
+    await mount();
+    const otro = document.createElement('div');
+    document.body.appendChild(otro);
+    const otraRaiz = createRoot(otro);
+    await act(async () => otraRaiz.render(<Pedidos />));
+    const antes = visto.n;
+    const llamadas = h.calls.length;
+    await click(buttonByText('Ver el recorrido otra vez'));
+    expect(visto.n).toBe(antes + 1);
+    expect(h.calls.length).toBe(llamadas);
+    expect(buttonByText('Ver el recorrido otra vez')!.type).toBe('button');
+    await act(async () => otraRaiz.unmount());
+    otro.remove();
+  });
+});

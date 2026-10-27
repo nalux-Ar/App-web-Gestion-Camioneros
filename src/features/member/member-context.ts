@@ -21,6 +21,8 @@ export interface MemberInfo {
    * un uuid válido).
    */
   camionActivoId: string | null;
+  /** La versión del recorrido de bienvenida que este usuario ya vio (`miembros.tour_version_vista`, migración 017): 0 = nunca. */
+  tourVersionVista: number;
 }
 
 /**
@@ -55,6 +57,8 @@ export interface MemberContextValue {
    * valor es el mismo no cambia nada (no hay re-render).
    */
   updateLocalCamionActivo: (transportistaId: string, camionId: string | null) => void;
+  /** Marca el recorrido de bienvenida como visto (copia local + base; sin señal queda lo local). Nunca tira. */
+  marcarTourVisto: (version: number) => Promise<void>;
 }
 
 export const MemberContext = createContext<MemberContextValue | null>(null);

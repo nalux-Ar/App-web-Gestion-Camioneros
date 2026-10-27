@@ -18,6 +18,7 @@ export function SidebarNav() {
             <NavLink
               to={item.to}
               end={item.to === '/'}
+              data-ayuda={item.ayuda}
               className={({ isActive }) =>
                 cn(
                   'flex min-h-12 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors',

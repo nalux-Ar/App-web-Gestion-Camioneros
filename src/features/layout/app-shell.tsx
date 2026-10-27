@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { Outlet } from 'react-router';
 
 import { Spinner } from '@/components/shared/spinner';
+import { DisparadorTourDiferido } from '@/features/ayuda/ayuda-lazy';
 import { useRegistrarUltimaPantalla } from '@/features/reportar/use-registrar-ultima-pantalla';
 import { Header } from './header';
 import { SidebarNav } from './sidebar-nav';
@@ -34,6 +35,10 @@ export function AppShell() {
         </main>
       </div>
       <BottomNav />
+      {/* El recorrido de bienvenida (diferido: no pesa en la carga inicial). Decide solo si se muestra. */}
+      <Suspense fallback={null}>
+        <DisparadorTourDiferido />
+      </Suspense>
     </div>
   );
 }

@@ -77,7 +77,7 @@ export function CamionActivoCard() {
   });
 
   return (
-    <Card role="region" aria-labelledby={tituloId} className={cn(sinActivo && 'border-primary/50')}>
+    <Card role="region" aria-labelledby={tituloId} data-ayuda="camion" className={cn(sinActivo && 'border-primary/50')}>
       <CardHeader>
         <CardTitle id={tituloId}>Camión activo</CardTitle>
         <CardDescription>Se usa en tus viajes y cargas de combustible nuevos. En cada registro puedes elegir otro.</CardDescription>
@@ -125,7 +125,7 @@ export function CamionActivoCard() {
 function TuCamion({ camion, tituloId }: { camion: CamionDeLista; tituloId: string }) {
   const descripcion = descripcionCamion(camion);
   return (
-    <Card role="region" aria-labelledby={tituloId}>
+    <Card role="region" aria-labelledby={tituloId} data-ayuda="camion">
       <CardHeader>
         <CardTitle id={tituloId}>Tu camión</CardTitle>
         <CardDescription>Se usa en tus viajes y cargas de combustible.</CardDescription>
