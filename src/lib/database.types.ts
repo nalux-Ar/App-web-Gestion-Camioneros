@@ -626,6 +626,17 @@ export type Database = {
           nombre: string
         }[]
       }
+      resumen_gastos_varios: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: {
+          descripcion: string
+          descripcion_truncada: boolean
+          fecha: string
+          gasto_id: string
+          monto: number
+          total_cantidad: number
+        }[]
+      }
       resumen_mensual: {
         Args: { p_mes_desde: string; p_meses: number }
         Returns: {

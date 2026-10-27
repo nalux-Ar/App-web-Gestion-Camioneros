@@ -5,7 +5,7 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 25 cubren además las migraciones 005 a 017, el vínculo
+-- secciones 11 a 26 cubren además las migraciones 005 a 018, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
@@ -13,7 +13,8 @@
 -- la 012: el camión activo de cada usuario), el endurecimiento de la 013 (el
 -- id de una fila existente no se puede cambiar), las funciones del Resumen
 -- (la 014, con el arreglo de fechas infinitas de la 015), los reportes de
--- problemas (la 016) y el recorrido de bienvenida (la 017).
+-- problemas (la 016), el recorrido de bienvenida (la 017) y el detalle de
+-- "Gastos varios" del Resumen (la 018).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
@@ -23,12 +24,12 @@
 -- 009_clientes_client_ref.sql, 010_varios_camiones.sql,
 -- 011_litros_exigen_camion.sql, 012_camion_activo.sql,
 -- 013_bloquear_cambio_de_id.sql, 014_resumen.sql,
--- 015_resumen_mensual_fechas_finitas.sql, 016_reportes.sql y
--- 017_tour_version_vista.sql
--- (las secciones 11 a 25 usan sus columnas y funciones; la sección 23 requiere
--- 014 y 015, la 24 requiere 016 (y 014/015 para su caso 24.16) y la 25
--- requiere 017; la 16 no necesita ninguna migración propia; la 004 no hace
--- falta para este test).
+-- 015_resumen_mensual_fechas_finitas.sql, 016_reportes.sql,
+-- 017_tour_version_vista.sql y 018_resumen_gastos_varios.sql
+-- (las secciones 11 a 26 usan sus columnas y funciones; la sección 23 requiere
+-- 014 y 015, la 24 requiere 016 (y 014/015 para su caso 24.16), la 25
+-- requiere 017 y la 26 requiere 018; la 16 no necesita ninguna migración
+-- propia; la 004 no hace falta para este test).
 -- NO agregar BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
@@ -52,7 +53,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 25 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 26 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -10085,6 +10086,422 @@ begin
   perform public._test_chk(c_caso,
     v_n = 1 and r.tour_version_vista = 3 and r.camion_activo_id = '25000000-0000-4000-8000-00000000ca01' and r.activa is false,
     format('filas=%s | %s', v_n, to_jsonb(r)));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+-- ---------------------------------------------------------------------
+-- 26) Resumen: detalle de "Gastos varios" (migración 018)
+-- ---------------------------------------------------------------------
+-- Requiere 018_resumen_gastos_varios.sql aplicada. Prueba la función
+-- resumen_gastos_varios(p_desde, p_hasta): solo gastos de la cuenta (aislada de
+-- otras cuentas, también con RLS salteada) de la categoría GLOBAL "Gastos
+-- varios" (no la de otras categorías ni una categoría propia con el mismo
+-- nombre; el nombre se compara sin distinguir mayúsculas); orden fecha desc,
+-- monto desc, id; tope de 30 filas con total_cantidad = todos los del período;
+-- descripción limpia y recortada a 80 caracteres con su bandera (y NULL si está
+-- vacía, solo con espacios o NULL); bordes de fechas inclusivos; parámetros
+-- inválidos, infinitos y de más de 366 días (22023); sin cuenta (42501); anon
+-- sin EXECUTE; y que no escribe nada. Casos 26.0 a 26.14.
+--
+-- Datos propios con uuid fijos (26000000-0000-4000-8000-...) y fechas de 2018:
+-- cuenta A (a0, usuario a1), cuenta B (b0, usuario b1) y un usuario sin cuenta
+-- e1. A tiene en febrero 14 gastos varios para el orden, los bordes, el recorte
+-- y las descripciones vacías (más 2 pegados al mes, uno el 31/1 y otro el 1/3, un
+-- peaje y un gasto de una categoría propia llamada "GASTOS VARIOS", que NO
+-- cuentan) y en octubre 35 (de g1 a g35) para el tope de 30. B tiene 3 en
+-- febrero y un peaje. Usa además el helper _test_sqlstate (13), así que da lo
+-- mismo en el archivo completo y sola (s26.sql). Repetible en la base real: todo
+-- se filtra por los ids de la sección. Sin la 018, los casos fallan solos sin
+-- cortar el script.
+
+select set_config('request.jwt.claims', '', true);
+reset role;
+
+-- Como postgres, sin JWT (contexto de confianza de la 002). Un solo bloque: si algo falla, no queda nada y 26.0 lo informa.
+do $$
+declare
+  v_gv uuid; v_pe uuid;
+begin
+  select id into strict v_gv from public.categorias_gasto where transportista_id is null and lower(nombre) = 'gastos varios';
+  select id into strict v_pe from public.categorias_gasto where transportista_id is null and lower(nombre) = 'peajes';
+  insert into auth.users (instance_id, id, aud, role, email) values
+    ('00000000-0000-0000-0000-000000000000', '26000000-0000-4000-8000-0000000000a1', 'authenticated', 'authenticated', 's26-a1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '26000000-0000-4000-8000-0000000000b1', 'authenticated', 'authenticated', 's26-b1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '26000000-0000-4000-8000-0000000000e1', 'authenticated', 'authenticated', 's26-e1@test.elan');
+  insert into public.transportistas (id, nombre) values
+    ('26000000-0000-4000-8000-0000000000a0', 'S26 A'), ('26000000-0000-4000-8000-0000000000b0', 'S26 B');
+  insert into public.miembros (user_id, transportista_id, rol) values
+    ('26000000-0000-4000-8000-0000000000a1', '26000000-0000-4000-8000-0000000000a0', 'admin'),
+    ('26000000-0000-4000-8000-0000000000b1', '26000000-0000-4000-8000-0000000000b0', 'admin');
+  -- Categoría PROPIA de A con el nombre en mayúsculas: no es la global, no tiene que contar.
+  insert into public.categorias_gasto (id, transportista_id, nombre) values
+    ('26000000-0000-4000-8000-00000000c001', '26000000-0000-4000-8000-0000000000a0', 'GASTOS VARIOS');
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, descripcion) values
+    ('26000000-0000-4000-8000-00000000f001', '26000000-0000-4000-8000-0000000000a0', v_gv, 111, '2018-01-31', 'fuera antes'),
+    ('26000000-0000-4000-8000-00000000f002', '26000000-0000-4000-8000-0000000000a0', v_gv, 100, '2018-02-01', 'borde desde'),
+    ('26000000-0000-4000-8000-00000000f003', '26000000-0000-4000-8000-0000000000a0', v_gv, 70, '2018-02-10', 'empate 1'),
+    ('26000000-0000-4000-8000-00000000f004', '26000000-0000-4000-8000-0000000000a0', v_gv, 70, '2018-02-10', 'empate 2'),
+    ('26000000-0000-4000-8000-00000000f005', '26000000-0000-4000-8000-0000000000a0', v_gv, 50, '2018-02-10', 'menor monto'),
+    ('26000000-0000-4000-8000-00000000f006', '26000000-0000-4000-8000-0000000000a0', v_gv, 200.50, '2018-02-28', 'borde hasta'),
+    ('26000000-0000-4000-8000-00000000f007', '26000000-0000-4000-8000-0000000000a0', v_gv, 999, '2018-03-01', 'fuera despues'),
+    ('26000000-0000-4000-8000-00000000f008', '26000000-0000-4000-8000-0000000000a0', v_pe, 5000, '2018-02-15', 'peaje no cuenta'),
+    ('26000000-0000-4000-8000-00000000f009', '26000000-0000-4000-8000-0000000000a0', '26000000-0000-4000-8000-00000000c001', 300, '2018-02-16', 'propia no cuenta'),
+    ('26000000-0000-4000-8000-00000000f010', '26000000-0000-4000-8000-0000000000a0', v_gv, 25, '2018-02-20', null),
+    ('26000000-0000-4000-8000-00000000f011', '26000000-0000-4000-8000-0000000000a0', v_gv, 26, '2018-02-21', ''),
+    ('26000000-0000-4000-8000-00000000f012', '26000000-0000-4000-8000-0000000000a0', v_gv, 27, '2018-02-22', '   '),
+    ('26000000-0000-4000-8000-00000000f013', '26000000-0000-4000-8000-0000000000a0', v_gv, 28, '2018-02-23', E' \t\r\n '),
+    ('26000000-0000-4000-8000-00000000f014', '26000000-0000-4000-8000-0000000000a0', v_gv, 29, '2018-02-24', '  hola  '),
+    ('26000000-0000-4000-8000-00000000f015', '26000000-0000-4000-8000-0000000000a0', v_gv, 30, '2018-02-25', repeat('x', 80)),
+    ('26000000-0000-4000-8000-00000000f016', '26000000-0000-4000-8000-0000000000a0', v_gv, 31, '2018-02-26', repeat('z', 81)),
+    ('26000000-0000-4000-8000-00000000f017', '26000000-0000-4000-8000-0000000000a0', v_gv, 32, '2018-02-27', '  ' || repeat('w', 80) || '  '),
+    ('26000000-0000-4000-8000-00000000f018', '26000000-0000-4000-8000-0000000000a0', v_gv, 33, '2018-02-12', ' ' || repeat('y', 1999)),
+    ('26000000-0000-4000-8000-00000000f101', '26000000-0000-4000-8000-0000000000b0', v_gv, 10, '2018-02-05', 'B uno'),
+    ('26000000-0000-4000-8000-00000000f102', '26000000-0000-4000-8000-0000000000b0', v_gv, 20, '2018-02-06', 'B dos'),
+    ('26000000-0000-4000-8000-00000000f103', '26000000-0000-4000-8000-0000000000b0', v_gv, 30, '2018-02-07', 'B tres'),
+    ('26000000-0000-4000-8000-00000000f104', '26000000-0000-4000-8000-0000000000b0', v_pe, 40, '2018-02-15', 'B peaje');
+  -- A, octubre: 35 gastos varios g1 a g35, monto i * 10, en 28 fechas (los g29 a g35 repiten las de g1 a g7).
+  insert into public.gastos (transportista_id, categoria_id, monto, fecha, descripcion)
+  select '26000000-0000-4000-8000-0000000000a0', v_gv, i * 10, '2018-10-01'::date + ((i - 1) % 28), 'g' || i
+    from generate_series(1, 35) as i;
+  perform public._test_set('s26_huella', (select md5(coalesce(string_agg(to_jsonb(g)::text, '|' order by g.id), ''))
+    from public.gastos g where g.transportista_id in ('26000000-0000-4000-8000-0000000000a0', '26000000-0000-4000-8000-0000000000b0')));
+exception when others then
+  perform public._test_set('s26_error_setup', sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.0 setup: dos cuentas de la sección (A con 51 gastos varios globales, un peaje y uno de una categoría propia llamada GASTOS VARIOS; B con 3 gastos varios y un peaje) y un usuario sin cuenta';
+  v_cu int; v_mi int; v_sin int; v_a_gv int; v_a_tot int; v_b_gv int; v_b_tot int;
+begin
+  select count(*) into v_cu from public.transportistas
+   where id in ('26000000-0000-4000-8000-0000000000a0', '26000000-0000-4000-8000-0000000000b0');
+  select count(*) into v_mi from public.miembros
+   where user_id in ('26000000-0000-4000-8000-0000000000a1', '26000000-0000-4000-8000-0000000000b1');
+  select count(*) into v_sin from auth.users u
+   where u.id = '26000000-0000-4000-8000-0000000000e1'
+     and not exists (select 1 from public.miembros m where m.user_id = u.id);
+  select count(*) filter (where c.transportista_id is null and lower(c.nombre) = 'gastos varios'), count(*) into v_a_gv, v_a_tot
+    from public.gastos g join public.categorias_gasto c on c.id = g.categoria_id
+   where g.transportista_id = '26000000-0000-4000-8000-0000000000a0';
+  select count(*) filter (where c.transportista_id is null and lower(c.nombre) = 'gastos varios'), count(*) into v_b_gv, v_b_tot
+    from public.gastos g join public.categorias_gasto c on c.id = g.categoria_id
+   where g.transportista_id = '26000000-0000-4000-8000-0000000000b0';
+  perform public._test_chk(c_caso,
+    public._test_get('s26_error_setup') is null and v_cu = 2 and v_mi = 2 and v_sin = 1
+      and v_a_gv = 51 and v_a_tot = 53 and v_b_gv = 3 and v_b_tot = 4,
+    format('error=%s cuentas=%s miembros=%s usuario sin cuenta=%s | A varios=%s total=%s | B varios=%s total=%s',
+      public._test_get('s26_error_setup'), v_cu, v_mi, v_sin, v_a_gv, v_a_tot, v_b_gv, v_b_tot));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.1 Migración 018: resumen_gastos_varios existe sin sobrecargas, con sus parámetros y columnas exactas, STABLE, SECURITY INVOKER, search_path fijo, con comentario, y EXECUTE para authenticated, no para anon ni public (service_role conserva el EXECUTE por defecto de la plataforma, que no importa: sin sub en el JWT recibe 42501)';
+  v_n int; v_p record;
+begin
+  select count(*) into v_n from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'resumen_gastos_varios';
+  select p.prosecdef, p.provolatile::text as vol, coalesce(p.proconfig::text like '%search_path=public%', false) as path,
+         obj_description(p.oid, 'pg_proc') is not null as com,
+         has_function_privilege('authenticated', p.oid, 'execute') as auth,
+         has_function_privilege('anon', p.oid, 'execute') as anon,
+         has_function_privilege('public', p.oid, 'execute') as pub,
+         (select array_agg(a.n order by a.o) from unnest(p.proargnames, p.proargmodes::text[]) with ordinality as a(n, m, o) where a.m = 'i') as ent,
+         (select array_agg(a.n order by a.o) from unnest(p.proargnames, p.proargmodes::text[]) with ordinality as a(n, m, o) where a.m = 't') as sal,
+         pg_get_function_result(p.oid) as res
+    into v_p
+    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'resumen_gastos_varios';
+  perform public._test_chk(c_caso,
+    v_n = 1 and v_p.prosecdef is false and v_p.vol = 's' and v_p.path and v_p.com
+      and v_p.auth and v_p.anon is false and v_p.pub is false
+      and v_p.ent = array['p_desde', 'p_hasta']
+      and v_p.sal = array['gasto_id', 'fecha', 'descripcion', 'descripcion_truncada', 'monto', 'total_cantidad']
+      and v_p.res = 'TABLE(gasto_id uuid, fecha date, descripcion text, descripcion_truncada boolean, monto numeric, total_cantidad integer)',
+    format('n=%s definer=%s vol=%s path=%s com=%s EXECUTE auth/anon/public=%s/%s/%s ent=%s sal=%s res=%s',
+      v_n, v_p.prosecdef, v_p.vol, v_p.path, v_p.com, v_p.auth, v_p.anon, v_p.pub, v_p.ent, v_p.sal, v_p.res));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- A (admin).
+select set_config('request.jwt.claims', '{"sub":"26000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '26.2 Orden de febrero (14 gastos varios de A): fecha desc, después monto desc y, con la misma fecha y el mismo monto, id (los dos de $70 del 10/2 salen f003 y f004, después el de $50); total_cantidad = 14 en todas las filas; monto con 2 decimales (200.50 y 100.00)';
+  v_ids text; v_n int; v_min int; v_max int; v_m1 text; v_m2 text;
+begin
+  select string_agg(right(f.gasto_id::text, 4), ',' order by f.ord), count(*), min(f.total_cantidad), max(f.total_cantidad)
+    into v_ids, v_n, v_min, v_max
+    from public.resumen_gastos_varios('2018-02-01', '2018-02-28') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord);
+  select f.monto::text into v_m1 from public.resumen_gastos_varios('2018-02-01', '2018-02-28') f where right(f.gasto_id::text, 4) = 'f006';
+  select f.monto::text into v_m2 from public.resumen_gastos_varios('2018-02-01', '2018-02-28') f where right(f.gasto_id::text, 4) = 'f002';
+  perform public._test_chk(c_caso,
+    v_ids = 'f006,f017,f016,f015,f014,f013,f012,f011,f010,f018,f003,f004,f005,f002'
+      and v_n = 14 and v_min = 14 and v_max = 14 and v_m1 = '200.50' and v_m2 = '100.00',
+    format('ids=%s filas=%s total_cantidad=%s..%s | montos %s y %s', v_ids, v_n, v_min, v_max, v_m1, v_m2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.3 Solo la categoría global "Gastos varios": en febrero no aparecen el peaje ($5000) ni el gasto de la categoría propia GASTOS VARIOS de A ($300), y total_cantidad no los cuenta (14); en todo el año (366 días) hay 51, no 53';
+  v_ajenos int; v_tot_anio int; v_f record;
+begin
+  select count(*) into v_ajenos from public.resumen_gastos_varios('2018-02-01', '2018-02-28') f
+   where right(f.gasto_id::text, 4) in ('f008', 'f009') or f.descripcion in ('peaje no cuenta', 'propia no cuenta') or f.monto in (5000, 300);
+  select max(f.total_cantidad) into v_tot_anio from public.resumen_gastos_varios('2018-01-01', '2019-01-02') f;
+  perform public._test_chk(c_caso, v_ajenos = 0 and v_tot_anio = 51,
+    format('filas de otra categoría=%s | total del año=%s', v_ajenos, v_tot_anio));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.4 Descripción limpia y recortada: "  hola  " sale "hola"; 80 caracteres exactos no se marcan; 81 se cortan a 80 y se marcan; 80 con espacios alrededor salen sin ellos y sin marca; una de 2000 caracteres con un espacio adelante sale con 80 y marca; una corta no se marca';
+  v_r text[];
+begin
+  select array_agg(x order by o) into v_r from (
+    select 1 as o, f.descripcion || '|' || f.descripcion_truncada from public.resumen_gastos_varios('2018-02-24', '2018-02-24') f
+    union all select 2, (f.descripcion = repeat('x', 80))::text || '|' || char_length(f.descripcion) || '|' || f.descripcion_truncada from public.resumen_gastos_varios('2018-02-25', '2018-02-25') f
+    union all select 3, (f.descripcion = repeat('z', 80))::text || '|' || char_length(f.descripcion) || '|' || f.descripcion_truncada from public.resumen_gastos_varios('2018-02-26', '2018-02-26') f
+    union all select 4, (f.descripcion = repeat('w', 80))::text || '|' || char_length(f.descripcion) || '|' || f.descripcion_truncada from public.resumen_gastos_varios('2018-02-27', '2018-02-27') f
+    union all select 5, (f.descripcion = repeat('y', 80))::text || '|' || char_length(f.descripcion) || '|' || f.descripcion_truncada from public.resumen_gastos_varios('2018-02-12', '2018-02-12') f
+    union all select 6, f.descripcion || '|' || f.descripcion_truncada from public.resumen_gastos_varios('2018-02-28', '2018-02-28') f
+  ) t(o, x);
+  perform public._test_chk(c_caso,
+    v_r = array['hola|false', 'true|80|false', 'true|80|true', 'true|80|false', 'true|80|true', 'borde hasta|false'],
+    format('%s', v_r));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.5 Descripción NULL, vacía, solo espacios y solo espacios/tabulación/saltos de línea: las 4 salen como filas (con su monto y su fecha) con descripcion NULL y sin marca de recorte, y cuentan en total_cantidad';
+  v_r text[]; v_tot int;
+begin
+  select array_agg(right(f.gasto_id::text, 4) || ':' || coalesce(f.descripcion, 'NULL') || ':' || f.descripcion_truncada || ':' || f.monto order by f.ord), max(f.total_cantidad)
+    into v_r, v_tot
+    from public.resumen_gastos_varios('2018-02-20', '2018-02-23') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord);
+  perform public._test_chk(c_caso,
+    v_r = array['f013:NULL:false:28.00', 'f012:NULL:false:27.00', 'f011:NULL:false:26.00', 'f010:NULL:false:25.00'] and v_tot = 4,
+    format('%s | total_cantidad=%s', v_r, v_tot));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.6 Tope de 30 filas con 35 gastos varios en octubre: 30 filas distintas, total_cantidad = 35 en todas, la primera es g28 (la de fecha más nueva) y la última g31; con todo el año (51 gastos, 366 días) también 30 filas y total 51';
+  v_n int; v_dist int; v_min int; v_max int; v_primera text; v_ultima text; v_n2 int; v_t2 int;
+begin
+  select count(*), count(distinct f.gasto_id), min(f.total_cantidad), max(f.total_cantidad),
+         (array_agg(f.descripcion order by f.ord))[1], (array_agg(f.descripcion order by f.ord))[30]
+    into v_n, v_dist, v_min, v_max, v_primera, v_ultima
+    from public.resumen_gastos_varios('2018-10-01', '2018-10-31') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord);
+  select count(*), max(f.total_cantidad) into v_n2, v_t2 from public.resumen_gastos_varios('2018-01-01', '2019-01-02') f;
+  perform public._test_chk(c_caso,
+    v_n = 30 and v_dist = 30 and v_min = 35 and v_max = 35 and v_primera = 'g28' and v_ultima = 'g31' and v_n2 = 30 and v_t2 = 51,
+    format('octubre: filas=%s distintas=%s total=%s..%s primera=%s última=%s | año: filas=%s total=%s', v_n, v_dist, v_min, v_max, v_primera, v_ultima, v_n2, v_t2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.7 Bordes de fechas inclusivos: un solo día trae los de ese día (31/1: f001; 1/3: f007; 28/2: f006; 1/2: f002; 10/2: f003, f004 y f005); el mes de febrero no trae f001 ni f007; un período sin gastos varios devuelve 0 filas';
+  v_r text[]; v_feb int; v_fuera int; v_vacio int;
+begin
+  select array_agg(x order by o) into v_r from (
+    select 1 as o, coalesce(string_agg(right(f.gasto_id::text, 4), ',' order by f.ord), '-') || '/' || coalesce(max(f.total_cantidad), 0)
+      from public.resumen_gastos_varios('2018-01-31', '2018-01-31') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord)
+    union all select 2, coalesce(string_agg(right(f.gasto_id::text, 4), ',' order by f.ord), '-') || '/' || coalesce(max(f.total_cantidad), 0)
+      from public.resumen_gastos_varios('2018-03-01', '2018-03-01') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord)
+    union all select 3, coalesce(string_agg(right(f.gasto_id::text, 4), ',' order by f.ord), '-') || '/' || coalesce(max(f.total_cantidad), 0)
+      from public.resumen_gastos_varios('2018-02-28', '2018-02-28') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord)
+    union all select 4, coalesce(string_agg(right(f.gasto_id::text, 4), ',' order by f.ord), '-') || '/' || coalesce(max(f.total_cantidad), 0)
+      from public.resumen_gastos_varios('2018-02-01', '2018-02-01') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord)
+    union all select 5, coalesce(string_agg(right(f.gasto_id::text, 4), ',' order by f.ord), '-') || '/' || coalesce(max(f.total_cantidad), 0)
+      from public.resumen_gastos_varios('2018-02-10', '2018-02-10') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord)
+  ) t(o, x);
+  select count(*) into v_feb from public.resumen_gastos_varios('2018-02-01', '2018-02-28');
+  select count(*) into v_fuera from public.resumen_gastos_varios('2018-02-01', '2018-02-28') f where right(f.gasto_id::text, 4) in ('f001', 'f007');
+  select count(*) into v_vacio from public.resumen_gastos_varios('2018-04-01', '2018-04-30');
+  perform public._test_chk(c_caso,
+    v_r = array['f001/1', 'f007/1', 'f006/1', 'f002/1', 'f003,f004,f005/3'] and v_feb = 14 and v_fuera = 0 and v_vacio = 0,
+    format('%s | febrero=%s fuera del mes=%s | abril=%s', v_r, v_feb, v_fuera, v_vacio));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.8 A no ve nada de B: en febrero y en todo el año ninguna descripción de B (B uno, B dos, B tres, B peaje) ni sus ids (f101 a f104)';
+  v_b int;
+begin
+  select count(*) into v_b from public.resumen_gastos_varios('2018-01-01', '2019-01-02') f
+   where f.descripcion like 'B %' or right(f.gasto_id::text, 4) in ('f101', 'f102', 'f103', 'f104');
+  perform public._test_chk(c_caso, v_b = 0, format('filas de B vistas por A=%s', v_b));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '26.9 Período inválido: NULL, desde > hasta e infinitos (en las 5 combinaciones, también -infinity con infinity) dan 22023 con el texto fijo de hacen falta desde y hasta; 367 días da 22023 con el texto de los 366 días; 366 días y desde = hasta se aceptan';
+  v_a constant text := '22023||Período inválido: hacen falta desde y hasta, con desde <= hasta';
+  v_b constant text := '22023||Período inválido: no puede superar 366 días';
+  v_r text[];
+begin
+  v_r := array[
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios(null, null)$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios(null, '2018-02-28')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-02-01', null)$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-02-10', '2018-02-01')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('-infinity', '2018-02-28')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-02-01', 'infinity')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('-infinity', 'infinity')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('infinity', 'infinity')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('infinity', '2018-02-28')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-01-01', '2019-01-03')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-01-01', '2019-01-02')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-02-10', '2018-02-10')$q$)];
+  perform public._test_chk(c_caso,
+    v_r = array[v_a, v_a, v_a, v_a, v_a, v_a, v_a, v_a, v_a, v_b, 'OK', 'OK'], format('%s', v_r));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- B (admin): ve solo lo suyo.
+select set_config('request.jwt.claims', '{"sub":"26000000-0000-4000-8000-0000000000b1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '26.10 Aislamiento: B ve exactamente sus 3 gastos varios de febrero (B tres, B dos, B uno; el peaje no) con total_cantidad 3 y ninguna fila de A; en octubre, cuando A tiene 35 y B ninguno, 0 filas';
+  v_r text; v_n int; v_tot int; v_oct int; v_a int;
+begin
+  select string_agg(f.descripcion, ',' order by f.ord), count(*), max(f.total_cantidad)
+    into v_r, v_n, v_tot
+    from public.resumen_gastos_varios('2018-02-01', '2018-02-28') with ordinality as f(gasto_id, fecha, descripcion, descripcion_truncada, monto, total_cantidad, ord);
+  select count(*) into v_oct from public.resumen_gastos_varios('2018-10-01', '2018-10-31');
+  select count(*) into v_a from public.resumen_gastos_varios('2018-01-01', '2019-01-02') f
+   where right(f.gasto_id::text, 4) not in ('f101', 'f102', 'f103');
+  perform public._test_chk(c_caso,
+    v_r = 'B tres,B dos,B uno' and v_n = 3 and v_tot = 3 and v_oct = 0 and v_a = 0,
+    format('febrero=%s filas=%s total=%s | octubre=%s filas | filas que no son de B=%s', v_r, v_n, v_tot, v_oct, v_a));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- Sin cuenta: el usuario e1 no pertenece a ninguna, y una sesión authenticated sin sub tampoco.
+select set_config('request.jwt.claims', '{"sub":"26000000-0000-4000-8000-0000000000e1","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+declare
+  c_caso constant text := '26.11 Sin cuenta: un usuario sin miembro y una sesión authenticated sin sub reciben 42501 "No perteneces a ningún transportista", antes de validar las fechas (incluso con fechas inválidas)';
+  v_e constant text := '42501||No perteneces a ningún transportista';
+  v_r text[];
+begin
+  v_r := array[
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-02-01', '2018-02-28')$q$),
+    public._test_sqlstate($q$select * from public.resumen_gastos_varios(null, null)$q$)];
+  perform set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+  v_r := v_r || public._test_sqlstate($q$select * from public.resumen_gastos_varios('2018-02-01', '2018-02-28')$q$);
+  perform public._test_chk(c_caso, v_r = array[v_e, v_e, v_e], format('%s', v_r));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+
+-- anon: 42501 por permiso sobre la función misma (el mensaje la nombra), no el 42501 de adentro.
+select set_config('request.jwt.claims', '', true);
+set local role anon;
+
+do $$
+declare c_caso constant text := '26.12 anon no puede ejecutar resumen_gastos_varios: 42501 por permiso sobre la función misma (el mensaje la nombra), no el 42501 de adentro'; v_s text; v_m text;
+begin
+  begin
+    perform * from public.resumen_gastos_varios('2018-02-01', '2018-02-28');
+    v_s := 'OK'; v_m := '';
+  exception when others then
+    get stacked diagnostics v_s = returned_sqlstate, v_m = message_text;
+  end;
+  perform public._test_chk(c_caso, v_s = '42501' and position('resumen_gastos_varios' in v_m) > 0, format('%s | %s', v_s, v_m));
+end
+$$;
+
+reset role;
+
+-- Como postgres CON el JWT de cada cuenta: RLS salteada (postgres es el dueño de las tablas). El filtro explícito por
+-- get_mi_transportista_id() tiene que dar exactamente lo mismo que con RLS. Además, el nombre de la categoría global se
+-- compara sin distinguir mayúsculas: se renombra a propósito y se restaura.
+select set_config('request.jwt.claims', '{"sub":"26000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+
+do $$
+declare
+  c_caso constant text := '26.13 Con RLS salteada (postgres con el JWT de A) la función devuelve solo lo de A (14 en febrero, ninguno de B); y la categoría global se reconoce sin distinguir mayúsculas: con su nombre cambiado a GASTOS VARIOS y a gastos varios sigue dando los mismos 14, y la categoría propia de A sigue sin contar';
+  v_orig text; v_n int; v_b int; v_may int; v_min int; v_propia int; v_nom text;
+begin
+  select count(*), count(*) filter (where f.descripcion like 'B %' or right(f.gasto_id::text, 4) like 'f1__') into v_n, v_b
+    from public.resumen_gastos_varios('2018-02-01', '2018-02-28') f;
+  select nombre into strict v_orig from public.categorias_gasto where transportista_id is null and lower(nombre) = 'gastos varios';
+  update public.categorias_gasto set nombre = 'GASTOS VARIOS' where transportista_id is null and lower(nombre) = 'gastos varios';
+  select count(*) into v_may from public.resumen_gastos_varios('2018-02-01', '2018-02-28');
+  update public.categorias_gasto set nombre = 'gastos varios' where transportista_id is null and lower(nombre) = 'gastos varios';
+  select count(*) into v_min from public.resumen_gastos_varios('2018-02-01', '2018-02-28');
+  update public.categorias_gasto set nombre = v_orig where transportista_id is null and lower(nombre) = 'gastos varios';
+  select count(*) into v_propia from public.resumen_gastos_varios('2018-02-01', '2018-02-28') f where right(f.gasto_id::text, 4) = 'f009';
+  select nombre into v_nom from public.categorias_gasto where transportista_id is null and lower(nombre) = 'gastos varios';
+  perform public._test_chk(c_caso,
+    v_n = 14 and v_b = 0 and v_may = 14 and v_min = 14 and v_propia = 0 and v_nom = v_orig,
+    format('sin RLS: filas=%s de B=%s | nombre en mayúsculas=%s en minúsculas=%s | de la categoría propia=%s | nombre restaurado=%s', v_n, v_b, v_may, v_min, v_propia, v_nom = v_orig));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+select set_config('request.jwt.claims', '', true);
+
+do $$
+declare
+  c_caso constant text := '26.14 La función no escribe nada: después de todos los casos anteriores, los gastos de A y de B son idénticos a los cargados en el setup (huella igual) y la categoría global "Gastos varios" sigue con su nombre';
+  v_huella text; v_cats int;
+begin
+  select md5(coalesce(string_agg(to_jsonb(g)::text, '|' order by g.id), '')) into v_huella
+    from public.gastos g where g.transportista_id in ('26000000-0000-4000-8000-0000000000a0', '26000000-0000-4000-8000-0000000000b0');
+  select count(*) into v_cats from public.categorias_gasto where transportista_id is null and nombre = 'Gastos varios';
+  perform public._test_chk(c_caso, v_huella = public._test_get('s26_huella') and v_cats = 1,
+    format('huella igual=%s | categoría global con su nombre=%s', v_huella = public._test_get('s26_huella'), v_cats));
 exception when others then
   perform public._test_chk(c_caso, false, sqlerrm);
 end
