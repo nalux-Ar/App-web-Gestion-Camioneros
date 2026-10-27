@@ -45,6 +45,7 @@ import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context
 import { MemberProvider } from '@/features/member/member-provider';
 import { RequireMember } from '@/app/guards';
 import { ResumenPage } from '@/features/resumen/resumen-page';
+import { GASTOS_VARIOS_CATEGORIA_ID } from '@/features/gastos/constants';
 import { RESUMEN_SIN_CONEXION } from '@/features/resumen/resumen-pantalla-textos';
 import { RESUMEN_ERROR_INESPERADO } from '@/features/resumen/resumen-textos';
 import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
@@ -1173,5 +1174,16 @@ describe('Resumen, vista Año: la pantalla entera', () => {
     await mount();
     expect(textoDe('resumen-por-categoria')).toContain('<img src=x onerror=alert(1)>');
     expect(container.querySelector('img')).toBeNull();
+  });
+});
+
+describe('Resumen, vista Año: sin detalle de Gastos varios', () => {
+  it('el detalle es solo de la vista Mes: aunque el año tenga "Gastos varios", NO se pide ni se muestra', async () => {
+    route.gastos = () => ok([total(3000, 3), cat(GASTOS_VARIOS_CATEGORIA_ID, 'Gastos varios', 3000, 3), met('efectivo', 3000, 3)]);
+    await mount('/resumen?vista=anio&anio=2025');
+    expect(byId('resumen-por-categoria')).not.toBeNull();
+    expect(plano(byId('resumen-por-categoria')!.textContent)).toContain('Gastos varios');
+    expect(rpcs('resumen_gastos_varios')).toHaveLength(0);
+    expect(document.querySelector('[data-gastos-varios]')).toBeNull();
   });
 });

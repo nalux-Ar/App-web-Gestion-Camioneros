@@ -14,5 +14,6 @@ export const resumenKeys = {
   mensual: (tenantId: string, mesDesde: string, meses: number) => tenantKey(tenantId, 'resumen', 'mensual', mesDesde, meses),
   combustible: (tenantId: string, desde: string, hasta: string, camionId: string | null) =>
     tenantKey(tenantId, 'resumen', 'combustible', desde, hasta, camionId ?? 'todos'),
+  gastosVarios: (tenantId: string, desde: string, hasta: string) => tenantKey(tenantId, 'resumen', 'gastos-varios', desde, hasta),
   viajes: (tenantId: string, desde: string, hasta: string) => tenantKey(tenantId, 'resumen', 'viajes', desde, hasta),
 };

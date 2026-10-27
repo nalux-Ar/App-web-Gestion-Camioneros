@@ -115,6 +115,29 @@ export function textoDetalleBarra(fila: Pick<FilaDeBarra, 'cantidad' | 'porcenta
 }
 
 // ---------------------------------------------------------------------------
+// Detalle de "Gastos varios" (vista Mes)
+// ---------------------------------------------------------------------------
+
+/** Nombre de la lista de gastos varios (para lectores de pantalla) y su título cuando la categoría quedó dentro de "Otras". */
+export const ETIQUETA_DETALLE_GASTOS_VARIOS = 'Detalle de Gastos varios';
+/** El gasto no tiene descripción cargada. */
+export const SIN_DESCRIPCION = 'Sin descripción';
+
+/** Antes del mensaje de error cuando no se pudo traer el detalle (lo demás del resumen se sigue viendo). */
+export const TEXTO_ERROR_DETALLE_GASTOS_VARIOS = 'No pudimos cargar el detalle de Gastos varios.';
+
+/** La descripción de un gasto: la que tenga, con "…" si la base la cortó; null si no tiene (se dice con `SIN_DESCRIPCION`). */
+export function textoDescripcionGasto(descripcion: string | null, truncada: boolean): string | null {
+  if (descripcion === null || descripcion.trim() === '') return null;
+  return truncada ? `${descripcion}…` : descripcion;
+}
+
+/** Cuando la lista se cortó: "y 12 más en Gastos" (`faltan` = total − mostrados). */
+export function textoYMasEnGastos(faltan: number): string {
+  return `y ${formatEntero(faltan)} más en Gastos`;
+}
+
+// ---------------------------------------------------------------------------
 // Ingresos y resultado
 // ---------------------------------------------------------------------------
 

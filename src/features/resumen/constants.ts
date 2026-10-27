@@ -16,6 +16,9 @@ export const MAX_MESES = 24;
 /** `resumen_viajes` devuelve como máximo 500 filas (con `total_viajes` para saber si se cortó). */
 export const MAX_FILAS_VIAJES = 500;
 
+/** `resumen_gastos_varios` devuelve como máximo 30 filas (con `total_cantidad` para saber si se cortó). */
+export const MAX_FILAS_GASTOS_VARIOS = 30;
+
 /**
  * Los números del Resumen se consideran frescos 1 minuto. No hace falta más: las mutaciones que cambian lo que lee
  * (gastos, viajes y camiones) invalidan `resumenKeys.all` (`invalidarResumen`), así que lo cargado desde esta app se ve

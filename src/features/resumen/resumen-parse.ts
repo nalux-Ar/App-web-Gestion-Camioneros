@@ -1,7 +1,7 @@
 import { isValidDateString, type YearMonth } from '@/lib/dates';
 import type { MetodoPago } from '@/lib/db';
 import { isUuid } from '@/lib/uuid';
-import { MAX_FILAS_VIAJES } from './constants';
+import { MAX_FILAS_GASTOS_VARIOS, MAX_FILAS_VIAJES } from './constants';
 import { mesesDeLaSerie } from './resumen-fechas';
 import { GRUPOS_GASTO, ResumenRespuestaInesperadaError, type GrupoGasto } from './resumen-textos';
 
@@ -124,6 +124,25 @@ export interface ResumenViajes {
   total: number;
   /** true si la base cortó la lista (hay más viajes que filas). */
   cortada: boolean;
+}
+
+/** Un gasto de la categoría "Gastos varios" (`resumen_gastos_varios`, migración 018). */
+export interface GastoVarioDelMes {
+  id: string;
+  /** 'YYYY-MM-DD'. */
+  fecha: string;
+  /** Ya recortada por la base (80 caracteres); null si el gasto no tiene descripción. Es TEXTO: nunca se interpreta como HTML. */
+  descripcion: string | null;
+  /** true = la descripción tenía más y la base la cortó. */
+  truncada: boolean;
+  monto: number;
+}
+
+/** `resumen_gastos_varios`: los gastos varios del período (como máximo 30, fecha y monto de mayor a menor) y cuántos hay en total. */
+export interface ResumenGastosVarios {
+  filas: GastoVarioDelMes[];
+  /** Cantidad TOTAL de gastos varios del período (si es mayor que `filas.length`, la base cortó la lista). */
+  totalCantidad: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -453,4 +472,35 @@ export function parseResumenViajes(datos: unknown): ResumenViajes {
   const totalReal: number = total ?? 0;
   if (totalReal < viajes.length) lector.falla('total_viajes menor que las filas');
   return { viajes, total: totalReal, cortada: totalReal > viajes.length };
+}
+
+// ---------------------------------------------------------------------------
+// resumen_gastos_varios
+// ---------------------------------------------------------------------------
+
+export function parseResumenGastosVarios(datos: unknown): ResumenGastosVarios {
+  const lector = new Lector('resumen_gastos_varios');
+  const filasCrudas = lector.filas(datos, MAX_FILAS_GASTOS_VARIOS);
+  let totalCantidad: number | null = null;
+
+  const filas = filasCrudas.map((fila): GastoVarioDelMes => {
+    const totalDeLaFila = lector.entero(fila, 'total_cantidad', { min: 1 });
+    if (totalCantidad !== null && totalDeLaFila !== totalCantidad) lector.falla('total_cantidad distinto entre filas');
+    totalCantidad = totalDeLaFila;
+    return {
+      id: lector.uuid(fila, 'gasto_id'),
+      fecha: lector.fecha(fila, 'fecha'),
+      descripcion: lector.textoONulo(fila, 'descripcion'),
+      truncada: lector.booleano(fila, 'descripcion_truncada'),
+      monto: lector.numero(fila, 'monto', { min: 0 }),
+    };
+  });
+
+  lector.sinRepetidos(
+    filas.map((fila) => fila.id),
+    'gasto',
+  );
+  const total: number = totalCantidad ?? 0;
+  if (total < filas.length) lector.falla('total_cantidad menor que las filas');
+  return { filas, totalCantidad: total };
 }

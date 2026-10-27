@@ -56,6 +56,7 @@ const ESPERADO: Record<string, string> = {
   'resumenKeys.mensual': 'resumen-mensual',
   'resumenKeys.combustible': 'resumen-combustible',
   'resumenKeys.viajes': 'resumen-viajes',
+  'resumenKeys.gastosVarios': 'resumen-gastos-varios',
 };
 
 const TENANT = '7d1f0000-0000-4000-8000-000000000001';

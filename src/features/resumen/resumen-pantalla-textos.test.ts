@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ETIQUETA_DETALLE_GASTOS_VARIOS,
+  SIN_DESCRIPCION,
+  TEXTO_ERROR_DETALLE_GASTOS_VARIOS,
+  textoDescripcionGasto,
+  textoYMasEnGastos,
   formatMonto,
   nombreDeMes,
   periodoDeComparacion,
@@ -274,5 +279,29 @@ describe('textos de la pantalla Resumen: vista Año (combustible)', () => {
   it('textoSinCombustibleDelAnio: en curso / pasado', () => {
     expect(textoSinCombustibleDelAnio(2026, true)).toBe('Todavía no cargaste combustible en 2026');
     expect(textoSinCombustibleDelAnio(2025, false)).toBe('No cargaste combustible en 2025');
+  });
+});
+
+describe('textos de la pantalla Resumen: detalle de Gastos varios', () => {
+  it('textoDescripcionGasto: tal cual, con "…" si se cortó, null si no hay (nula o en blanco)', () => {
+    expect(textoDescripcionGasto('Lavado', false)).toBe('Lavado');
+    expect(textoDescripcionGasto('Lavado del cam', true)).toBe('Lavado del cam…');
+    expect(textoDescripcionGasto(null, false)).toBeNull();
+    expect(textoDescripcionGasto('   ', false)).toBeNull();
+    expect(textoDescripcionGasto('', true)).toBeNull();
+  });
+
+  it('textoYMasEnGastos: con separador de miles', () => {
+    expect(textoYMasEnGastos(1)).toBe('y 1 más en Gastos');
+    expect(textoYMasEnGastos(1234)).toBe('y 1.234 más en Gastos');
+  });
+
+  it('textos fijos, en español neutro (sin "acá")', () => {
+    expect(SIN_DESCRIPCION).toBe('Sin descripción');
+    expect(ETIQUETA_DETALLE_GASTOS_VARIOS).toBe('Detalle de Gastos varios');
+    expect(TEXTO_ERROR_DETALLE_GASTOS_VARIOS).toBe('No pudimos cargar el detalle de Gastos varios.');
+    for (const texto of [SIN_DESCRIPCION, ETIQUETA_DETALLE_GASTOS_VARIOS, TEXTO_ERROR_DETALLE_GASTOS_VARIOS, textoYMasEnGastos(3)]) {
+      expect(texto).not.toMatch(/\bacá\b/i);
+    }
   });
 });

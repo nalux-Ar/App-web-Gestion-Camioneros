@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseResumenCombustible,
   parseResumenGastos,
+  parseResumenGastosVarios,
   parseResumenMensual,
   parseResumenViajes,
 } from '@/features/resumen/resumen-parse';
@@ -426,5 +427,108 @@ describe('parseResumenViajes', () => {
   it('más de 500 filas es fuera de contrato', () => {
     const filas = Array.from({ length: 501 }, (_, i) => viaje({ viaje_id: `b1000000-0000-4000-8000-${String(i).padStart(12, '0')}`, total_viajes: 600 }));
     expect(motivo(() => parseResumenViajes(filas))).toBe('más de 500 filas');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resumen_gastos_varios
+// ---------------------------------------------------------------------------
+const G1 = 'd1000000-0000-4000-8000-000000000001';
+const G2 = 'd1000000-0000-4000-8000-000000000002';
+const varioFila = (over: Record<string, unknown> = {}) => ({
+  gasto_id: G1,
+  fecha: '2026-10-12',
+  descripcion: 'Lavado del camión',
+  descripcion_truncada: false,
+  monto: 1500.5,
+  total_cantidad: 1,
+  ...over,
+});
+const idVario = (i: number) => `d1000000-0000-4000-8000-${String(i + 10).padStart(12, '0')}`;
+
+describe('parseResumenGastosVarios: respuesta válida', () => {
+  it('arma las filas (en el orden de la base) y el total', () => {
+    const r = parseResumenGastosVarios([
+      varioFila({ total_cantidad: 3 }),
+      varioFila({ gasto_id: G2, fecha: '2026-10-05', descripcion: null, monto: '800.25', total_cantidad: 3 }),
+      varioFila({ gasto_id: idVario(3), descripcion: 'Larga', descripcion_truncada: true, monto: 0, total_cantidad: 3 }),
+    ]);
+    expect(r.totalCantidad).toBe(3);
+    expect(r.filas).toEqual([
+      { id: G1, fecha: '2026-10-12', descripcion: 'Lavado del camión', truncada: false, monto: 1500.5 },
+      { id: G2, fecha: '2026-10-05', descripcion: null, truncada: false, monto: 800.25 },
+      { id: idVario(3), fecha: '2026-10-12', descripcion: 'Larga', truncada: true, monto: 0 },
+    ]);
+  });
+
+  it('0 filas: no hay gastos varios en el período', () => {
+    expect(parseResumenGastosVarios([])).toEqual({ filas: [], totalCantidad: 0 });
+  });
+
+  it('lista cortada: total_cantidad mayor que las filas', () => {
+    expect(parseResumenGastosVarios([varioFila({ total_cantidad: 45 })])).toMatchObject({ totalCantidad: 45 });
+  });
+
+  it('exactamente 30 filas entra; el uuid se normaliza a minúsculas y las columnas de más se ignoran', () => {
+    const filas = Array.from({ length: 30 }, (_, i) => varioFila({ gasto_id: idVario(i), total_cantidad: 30 }));
+    expect(parseResumenGastosVarios(filas).filas).toHaveLength(30);
+    const r = parseResumenGastosVarios([varioFila({ gasto_id: G1.toUpperCase(), extra: 'x' })]);
+    expect(r.filas[0]!.id).toBe(G1);
+    expect(r.filas[0]).not.toHaveProperty('extra');
+  });
+
+  it('el monto como número o como texto numérico', () => {
+    expect(parseResumenGastosVarios([varioFila({ monto: '1500' })]).filas[0]!.monto).toBe(1500);
+    expect(parseResumenGastosVarios([varioFila({ monto: 1500 })]).filas[0]!.monto).toBe(1500);
+  });
+});
+
+describe('parseResumenGastosVarios: fuera de contrato (no devuelve nada)', () => {
+  it.each([
+    ['no es una lista', { gasto_id: G1 }, 'la respuesta no es una lista de filas'],
+    ['null', null, 'la respuesta no es una lista de filas'],
+    ['una fila que no es objeto', ['x'], 'la fila 0 no es un objeto'],
+    ['una fila que es lista', [[1]], 'la fila 0 no es un objeto'],
+    ['gasto_id que no es uuid', [varioFila({ gasto_id: 'g1' })], 'gasto_id no es un uuid'],
+    ['gasto_id nulo', [varioFila({ gasto_id: null })], 'gasto_id no es un uuid'],
+    ['falta gasto_id', [sin(varioFila(), 'gasto_id')], 'gasto_id no es un uuid'],
+    ['fecha inválida', [varioFila({ fecha: '2026-02-30' })], 'fecha no es una fecha'],
+    ['fecha con hora', [varioFila({ fecha: '2026-10-12T00:00:00' })], 'fecha no es una fecha'],
+    ['fecha que no es texto', [varioFila({ fecha: 20261012 })], 'fecha no es una fecha'],
+    ['falta la descripción', [sin(varioFila(), 'descripcion')], 'falta descripcion'],
+    ['descripción numérica', [varioFila({ descripcion: 5 })], 'descripcion no es un texto'],
+    ['truncada como texto', [varioFila({ descripcion_truncada: 'true' })], 'descripcion_truncada no es verdadero o falso'],
+    ['falta truncada', [sin(varioFila(), 'descripcion_truncada')], 'descripcion_truncada no es verdadero o falso'],
+    ['monto no numérico', [varioFila({ monto: 'mucho' })], 'monto no es un número'],
+    ['monto con notación científica', [varioFila({ monto: '1e3' })], 'monto no es un número'],
+    ['monto NaN', [varioFila({ monto: Number.NaN })], 'monto no es un número'],
+    ['monto infinito', [varioFila({ monto: Number.POSITIVE_INFINITY })], 'monto no es un número'],
+    ['monto nulo', [varioFila({ monto: null })], 'monto no es un número'],
+    ['monto negativo', [varioFila({ monto: -1 })], 'monto es menor que 0'],
+    ['total_cantidad decimal', [varioFila({ total_cantidad: 1.5 })], 'total_cantidad no es un entero'],
+    ['total_cantidad 0 con filas', [varioFila({ total_cantidad: 0 })], 'total_cantidad es menor que 1'],
+    ['total_cantidad nulo', [varioFila({ total_cantidad: null })], 'total_cantidad no es un número'],
+    ['total_cantidad distinto entre filas', [varioFila({ total_cantidad: 2 }), varioFila({ gasto_id: G2, total_cantidad: 3 })], 'total_cantidad distinto entre filas'],
+    ['total_cantidad menor que las filas', [varioFila({ total_cantidad: 1 }), varioFila({ gasto_id: G2, total_cantidad: 1 })], 'total_cantidad menor que las filas'],
+    ['gasto repetido', [varioFila({ total_cantidad: 2 }), varioFila({ total_cantidad: 2 })], 'gasto repetido'],
+  ])('%s', (_caso, datos, esperado) => {
+    expect(motivo(() => parseResumenGastosVarios(datos))).toBe(esperado);
+  });
+
+  it('más de 30 filas', () => {
+    const filas = Array.from({ length: 31 }, (_, i) => varioFila({ gasto_id: idVario(i), total_cantidad: 40 }));
+    expect(motivo(() => parseResumenGastosVarios(filas))).toBe('más de 30 filas');
+  });
+
+  it('el error es el de contrato: mensaje genérico, sin el nombre de la función, y se puede reintentar', () => {
+    try {
+      parseResumenGastosVarios([varioFila({ monto: 'x' })]);
+      throw new Error('no falló');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ResumenRespuestaInesperadaError);
+      expect(mensajeErrorResumen(error)).toBe(RESUMEN_ERROR_INESPERADO);
+      expect(mensajeErrorResumen(error)).not.toContain('resumen_gastos_varios');
+      expect(isRetryableDataError(error)).toBe(true);
+    }
   });
 });

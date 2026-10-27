@@ -45,6 +45,7 @@ import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context
 import { MemberProvider } from '@/features/member/member-provider';
 import { RequireMember } from '@/app/guards';
 import { ResumenPage } from '@/features/resumen/resumen-page';
+import { GASTOS_VARIOS_CATEGORIA_ID } from '@/features/gastos/constants';
 import { RESUMEN_SIN_CONEXION } from '@/features/resumen/resumen-pantalla-textos';
 import { RESUMEN_ERROR_INESPERADO, RESUMEN_SIN_CUENTA } from '@/features/resumen/resumen-textos';
 import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
@@ -146,7 +147,7 @@ function viajeFila(over: Record<string, unknown> = {}) {
 }
 
 type Handler = (call: Call) => unknown;
-const route: { gastos: Handler; mensual: Handler; combustible: Handler; viajes: Handler } = {} as never;
+const route: { gastos: Handler; mensual: Handler; combustible: Handler; viajes: Handler; varios: Handler } = {} as never;
 const argsDe = (call: Call) => call.ops.find((o) => o.m === 'rpc')!.args[0] as Record<string, unknown>;
 /** La comparación es la llamada a resumen_gastos que NO empieza el día 1 del mes mirado. */
 let MES_DESDE = '2026-10-01';
@@ -156,6 +157,7 @@ function resetRoutes() {
   route.gastos = (call) => ok(argsDe(call).p_desde === MES_DESDE ? GASTOS_OCT : [total(8000, 6)]);
   route.mensual = (call) => ok([mesFila(String(argsDe(call).p_mes_desde))]);
   route.combustible = () => ok([combFila()]);
+  route.varios = () => ok([]);
   route.viajes = () => ok([viajeFila(), viajeFila({ viaje_id: V2, fecha: '2026-10-03', origen: 'Salta', destino: 'Jujuy', camion_id: null, patente: null, km: null, ingreso: null, ganancia: null, gastos_cantidad: 0, gastos_monto: 0 })]);
 }
 
@@ -166,6 +168,7 @@ function installResponder() {
     if (call.target === 'rpc:resumen_mensual') return route.mensual(call);
     if (call.target === 'rpc:resumen_combustible') return route.combustible(call);
     if (call.target === 'rpc:resumen_viajes') return route.viajes(call);
+    if (call.target === 'rpc:resumen_gastos_varios') return route.varios(call);
     throw new Error(`pedido inesperado: ${call.target}`);
   };
 }
@@ -1218,5 +1221,182 @@ describe('pantalla Resumen: todos los bloques', () => {
     const estilos = [...container.querySelectorAll<HTMLElement>('[style]')].map((el) => el.getAttribute('style')!);
     expect(estilos.length).toBeGreaterThan(0);
     for (const estilo of estilos) expect(estilo).toMatch(/^width: [\d.]+%;?$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Detalle de "Gastos varios" (migración 018)
+// ---------------------------------------------------------------------------
+describe('pantalla Resumen: detalle de Gastos varios', () => {
+  const G1 = 'd1000000-0000-4000-8000-000000000001';
+  const G2 = 'd1000000-0000-4000-8000-000000000002';
+  const G3 = 'd1000000-0000-4000-8000-000000000003';
+  const gv = (id: string, fecha: string, descripcion: string | null, monto: number, over: Record<string, unknown> = {}, total_cantidad = 3) => ({
+    gasto_id: id,
+    fecha,
+    descripcion,
+    descripcion_truncada: false,
+    monto,
+    total_cantidad,
+    ...over,
+  });
+  /** El gasto del mes con "Gastos varios" entre las categorías (la comparación sigue igual). */
+  function conVarios(cantidad = 3) {
+    route.gastos = (call) =>
+      ok(
+        argsDe(call).p_desde === MES_DESDE
+          ? [total(10000, 8), cat(CAT_A, 'Combustible', 7000, 3), cat(GASTOS_VARIOS_CATEGORIA_ID, 'Gastos varios', 3000, cantidad)]
+          : [total(8000, 6)],
+      );
+  }
+  const detalle = () => byId('resumen-por-categoria')!.querySelector('[data-gastos-varios]');
+  const filasDelDetalle = () => [...(detalle()?.querySelectorAll('[data-gasto-vario]') ?? [])].map((li) => plano(li.textContent));
+  const estadoSr = () => document.querySelector('[role="status"]')!.textContent;
+  const resultadoOk = () => plano(byId('resumen-resultado')?.querySelector('[data-resultado]')?.textContent) === 'Ganancia15.000,00';
+
+  it('fecha corta, descripción y monto de cada gasto, DEBAJO de la barra de "Gastos varios" (y no en otra categoría)', async () => {
+    conVarios();
+    route.varios = () => ok([gv(G1, '2026-10-12', 'Lavado del camión', 1500), gv(G2, '2026-10-05', 'Propina', 1000.5), gv(G3, '2026-10-02', 'Balanza', 500)]);
+    await mount();
+    expect(rpcs('resumen_gastos_varios').map(argsDe)).toEqual([{ p_desde: '2026-10-01', p_hasta: '2026-10-31' }]);
+    expect(filasDelDetalle()).toEqual(['12 oct · Lavado del camión1.500,00', '5 oct · Propina1.000,50', '2 oct · Balanza500,00']);
+    expect(detalle()!.closest('li')!.getAttribute('data-fila')).toBe(GASTOS_VARIOS_CATEGORIA_ID);
+    expect(byId('resumen-por-categoria')!.querySelectorAll('[data-gastos-varios]')).toHaveLength(1);
+    expect(detalle()!.querySelector('ul')!.getAttribute('aria-label')).toBe('Detalle de Gastos varios');
+    expect(detalle()!.querySelector('[data-gastos-varios-mas]')).toBeNull();
+    // Los desgloses de siempre siguen igual (el detalle va después del texto de la barra).
+    expect(barras('resumen-por-categoria')[1]).toEqual(['Gastos varios', '3.000,00', '3 gastos · 30 % del total']);
+  });
+
+  it('sin descripción (null): "Sin descripción" en gris; truncada: termina en "…"', async () => {
+    conVarios();
+    route.varios = () =>
+      ok([gv(G1, '2026-10-12', null, 1500), gv(G2, '2026-10-05', 'x'.repeat(80), 1000, { descripcion_truncada: true }), gv(G3, '2026-10-02', 'Completa', 500)]);
+    await mount();
+    const [sin, truncada, completa] = [...detalle()!.querySelectorAll('[data-gasto-vario]')];
+    expect(plano(sin!.textContent)).toBe('12 oct · Sin descripción1.500,00');
+    expect([...sin!.querySelectorAll('.text-muted-foreground')].map((el) => el.textContent)).toEqual(['12 oct', 'Sin descripción']);
+    expect(plano(truncada!.textContent)).toBe('5 oct · ' + 'x'.repeat(80) + '…1.000,00');
+    expect(plano(completa!.textContent)).not.toContain('…');
+  });
+
+  it('la descripción es TEXTO (nunca HTML) y la fila corta palabras largas sin romper el ancho', async () => {
+    conVarios(1);
+    route.varios = () => ok([gv(G1, '2026-10-12', '<img src=x onerror=alert(1)>', 1500, {}, 1)]);
+    await mount();
+    expect(filasDelDetalle()[0]).toBe('12 oct · <img src=x onerror=alert(1)>1.500,00');
+    expect(document.querySelector('img')).toBeNull();
+    const izquierda = detalle()!.querySelector('[data-gasto-vario] > span')!;
+    expect(izquierda.className).toContain('break-words');
+    expect(izquierda.className).toContain('min-w-0');
+  });
+
+  it('con más de las que se muestran: "y N más en Gastos", con enlace a Gastos de ESE mes y de Gastos varios', async () => {
+    conVarios(45);
+    route.varios = () => ok([gv(G1, '2026-10-12', 'A', 100, {}, 45), gv(G2, '2026-10-05', 'B', 90, {}, 45)]);
+    await mount();
+    const mas = detalle()!.querySelector<HTMLElement>('[data-gastos-varios-mas]')!;
+    expect(plano(mas.textContent)).toBe('y 43 más en Gastos');
+    expect(mas.querySelector('a')!.getAttribute('href')).toBe(`/gastos?categoria=${GASTOS_VARIOS_CATEGORIA_ID}`); // mes en curso: no se escribe
+    await act(async () => root.unmount());
+    container.remove();
+    queryClient.clear();
+    MES_DESDE = '2026-08-01';
+    conVarios(45);
+    route.varios = () => ok([gv(G1, '2026-08-12', 'A', 100, {}, 45)]);
+    await mount('/resumen?mes=2026-08');
+    expect(detalle()!.querySelector('[data-gastos-varios-mas] a')!.getAttribute('href')).toBe(`/gastos?mes=2026-08&categoria=${GASTOS_VARIOS_CATEGORIA_ID}`);
+  });
+
+  it('el detalle de un mes cerrado pide SUS fechas', async () => {
+    MES_DESDE = '2026-08-01';
+    conVarios();
+    route.varios = () => ok([gv(G1, '2026-08-12', 'A', 100, {}, 1)]);
+    await mount('/resumen?mes=2026-08');
+    expect(rpcs('resumen_gastos_varios').map(argsDe)).toEqual([{ p_desde: '2026-08-01', p_hasta: '2026-08-31' }]);
+    expect(filasDelDetalle()).toEqual(['12 ago · A100,00']);
+  });
+
+  it('el mes sin gastos varios (sin esa categoría): no se pide ni se muestra nada', async () => {
+    await mount(); // GASTOS_OCT no trae "Gastos varios"
+    expect(rpcs('resumen_gastos_varios')).toHaveLength(0);
+    expect(document.querySelector('[data-gastos-varios]')).toBeNull();
+  });
+
+  it('la función devuelve 0 filas: no se muestra nada (ni línea gris ni aviso)', async () => {
+    conVarios();
+    route.varios = () => ok([]);
+    await mount();
+    expect(rpcs('resumen_gastos_varios')).toHaveLength(1);
+    expect(document.querySelector('[data-gastos-varios]')).toBeNull();
+    expect(byId('resumen-por-categoria')!.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('mientras carga: una línea gris dentro de la barra; el resto ya se ve y no se anuncia "Cargando…"', async () => {
+    conVarios();
+    route.varios = () => new Promise(() => {});
+    await mount();
+    expect(detalle()!.querySelector('[data-cargando]')).not.toBeNull();
+    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(estadoSr()).toBe('');
+  });
+
+  it('si la consulta FALLA (p. ej. la función todavía no existe): aviso breve y sin texto técnico; lo demás sigue', async () => {
+    conVarios();
+    route.varios = () => errorBase('PGRST202', 404);
+    await mount();
+    expect(barras('resumen-por-categoria').map((f) => f[0])).toEqual(['Combustible', 'Gastos varios']);
+    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(byId('resumen-por-metodo')).not.toBeNull();
+    expect(resultadoOk()).toBe(true);
+    const aviso = detalle()!.querySelector('[role="alert"]')!;
+    expect(plano(aviso.textContent)).toContain('No pudimos cargar el detalle de Gastos varios.');
+    expect(bodyText()).not.toMatch(/PGRST|resumen_gastos_varios|detalle interno/);
+    expect(filasDelDetalle()).toEqual([]);
+    expect(byId('resumen-gastos')!.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('una respuesta fuera de contrato no muestra NADA a medias: solo el aviso; "Reintentar" pide solo el detalle', async () => {
+    conVarios();
+    let rota = true;
+    route.varios = () => ok(rota ? [gv(G1, '2026-10-12', 'A', 100, {}, 3), gv(G2, '2026-10-05', 'B', 90, {}, 4)] : [gv(G1, '2026-10-12', 'A', 100, {}, 1)]);
+    await mount();
+    expect(filasDelDetalle()).toEqual([]);
+    expect(detalle()!.querySelector('[role="alert"]')).not.toBeNull();
+    const gastos = rpcs('resumen_gastos').length;
+    const varios = rpcs('resumen_gastos_varios').length;
+    rota = false;
+    await click(botonEn('resumen-por-categoria', 'Reintentar'));
+    expect(rpcs('resumen_gastos_varios')).toHaveLength(varios + 1);
+    expect(rpcs('resumen_gastos')).toHaveLength(gastos);
+    expect(filasDelDetalle()).toEqual(['12 oct · A100,00']);
+  });
+
+  it('el detalle va DENTRO de "Por categoría": no agrega secciones ni cambia el orden de los h2', async () => {
+    conVarios();
+    route.varios = () => ok([gv(G1, '2026-10-12', 'A', 100, {}, 3)]);
+    await mount();
+    expect(h2s().slice(0, 3)).toEqual(['Gastos del mes', 'Por categoría', 'Por método de pago']);
+    expect(document.querySelectorAll('[data-gastos-varios]')).toHaveLength(1);
+  });
+
+  it('"Gastos varios" dentro de "Otras" (fuera de las 5 principales): el detalle va igual, debajo de las barras y con su título', async () => {
+    route.gastos = (call) =>
+      ok(
+        argsDe(call).p_desde === MES_DESDE
+          ? [
+              total(2100, 21),
+              ...Array.from({ length: 6 }, (_, i) => cat(`a2000000-0000-4000-8000-00000000000${i}`, `Categoría ${i + 1}`, 500 - i * 10)),
+              cat(GASTOS_VARIOS_CATEGORIA_ID, 'Gastos varios', 10, 2),
+            ]
+          : [total(8000, 6)],
+      );
+    route.varios = () => ok([gv(G1, '2026-10-12', 'A', 6, {}, 2), gv(G2, '2026-10-05', 'B', 4, {}, 2)]);
+    await mount();
+    expect(barras('resumen-por-categoria').at(-1)![0]).toBe('Otras (2 categorías)');
+    expect(byId('resumen-por-categoria')!.querySelectorAll('[data-gastos-varios]')).toHaveLength(1);
+    expect(detalle()!.closest('li')).toBeNull();
+    expect(detalle()!.querySelector('h3')!.textContent).toBe('Detalle de Gastos varios');
+    expect(filasDelDetalle()).toHaveLength(2);
   });
 });

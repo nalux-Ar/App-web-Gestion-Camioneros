@@ -74,7 +74,7 @@ function ResumenDelMes({ mes }: { mes: YearMonth }) {
         consultas={[resumen.gastos, resumen.comparacion, resumen.mensual, resumen.combustible, resumen.viajes]}
         periodo={formatMonthLabel(mes)}
       />
-      <GastosDelMes mes={mes} enCurso={enCurso} gastos={resumen.gastos} comparacion={resumen.comparacion} />
+      <GastosDelMes mes={mes} enCurso={enCurso} gastos={resumen.gastos} comparacion={resumen.comparacion} gastosVarios={resumen.gastosVarios} />
       <ResultadoDelMes mes={mes} mensual={resumen.mensual} />
       <CombustibleDelPeriodo vacio={textoSinCombustible(mes, enCurso)} combustible={resumen.combustible} />
       <ViajesDelMes mes={mes} enCurso={enCurso} viajes={resumen.viajes} />

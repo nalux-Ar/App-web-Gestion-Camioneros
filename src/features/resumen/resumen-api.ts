@@ -7,11 +7,13 @@ import { diferenciaEnDias, primerDiaDelMes, type RangoInclusivo } from './resume
 import {
   parseResumenCombustible,
   parseResumenGastos,
+  parseResumenGastosVarios,
   parseResumenMensual,
   parseResumenViajes,
   type CombustibleDelCamion,
   type ResumenDelMes,
   type ResumenGastos,
+  type ResumenGastosVarios,
   type ResumenViajes,
 } from './resumen-parse';
 import { ResumenParametrosInvalidosError } from './resumen-textos';
@@ -44,6 +46,18 @@ export async function fetchResumenGastos(rango: RangoInclusivo, signal: AbortSig
     await supabase.rpc('resumen_gastos', { p_desde: rango.desde, p_hasta: rango.hasta }).abortSignal(signal),
   );
   return parseResumenGastos(datos);
+}
+
+/**
+ * `resumen_gastos_varios` (migración 018): el detalle (fecha, descripción y monto) de los gastos de la categoría "Gastos
+ * varios" del período, hasta 30 y con el total. Mismo período y mismo tope de días que `resumen_gastos`.
+ */
+export async function fetchResumenGastosVarios(rango: RangoInclusivo, signal: AbortSignal): Promise<ResumenGastosVarios> {
+  controlarRango('resumen_gastos_varios', rango, MAX_DIAS_PERIODO);
+  const datos: unknown = unwrap(
+    await supabase.rpc('resumen_gastos_varios', { p_desde: rango.desde, p_hasta: rango.hasta }).abortSignal(signal),
+  );
+  return parseResumenGastosVarios(datos);
 }
 
 /** `resumen_mensual`: una fila por mes, `meses` (1 a 24) meses desde `mesDesde`. */

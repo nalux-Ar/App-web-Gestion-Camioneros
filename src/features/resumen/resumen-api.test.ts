@@ -37,7 +37,7 @@ const h = vi.hoisted(() => {
 
 vi.mock('@/lib/supabase', () => ({ supabase: { rpc: h.rpc, from: h.from } }));
 
-import { fetchResumenCombustible, fetchResumenGastos, fetchResumenMensual, fetchResumenViajes } from '@/features/resumen/resumen-api';
+import { fetchResumenCombustible, fetchResumenGastos, fetchResumenGastosVarios, fetchResumenMensual, fetchResumenViajes } from '@/features/resumen/resumen-api';
 import { resumenKeys } from '@/features/resumen/resumen-keys';
 import {
   RESUMEN_ERROR_INESPERADO,
@@ -96,6 +96,16 @@ describe('qué se llama y con qué', () => {
     expect(argsDe(h.calls[0]!)).toEqual({ p_desde: '2026-10-01', p_hasta: '2026-10-31' });
   });
 
+  it('resumen_gastos_varios: los mismos desde y hasta que resumen_gastos, con la signal', async () => {
+    h.state.responder = () => ok([]);
+    const s = signal();
+    expect(await fetchResumenGastosVarios(OCT, s)).toEqual({ filas: [], totalCantidad: 0 });
+    const [call] = h.calls;
+    expect(call!.target).toBe('rpc:resumen_gastos_varios');
+    expect(argsDe(call!)).toEqual({ p_desde: '2026-10-01', p_hasta: '2026-10-31' });
+    expect(call!.ops.find((o) => o.m === 'abortSignal')!.args[0]).toBe(s);
+  });
+
   it('ningún parámetro de tenant: la base filtra por la sesión', async () => {
     h.state.responder = () => ok([TOTAL]);
     await fetchResumenGastos(OCT, signal());
@@ -143,6 +153,16 @@ describe('topes controlados ANTES de llamar (la base daría 22023)', () => {
     }
     expect(h.calls).toHaveLength(0);
   });
+
+  it('resumen_gastos_varios: período inválido o de más de 366 días, sin llamar', async () => {
+    h.state.responder = () => ok([]);
+    const errores = await Promise.all([
+      err(fetchResumenGastosVarios({ desde: '2026-10-31', hasta: '2026-10-01' }, signal())),
+      err(fetchResumenGastosVarios({ desde: '2024-01-01', hasta: '2025-01-02' }, signal())),
+    ]);
+    for (const error of errores) expect(error).toBeInstanceOf(ResumenParametrosInvalidosError);
+    expect(h.calls).toHaveLength(0);
+  });
 });
 
 describe('errores de la base y respuestas fuera de contrato', () => {
@@ -172,6 +192,13 @@ describe('errores de la base y respuestas fuera de contrato', () => {
     expect(mensajeErrorResumen(error)).not.toMatch(/resumen_gastos|PGRST/);
   });
 
+  it('resumen_gastos_varios antes de la 018 (PGRST202): error genérico, sin el nombre de la función', async () => {
+    h.state.responder = () => fail('PGRST202', 'Could not find the function public.resumen_gastos_varios', 404);
+    const error = await err(fetchResumenGastosVarios(OCT, signal()));
+    expect(error).toBeInstanceOf(DataRequestError);
+    expect(mensajeErrorResumen(error)).not.toMatch(/resumen_gastos_varios|PGRST/);
+  });
+
   it('una respuesta fuera de contrato no devuelve datos: error de contrato', async () => {
     h.state.responder = () => ok([{ ...TOTAL, grupo: 'otro' }]);
     const error = await err(fetchResumenGastos(OCT, signal()));
@@ -192,6 +219,7 @@ describe('keys', () => {
       resumenKeys.combustible(t, '2026-10-01', '2026-10-31', null),
       resumenKeys.combustible(t, '2026-10-01', '2026-10-31', CAM),
       resumenKeys.viajes(t, '2026-10-01', '2026-10-31'),
+      resumenKeys.gastosVarios(t, '2026-10-01', '2026-10-31'),
     ];
     for (const key of todas) {
       expect(key[0]).toBe('tenant');
@@ -209,6 +237,8 @@ describe('keys', () => {
       resumenKeys.gastos(t, '2026-09-01', '2026-09-30'),
       resumenKeys.gastos(t, '2026-09-01', '2026-09-13'),
       resumenKeys.viajes(t, '2026-10-01', '2026-10-31'),
+      resumenKeys.gastosVarios(t, '2026-10-01', '2026-10-31'),
+      resumenKeys.gastosVarios(t, '2026-09-01', '2026-09-30'),
       resumenKeys.combustible(t, '2026-10-01', '2026-10-31', null),
       resumenKeys.combustible(t, '2026-10-01', '2026-10-31', CAM),
       resumenKeys.mensual(t, '2026-10-01', 1),
