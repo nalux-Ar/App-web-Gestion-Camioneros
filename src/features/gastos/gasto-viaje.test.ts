@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { COMBUSTIBLE_CATEGORIA_ID } from '@/features/gastos/constants';
+import { COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID } from '@/features/gastos/constants';
 import type { Categoria } from '@/features/gastos/categorias';
 import { CLIENT_REF_CONSTRAINT } from '@/features/gastos/client-ref';
 import {
   GASTO_FIELD_ORDER,
+  METODO_PAGO_OBLIGATORIO_MESSAGE,
   VIAJE_INVALIDO_MESSAGE,
   buildInsertRow,
   emptyGastoValues,
@@ -32,6 +33,7 @@ const base = (over: Partial<GastoFormValues> = {}): GastoFormValues => ({
   ...emptyGastoValues(TODAY),
   categoriaId: PEAJES,
   monto: '1000',
+  metodoPago: 'efectivo',
   ...over,
 });
 const ctx = { categorias: CATS, today: TODAY, viajes: [{ id: V1 }, { id: V2 }] };
@@ -226,5 +228,63 @@ describe('reintento idempotente: si entre dos intentos cambia el viaje, se actua
     await expect(crearGasto({ columns: columnasValidas({ viajeId: V1 }), clientRef: 'r', sent, io: fake })).rejects.toBeDefined();
     await expect(crearGasto({ columns: columnasValidas({ viajeId: '' }), clientRef: 'r', sent, io: fake })).resolves.toBe('ya-guardado-actualizado');
     expect(updateByClientRef.mock.calls[0]![1]).toHaveProperty('viaje_id', null);
+  });
+});
+
+describe('método de pago obligatorio (todas las categorías)', () => {
+  const GV = GASTOS_VARIOS_CATEGORIA_ID;
+  const catsConVarios: Categoria[] = [...CATS, { id: GV, nombre: 'Gastos varios', activa: true, transportista_id: null }];
+  const ctxVarios = { ...ctx, categorias: catsConVarios };
+
+  it.each([
+    ['Peajes', { categoriaId: PEAJES }],
+    ['Combustible', { categoriaId: COMBUSTIBLE_CATEGORIA_ID, litros: '40' }],
+    ['Gastos varios', { categoriaId: GV, descripcion: 'Lavado' }],
+  ] satisfies Array<[string, Partial<GastoFormValues>]>)('%s con método vacío: error propio y el foco va al método', (_n, over) => {
+    const r = validateGastoForm(base({ ...over, metodoPago: '' }), ctxVarios);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.metodoPago).toBe(METODO_PAGO_OBLIGATORIO_MESSAGE);
+    expect(r.errors.metodoPago).toBe('Elige cómo pagaste.');
+    expect(Object.keys(r.errors)).toEqual(['metodoPago']);
+    expect(r.firstField).toBe('metodoPago');
+  });
+
+  it.each([
+    ['Peajes', { categoriaId: PEAJES }],
+    ['Combustible', { categoriaId: COMBUSTIBLE_CATEGORIA_ID, litros: '40' }],
+    ['Gastos varios', { categoriaId: GV, descripcion: 'Lavado' }],
+  ] satisfies Array<[string, Partial<GastoFormValues>]>)('%s con un método de la lista: guarda y manda ese método', (_n, over) => {
+    for (const metodo of ['efectivo', 'tarjeta_credito', 'tarjeta_debito', 'transferencia'] as const) {
+      const r = validateGastoForm(base({ ...over, metodoPago: metodo }), ctxVarios);
+      expect(r.ok, metodo).toBe(true);
+      if (r.ok) expect(r.columns.metodo_pago).toBe(metodo);
+    }
+  });
+
+  it('un valor fuera de la lista sigue dando su error de lista (no el de obligatorio)', () => {
+    const r = validateGastoForm(base({ metodoPago: 'cheque' as never }), ctx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.metodoPago).toBe('Elige un método de pago de la lista.');
+  });
+
+  it('un gasto viejo sin método abre con el campo vacío (no se autocompleta) y por eso no se puede guardar tal cual', () => {
+    const viejo: GastoEditable = {
+      categoria_id: PEAJES,
+      monto: 900,
+      fecha: '2026-10-01',
+      descripcion: null,
+      metodo_pago: null,
+      litros: null,
+      km_odometro: null,
+      tanque_lleno: null,
+      viaje_id: null,
+    };
+    const valores = valuesFromGasto(viejo);
+    expect(valores.metodoPago).toBe('');
+    const r = validateGastoForm(valores, ctx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.metodoPago).toBe(METODO_PAGO_OBLIGATORIO_MESSAGE);
+    expect(validateGastoForm({ ...valores, metodoPago: 'efectivo' }, ctx).ok).toBe(true);
   });
 });

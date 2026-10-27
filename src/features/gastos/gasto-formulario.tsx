@@ -480,8 +480,7 @@ export function GastoFormulario({
         <SelectField
           id="gasto-metodo"
           label="Método de pago"
-          optional
-          placeholder="Sin especificar"
+          placeholder="Elige una opción"
           options={METODO_PAGO_OPTIONS}
           value={values.metodoPago}
           onChange={(value) => setField('metodoPago', value as GastoFormValues['metodoPago'])}

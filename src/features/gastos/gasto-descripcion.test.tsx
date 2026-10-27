@@ -64,7 +64,7 @@ const CATS: Categoria[] = [
 ];
 const TODAY = '2026-10-02';
 const ctx = { categorias: CATS, today: TODAY, viajes: [] };
-const base = (over: Partial<GastoFormValues>): GastoFormValues => ({ ...emptyGastoValues(TODAY), monto: '1000', ...over });
+const base = (over: Partial<GastoFormValues>): GastoFormValues => ({ ...emptyGastoValues(TODAY), monto: '1000', metodoPago: 'efectivo', ...over });
 
 // ---------------------------------------------------------------------------
 // Logica pura
@@ -238,6 +238,18 @@ async function typeText(el: HTMLInputElement | HTMLTextAreaElement, value: strin
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+async function elegirMetodo(valor = 'efectivo') {
+  await act(async () => {
+    const el = byId<HTMLSelectElement>('gasto-metodo')!;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, valor);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+/** Escribe el monto y elige el método de pago (obligatorio): lo mínimo para que lo único que falte sea lo que se prueba. */
+async function escribirMonto(value: string) {
+  await typeText(byId<HTMLInputElement>('gasto-monto')!, value);
+  await elegirMetodo();
+}
 async function submit() {
   await act(async () => {
     guardar().click();
@@ -309,7 +321,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     installResponder();
     await mountForm();
     await choose(GASTOS_VARIOS_CATEGORIA_ID);
-    await typeText(byId<HTMLInputElement>('gasto-monto')!, '500');
+    await escribirMonto('500');
     await submit();
     expect(bodyText()).toContain('Escribe de qué se trata este gasto.');
     expect(byId('gasto-descripcion')!.getAttribute('aria-invalid')).toBe('true');
@@ -323,7 +335,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     await mountForm();
     await choose(GASTOS_VARIOS_CATEGORIA_ID);
     await typeText(byId<HTMLTextAreaElement>('gasto-descripcion')!, '  Lavado del camión  ');
-    await typeText(byId<HTMLInputElement>('gasto-monto')!, '500');
+    await escribirMonto('500');
     await submit();
     expect(inserts()).toHaveLength(1);
     const row = insertedRow();
@@ -337,7 +349,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     installResponder();
     await mountForm();
     await choose(PEAJES_ID);
-    await typeText(byId<HTMLInputElement>('gasto-monto')!, '800');
+    await escribirMonto('800');
     await submit();
     expect(inserts()).toHaveLength(1);
     expect(insertedRow().descripcion).toBeNull();
@@ -349,7 +361,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     await mountForm();
     await choose(PROPIA_ID);
     expect(labelOf('gasto-descripcion').textContent).toContain('(opcional)');
-    await typeText(byId<HTMLInputElement>('gasto-monto')!, '300');
+    await escribirMonto('300');
     await submit();
     expect(inserts()).toHaveLength(1);
     expect(insertedRow().descripcion).toBeNull();
@@ -359,7 +371,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     installResponder();
     await mountForm();
     await choose(GASTOS_VARIOS_CATEGORIA_ID);
-    await typeText(byId<HTMLInputElement>('gasto-monto')!, '500');
+    await escribirMonto('500');
     await submit();
     expect(bodyText()).toContain('Escribe de qué se trata este gasto.');
 
@@ -377,7 +389,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     installResponder();
     await mountForm();
     await choose(GASTOS_VARIOS_CATEGORIA_ID);
-    await typeText(byId<HTMLInputElement>('gasto-monto')!, '500');
+    await escribirMonto('500');
     await submit();
     expect(bodyText()).toContain('Escribe de qué se trata este gasto.');
     await typeText(byId<HTMLTextAreaElement>('gasto-descripcion')!, 'Lavado');
@@ -388,7 +400,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     installResponder();
     await mountForm();
     await choose(PEAJES_ID);
-    await typeText(byId<HTMLInputElement>('gasto-monto')!, '500');
+    await escribirMonto('500');
     await choose(GASTOS_VARIOS_CATEGORIA_ID);
     await submit();
     expect(inserts()).toHaveLength(0);

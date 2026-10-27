@@ -26,6 +26,7 @@ const CAMION = 'c0000000-0000-4000-8000-000000000001';
 const ctx = { categorias: CATS, today: TODAY, viajes: [] };
 const base = (over: Partial<GastoFormValues> = {}): GastoFormValues => ({
   ...emptyGastoValues(TODAY),
+  metodoPago: 'efectivo',
   categoriaId: COMBUSTIBLE_CATEGORIA_ID,
   monto: '40000',
   litros: '40',

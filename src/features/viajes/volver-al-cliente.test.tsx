@@ -306,6 +306,11 @@ describe('lo que se abre desde ese detalle devuelve el cliente al volver', () =>
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(monto, '1500');
       monto.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    const metodo = document.getElementById('gasto-metodo') as HTMLSelectElement; // el método de pago es obligatorio
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(metodo, 'efectivo');
+      metodo.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     await click(buttonByText('Guardar gasto'));
     expect(bodyText()).toContain('Gasto guardado.');
     expect(estado()).toMatchObject({ aviso: 'gasto-guardado', ...DESDE_CLIENTE });

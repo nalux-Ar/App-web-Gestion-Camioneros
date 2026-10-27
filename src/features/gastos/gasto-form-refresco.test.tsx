@@ -62,7 +62,7 @@ const GASTO = {
   fecha: '2026-10-01',
   monto: 900,
   descripcion: null,
-  metodo_pago: null,
+  metodo_pago: 'efectivo',
   litros: null,
   precio_por_litro: null,
   km_odometro: null,

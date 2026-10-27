@@ -101,7 +101,7 @@ const gastoDetalle = (over: Record<string, unknown> = {}) => ({
   fecha: '2026-09-15',
   monto: 40000,
   descripcion: null,
-  metodo_pago: null,
+  metodo_pago: 'efectivo',
   litros: 40,
   precio_por_litro: 1000,
   km_odometro: null,
@@ -269,6 +269,7 @@ async function llenarCombustible() {
   await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
   await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
   await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
+  await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo'); // el método de pago es obligatorio
 }
 
 let invalidadas: unknown[][] = [];
@@ -315,6 +316,7 @@ describe('carga de combustible sin viaje: el camión según los camiones', () =>
     await click(radioOf(PEAJES_ID));
     expect(radiosCamion()).toHaveLength(0);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: null, litros: null });
   });
@@ -626,6 +628,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
     await mount();
     await click(radioOf(PEAJES_ID));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
     await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: null, viaje_id: V_B.id });
@@ -921,5 +924,26 @@ describe('carga de combustible nueva: el camión activo (Etapa 5c)', () => {
     await click(buttonByText('Cargar camión'));
     expect(lineaCamion()).toBe('Camión: AB 123 CD');
     expect(botonCambiar()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Método de pago obligatorio también en Combustible
+// ---------------------------------------------------------------------------
+describe('combustible: el método de pago es obligatorio', () => {
+  it('sin método: error, el foco va al método y no se manda nada; con método, se guarda', async () => {
+    route.camiones = () => ok([A]);
+    await mount();
+    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
+    await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
+    await guardar();
+    expect(document.body.textContent).toContain('Elige cómo pagaste.');
+    expect(document.activeElement?.id).toBe('gasto-metodo');
+    expect(inserts()).toHaveLength(0);
+    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'tarjeta_credito');
+    await guardar();
+    expect(inserts()).toHaveLength(1);
+    expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ metodo_pago: 'tarjeta_credito', litros: 40 });
   });
 });

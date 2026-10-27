@@ -40,7 +40,7 @@ export interface GastoFormValues {
   /** Id del viaje al que pertenece el gasto, o '' = Sin viaje (null). */
   viajeId: string;
   descripcion: string;
-  /** '' = Sin especificar (null). */
+  /** '' = todavía sin elegir (obligatorio al guardar; un gasto viejo sin método abre vacío). */
   metodoPago: '' | MetodoPago;
   // Solo se usan con la categoría Combustible. Se CONSERVAN si el usuario
   // cambia de categoría y vuelve, pero no se envían (ver `validateGastoForm`).
@@ -208,6 +208,9 @@ export function esGastosVariosElegida(categoriaId: string, categorias: readonly 
 /** Error de la descripción vacía en "Gastos varios". */
 export const DESCRIPCION_OBLIGATORIA_MESSAGE = 'Escribe de qué se trata este gasto.';
 
+/** Error del método de pago vacío (obligatorio en todas las categorías). */
+export const METODO_PAGO_OBLIGATORIO_MESSAGE = 'Elige cómo pagaste.';
+
 /** Error del viaje: un id que no está entre las opciones conocidas (el viaje es opcional: '' = sin viaje es válido). */
 export const VIAJE_INVALIDO_MESSAGE = 'Elige un viaje de la lista.';
 
@@ -254,7 +257,10 @@ export function validateGastoForm(values: GastoFormValues, context: ValidarGasto
     errors.viajeId = VIAJE_INVALIDO_MESSAGE;
   }
 
-  if (values.metodoPago !== '' && !METODO_PAGO_ORDER.includes(values.metodoPago)) {
+  // Obligatorio en TODAS las categorías (solo el front: la columna sigue siendo nullable por los gastos viejos).
+  if (values.metodoPago === '') {
+    errors.metodoPago = METODO_PAGO_OBLIGATORIO_MESSAGE;
+  } else if (!METODO_PAGO_ORDER.includes(values.metodoPago)) {
     errors.metodoPago = 'Elige un método de pago de la lista.';
   }
 

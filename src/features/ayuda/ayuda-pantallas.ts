@@ -62,6 +62,7 @@ export const AYUDA_GASTO_FORM: AyudaPantalla = {
   titulo: 'Ayuda para cargar un gasto',
   puntos: [
     'Elige la categoría, anota el monto y la fecha.',
+    'Elige siempre cómo pagaste: efectivo, tarjeta o transferencia.',
     'En el combustible suma los litros y el odómetro (los kilómetros del tablero): así calculamos cuánto rinde tu camión.',
     'Si el gasto fue de un viaje, puedes unirlo a ese viaje.',
     'En «Gastos varios» cuéntanos en qué fue.',

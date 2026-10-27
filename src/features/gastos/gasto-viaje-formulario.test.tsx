@@ -93,7 +93,7 @@ const gastoDetalle = (over: Record<string, unknown> = {}) => ({
   fecha: '2026-10-01',
   monto: 900,
   descripcion: null,
-  metodo_pago: null,
+  metodo_pago: 'efectivo',
   litros: null,
   precio_por_litro: null,
   km_odometro: null,
@@ -268,6 +268,7 @@ async function guardar() {
 async function llenarLoMinimo() {
   await click(radioOf(PEAJES_ID));
   await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+  await selectValue(byId<HTMLSelectElement>('gasto-metodo')!, 'efectivo'); // el método de pago es obligatorio
 }
 
 beforeEach(() => {
@@ -850,5 +851,80 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
     expect(inserts()).toHaveLength(2);
     expect(payloadOf(inserts()[1]!, 'insert').viaje_id).toBe(V_OTRO);
     expect(payloadOf(inserts()[1]!, 'insert').client_ref).toBe(payloadOf(inserts()[0]!, 'insert').client_ref);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Método de pago: obligatorio (solo validación del front; la columna sigue siendo nullable por los gastos viejos)
+// ---------------------------------------------------------------------------
+describe('formulario de gasto: el método de pago es obligatorio', () => {
+  const etiquetaMetodo = () => document.querySelector<HTMLLabelElement>('label[for="gasto-metodo"]')!;
+
+  it('la etiqueta ya no dice "(opcional)", el campo es aria-required y el placeholder es neutro (no "Sin especificar")', async () => {
+    await mount();
+    expect(etiquetaMetodo().textContent).not.toContain('(opcional)');
+    expect(etiquetaMetodo().textContent).toContain('Método de pago');
+    expect(byId('gasto-metodo')!.getAttribute('aria-required')).toBe('true');
+    const vacia = byId<HTMLSelectElement>('gasto-metodo')!.querySelector('option[value=""]')!;
+    expect(vacia.textContent).toBe('Elige una opción');
+    expect(byId('gasto-metodo')!.textContent).not.toContain('Sin especificar');
+    // El viaje sigue siendo opcional: la marca no se corrió de campo.
+    expect(document.querySelector('label[for="gasto-viaje"]')!.textContent).toContain('(opcional)');
+  });
+
+  it.each([
+    ['Peajes', PEAJES_ID],
+    ['Gastos varios', GASTOS_VARIOS_CATEGORIA_ID],
+  ])('%s sin método: error visible, el foco va al método y NO se manda nada', async (_nombre, categoriaId) => {
+    await mount();
+    await click(radioOf(categoriaId));
+    await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+    if (categoriaId === GASTOS_VARIOS_CATEGORIA_ID) {
+      const descripcion = byId<HTMLTextAreaElement>('gasto-descripcion')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(descripcion, 'Lavado');
+        descripcion.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+    await guardar();
+    expect(bodyText()).toContain('Elige cómo pagaste.');
+    expect(byId('gasto-metodo')!.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement?.id).toBe('gasto-metodo');
+    expect(inserts()).toHaveLength(0);
+  });
+
+  it('al elegir un método el error desaparece y se guarda con ese método', async () => {
+    await mount();
+    await click(radioOf(PEAJES_ID));
+    await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+    await guardar();
+    expect(bodyText()).toContain('Elige cómo pagaste.');
+    await selectValue(byId<HTMLSelectElement>('gasto-metodo')!, 'tarjeta_debito');
+    expect(bodyText()).not.toContain('Elige cómo pagaste.');
+    await guardar();
+    expect(inserts()).toHaveLength(1);
+    expect(payloadOf(inserts()[0]!, 'insert').metodo_pago).toBe('tarjeta_debito');
+  });
+
+  it('editar un gasto VIEJO sin método: el campo abre vacío (nada autocompletado) y exige elegir uno antes de guardar', async () => {
+    route.detalle = () => ok(gastoDetalle({ metodo_pago: null }));
+    await mount(`/gastos/${GASTO_ID}/editar`);
+    expect(byId<HTMLSelectElement>('gasto-metodo')!.value).toBe('');
+    await guardar();
+    expect(bodyText()).toContain('Elige cómo pagaste.');
+    expect(document.activeElement?.id).toBe('gasto-metodo');
+    expect(updates()).toHaveLength(0);
+    await selectValue(byId<HTMLSelectElement>('gasto-metodo')!, 'transferencia');
+    await guardar();
+    expect(updates()).toHaveLength(1);
+    expect(payloadOf(updates()[0]!, 'update').metodo_pago).toBe('transferencia');
+  });
+
+  it('editar un gasto que ya tenía método: abre con ese método y guarda sin pedir nada más', async () => {
+    await mount(`/gastos/${GASTO_ID}/editar`);
+    expect(byId<HTMLSelectElement>('gasto-metodo')!.value).toBe('efectivo');
+    await guardar();
+    expect(updates()).toHaveLength(1);
+    expect(payloadOf(updates()[0]!, 'update').metodo_pago).toBe('efectivo');
   });
 });
