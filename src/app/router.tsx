@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router';
 
 import { AuthShell } from '@/features/auth/components/auth-shell';
 import { AppShell } from '@/features/layout/app-shell';
+import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
 import { RecoveryGuard, RequireAuth, RequireGuest, RequireMember, RequireNoMember } from './guards';
 
 // Code-splitting por página: react + react-dom + react-router + el cliente
@@ -154,8 +155,9 @@ export function AppRouter() {
           <Route path="resumen" element={<ResumenPage />} />
           <Route path="reportes" element={<RedirigirAResumen />} />
           <Route path="configuracion" element={<ConfiguracionPage />} />
-          {/* "Reportar un problema": se llega desde el atajo del header y desde Configuración (no está en la barra de abajo). */}
-          <Route path="reportar" element={<ReportarPage />} />
+          {/* "Reportar un problema": se llega desde el atajo del header y desde Configuración (no está en la barra de abajo).
+              Con `REPORTAR_VISIBLE` en `false` la función está oculta (no eliminada): la ruta sigue existiendo, pero lleva a Inicio. */}
+          <Route path="reportar" element={REPORTAR_VISIBLE ? <ReportarPage /> : <Navigate to="/" replace />} />
         </Route>
 
         {/* Ruta desconocida -> Inicio (que a su vez, sin sesión, manda a

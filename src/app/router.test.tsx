@@ -35,7 +35,18 @@ const h = vi.hoisted(() => {
   return { calls, state, from: (table: string) => from(table), rpc };
 });
 
+// El interruptor de «Reportar un problema» (`reportar-config.ts`) se lee al DIBUJAR (el header, la tarjeta de Configuración y la
+// ruta), así que un getter sobre un estado que cada prueba fija alcanza para probar los dos valores con el router REAL y sin
+// recargar módulos. Lo que se calcula al cargar un módulo (los pasos del recorrido y las frases de la ayuda) NO sigue a este
+// interruptor: se prueba con sus funciones puras (`pasosDelTour`, `ayudaInicio`, `ayudaConfiguracion`). Por defecto, apagado.
+const reportar = vi.hoisted(() => ({ visible: false }));
+
 vi.mock('@/lib/supabase', () => ({ supabase: { from: h.from, rpc: h.rpc } }));
+vi.mock('@/features/reportar/reportar-config', () => ({
+  get REPORTAR_VISIBLE() {
+    return reportar.visible;
+  },
+}));
 
 import { AppRouter } from '@/app/router';
 import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context';
@@ -195,6 +206,7 @@ async function mount(path: string, conSesion = true) {
 }
 
 beforeEach(() => {
+  reportar.visible = false; // el estado por defecto; los bloques de Reportar lo fijan a propósito
   h.calls.length = 0;
   installResponder();
   localStorage.clear();
@@ -517,7 +529,62 @@ describe('router: el Resumen (antes "Reportes")', () => {
   });
 });
 
-describe('router: Reportar un problema', () => {
+describe('router: Reportar un problema APAGADO (el estado por defecto: la función está oculta, no eliminada)', () => {
+  // `reportar.visible` ya está en `false` (el `beforeEach` de más arriba).
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+  const pedidosDeReportes = () => h.calls.filter((c) => c.table === 'reportes');
+  const accionesDelHeader = () => [...document.querySelector('header')!.querySelectorAll('a, button')].map((el) => el.getAttribute('aria-label'));
+
+  it('/reportar lleva a Inicio REEMPLAZANDO la entrada del historial: no muestra la pantalla ni pide nada de `reportes`', async () => {
+    await mount('/reportar');
+    await until(() => h1().startsWith('Hola'));
+    expect(h1()).toMatch(/^Hola/);
+    expect(ubicacion()).toEqual({ pathname: '/', search: '', tipo: 'REPLACE' });
+    expect(document.getElementById('reporte-mensaje')).toBeNull();
+    expect(pedidosDeReportes()).toHaveLength(0);
+  });
+
+  it('/reportar con búsqueda o con barra final también lleva a Inicio, sin arrastrar la búsqueda', async () => {
+    for (const ruta of ['/reportar?mensaje=hola', '/reportar/']) {
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola'));
+      expect(h1(), ruta).toMatch(/^Hola/);
+      expect(ubicacion(), ruta).toEqual({ pathname: '/', search: '', tipo: 'REPLACE' });
+      expect(document.getElementById('reporte-mensaje'), ruta).toBeNull();
+      await desmontar();
+    }
+  });
+
+  it('el header NO tiene el atajo: solo Configuración y Salir, sin enlace a /reportar ni `data-ayuda="reportar"`', async () => {
+    await mount('/');
+    await until(() => h1().startsWith('Hola'));
+    expect(accionesDelHeader()).toEqual(['Configuración', 'Salir']);
+    expect(document.querySelector('a[href="/reportar"]')).toBeNull();
+    expect(document.querySelector('[data-ayuda="reportar"]')).toBeNull();
+  });
+
+  it('Configuración NO tiene la tarjeta de Reportar ni su enlace, y el resto de la pantalla sigue completo', async () => {
+    await mount('/configuracion');
+    await until(() => h1() === 'Configuración' && document.querySelector('a[href="/camiones"]') !== null);
+    // La pantalla ya dibujó entera (la tarjeta de Camiones es de las últimas): lo que falta, falta de verdad.
+    expect(h1()).toBe('Configuración');
+    expect(document.querySelector('a[href="/camiones"]')).not.toBeNull();
+    expect(document.querySelector('a[href="/reportar"]')).toBeNull();
+    expect(document.querySelector('main')!.textContent).not.toContain('Reportar un problema');
+  });
+});
+
+describe('router: Reportar un problema ENCENDIDO (con el interruptor en `true`)', () => {
+  beforeEach(() => {
+    reportar.visible = true;
+  });
+
   async function desmontar() {
     await act(async () => {
       root.unmount();

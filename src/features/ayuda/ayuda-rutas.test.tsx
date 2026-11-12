@@ -89,7 +89,10 @@ const PANTALLAS: Pantalla[] = [
   { ruta: 'configuracion', url: '/configuracion', pagina: <ConfiguracionPage />, ayuda: textos.AYUDA_CONFIGURACION },
 ];
 
-/** Dentro de la app pero sin "i" a propósito (`reportar`), o que solo redirigen (`reportes`). */
+/**
+ * Dentro de la app pero sin "i" a propósito (`reportar`; con la función oculta, además, redirige a Inicio: ver
+ * `router.test.tsx`), o que solo redirigen (`reportes`). `reportar` tiene que seguir estando en `router.tsx` aunque esté oculta.
+ */
 const SIN_AYUDA = ['reportar'];
 const REDIRECCIONES = ['reportes'];
 

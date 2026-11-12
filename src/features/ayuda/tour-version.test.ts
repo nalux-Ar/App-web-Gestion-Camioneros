@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { TOUR_PASOS } from './tour-pasos';
+import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
+import { pasosDelTour, TOUR_PASOS } from './tour-pasos';
 import {
   debeMostrarseElTour,
   debeReintentarGuardar,
@@ -105,18 +106,25 @@ describe('debeMostrarseElTour', () => {
   });
 });
 
-describe('los 9 pasos', () => {
-  it('9 pasos, ids únicos, objetivos válidos para data-ayuda, textos planos de "tú"', () => {
-    expect(TOUR_PASOS).toHaveLength(9);
-    expect(new Set(TOUR_PASOS.map((p) => p.id)).size).toBe(9);
-    for (const paso of TOUR_PASOS) {
+// Los pasos salen de `pasosDelTour(reportarVisible)`, una función pura: los dos estados de «Reportar un problema»
+// (`reportar-config.ts`) se prueban aquí sin recargar módulos. `TOUR_PASOS` es lo mismo con el interruptor real.
+describe('los pasos del recorrido', () => {
+  it.each([
+    [true, 9],
+    [false, 8],
+  ])('con «Reportar un problema» visible = %s: %i pasos, ids únicos, objetivos válidos para data-ayuda, textos planos de "tú"', (visible, cantidad) => {
+    const pasos = pasosDelTour(visible);
+    expect(pasos).toHaveLength(cantidad);
+    expect(new Set(pasos.map((p) => p.id)).size).toBe(cantidad);
+    for (const paso of pasos) {
       if (paso.objetivo !== null) expect(paso.objetivo).toMatch(/^[a-z0-9-]{1,40}$/);
       expect(`${paso.titulo} ${paso.texto}`).not.toMatch(/<|>|Acá|acá|\bvos\b/);
     }
   });
 
-  it('bienvenida centrada; navegación, camión, configuración y reportar; cierre centrado si falta su objetivo', () => {
-    expect(TOUR_PASOS.map((p) => p.objetivo)).toEqual([
+  it('ENCENDIDO: el recorrido completo de siempre (bienvenida centrada; navegación, camión, configuración y reportar; cierre centrado si falta su objetivo)', () => {
+    const pasos = pasosDelTour(true);
+    expect(pasos.map((p) => p.objetivo)).toEqual([
       null,
       'nav-viajes',
       'nav-gastos',
@@ -127,8 +135,40 @@ describe('los 9 pasos', () => {
       'reportar',
       'ayuda-inicio',
     ]);
-    expect(TOUR_PASOS[0]).toMatchObject({ titulo: 'Te mostramos la app', texto: 'Son pocos pasos. Puedes saltarlo cuando quieras.' });
-    expect(TOUR_PASOS[8]!.siFalta).toBe('centrado');
-    expect(TOUR_PASOS[2]!.texto).toContain('el odómetro (los kilómetros del tablero)');
+    expect(pasos[0]).toMatchObject({ titulo: 'Te mostramos la app', texto: 'Son pocos pasos. Puedes saltarlo cuando quieras.' });
+    expect(pasos[7]).toEqual({
+      id: 'reportar',
+      objetivo: 'reportar',
+      titulo: 'Reportar un problema',
+      texto: 'Si algo falla o se ve raro, cuéntanos desde aquí.',
+      siFalta: 'saltar',
+    });
+    expect(pasos[8]!.siFalta).toBe('centrado');
+    expect(pasos[2]!.texto).toContain('el odómetro (los kilómetros del tablero)');
+  });
+
+  it('APAGADO: los mismos pasos sin el de Reportar, en el mismo orden y sin tocar ninguno de los otros', () => {
+    const pasos = pasosDelTour(false);
+    expect(pasos.map((p) => p.objetivo)).toEqual([
+      null,
+      'nav-viajes',
+      'nav-gastos',
+      'nav-clientes',
+      'nav-resumen',
+      'camion',
+      'nav-configuracion',
+      'ayuda-inicio',
+    ]);
+    expect(pasos).toEqual(pasosDelTour(true).filter((p) => p.id !== 'reportar'));
+    expect(pasos[0]).toMatchObject({ titulo: 'Te mostramos la app', texto: 'Son pocos pasos. Puedes saltarlo cuando quieras.' });
+    expect(pasos.at(-1)).toMatchObject({ id: 'cierre', siFalta: 'centrado' });
+    expect(pasos[2]!.texto).toContain('el odómetro (los kilómetros del tablero)');
+    // Ni el paso ni una mención suelta: nada del recorrido manda a una función oculta.
+    expect(pasos.some((p) => p.id === 'reportar' || p.objetivo === 'reportar')).toBe(false);
+    expect(pasos.map((p) => `${p.titulo} ${p.texto}`).join(' ')).not.toMatch(/Reportar/i);
+  });
+
+  it('`TOUR_PASOS` (lo que usa la app) es `pasosDelTour` con el interruptor real', () => {
+    expect(TOUR_PASOS).toEqual(pasosDelTour(REPORTAR_VISIBLE));
   });
 });

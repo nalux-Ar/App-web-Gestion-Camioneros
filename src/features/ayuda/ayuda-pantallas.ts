@@ -1,3 +1,5 @@
+import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
+
 /**
  * La ayuda de cada pantalla (la que abre la "i"). Español neutro, de "tú", textos planos (nunca HTML), 3 a 5 puntos cortos.
  * Son datos fijos: no llevan nada de la persona ni de su negocio.
@@ -7,15 +9,29 @@ export interface AyudaPantalla {
   puntos: readonly string[];
 }
 
-export const AYUDA_INICIO: AyudaPantalla = {
-  titulo: 'Ayuda de Inicio',
-  puntos: [
-    'Desde aquí vas a Viajes, Gastos, Clientes y Resumen con un toque.',
-    'Arriba está el camión con el que trabajas. Si tienes varios, aquí eliges cuál.',
-    'En Configuración cambias tu nombre, tus camiones y cómo se ve la app.',
-    'Si algo falla o se ve raro, usa «Reportar un problema».',
-  ],
-};
+/**
+ * El punto que manda a «Reportar un problema». Va al final de la ayuda de Inicio y de la de Configuración, y solo si esa
+ * función está visible (`reportar-config.ts`).
+ */
+const PUNTO_REPORTAR = 'Si algo falla o se ve raro, usa «Reportar un problema».';
+
+/**
+ * La ayuda de Inicio. Función pura que recibe el interruptor de «Reportar un problema» (así se prueban los dos estados sin
+ * recargar módulos): con `false` no nombra esa función; con `true` lleva el punto de siempre, al final.
+ */
+export function ayudaInicio(reportarVisible: boolean): AyudaPantalla {
+  return {
+    titulo: 'Ayuda de Inicio',
+    puntos: [
+      'Desde aquí vas a Viajes, Gastos, Clientes y Resumen con un toque.',
+      'Arriba está el camión con el que trabajas. Si tienes varios, aquí eliges cuál.',
+      'En Configuración cambias tu nombre, tus camiones y cómo se ve la app.',
+      ...(reportarVisible ? [PUNTO_REPORTAR] : []),
+    ],
+  };
+}
+
+export const AYUDA_INICIO: AyudaPantalla = ayudaInicio(REPORTAR_VISIBLE);
 
 export const AYUDA_VIAJES: AyudaPantalla = {
   titulo: 'Ayuda de Viajes',
@@ -134,15 +150,20 @@ export const AYUDA_DEVOLUCION_FORM: AyudaPantalla = {
   ],
 };
 
-export const AYUDA_CONFIGURACION: AyudaPantalla = {
-  titulo: 'Ayuda de Configuración',
-  puntos: [
-    'Aquí ves con qué cuenta iniciaste sesión.',
-    'Puedes cambiar tu nombre y entrar a tus camiones.',
-    'Elige el tema claro u oscuro y el color de los botones: se guarda solo.',
-    'Si algo falla o se ve raro, usa «Reportar un problema».',
-  ],
-};
+/** La ayuda de Configuración. Igual que `ayudaInicio`: recibe el interruptor de «Reportar un problema» y, con `true`, lo nombra al final. */
+export function ayudaConfiguracion(reportarVisible: boolean): AyudaPantalla {
+  return {
+    titulo: 'Ayuda de Configuración',
+    puntos: [
+      'Aquí ves con qué cuenta iniciaste sesión.',
+      'Puedes cambiar tu nombre y entrar a tus camiones.',
+      'Elige el tema claro u oscuro y el color de los botones: se guarda solo.',
+      ...(reportarVisible ? [PUNTO_REPORTAR] : []),
+    ],
+  };
+}
+
+export const AYUDA_CONFIGURACION: AyudaPantalla = ayudaConfiguracion(REPORTAR_VISIBLE);
 
 /** El botón que repite el recorrido de bienvenida; vive al final de la ayuda de Inicio. */
 export const TEXTO_VER_RECORRIDO = 'Ver el recorrido otra vez';

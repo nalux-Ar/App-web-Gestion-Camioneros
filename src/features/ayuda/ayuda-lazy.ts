@@ -11,5 +11,5 @@ function sinFalla<P extends object>(cargar: () => Promise<ComponentType<P>>) {
  */
 export const TourAyudaDiferido = sinFalla(() => import('./tour-ayuda').then((m) => m.TourAyuda));
 export const HojaAyudaDiferida = sinFalla(() => import('./hoja-ayuda').then((m) => m.HojaAyuda));
-/** El que decide cuándo mostrar el recorrido (va en el AppShell): con sus 9 pasos, también diferido. */
+/** El que decide cuándo mostrar el recorrido (va en el AppShell): con sus pasos, también diferido. */
 export const DisparadorTourDiferido = sinFalla(() => import('./disparador-tour').then((m) => m.DisparadorTour));

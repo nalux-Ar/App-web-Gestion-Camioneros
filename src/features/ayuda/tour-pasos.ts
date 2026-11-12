@@ -1,12 +1,13 @@
+import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
 import type { PasoTour } from './posicion';
 
 /**
- * Los 9 pasos del recorrido de bienvenida (Inicio). Español neutro, de "tú", textos planos. Cada objetivo es el
- * `data-ayuda` de un elemento real: la barra de navegación (abajo en el celular, a la izquierda en escritorio; el motor toma
- * el que se ve), la tarjeta del camión de Inicio (sus 3 variantes), Configuración y el atajo "Reportar un problema" del
- * header. Se cargan junto con el disparador (diferido): no pesan en la carga inicial.
+ * El recorrido de bienvenida (Inicio) completo: 9 pasos, con el de «Reportar un problema». Español neutro, de "tú", textos
+ * planos. Cada objetivo es el `data-ayuda` de un elemento real: la barra de navegación (abajo en el celular, a la izquierda
+ * en escritorio; el motor toma el que se ve), la tarjeta del camión de Inicio (sus 3 variantes), Configuración y el atajo
+ * "Reportar un problema" del header. No se exporta: lo que se muestra sale de `pasosDelTour`.
  */
-export const TOUR_PASOS: readonly PasoTour[] = [
+const PASOS_COMPLETOS: readonly PasoTour[] = [
   {
     id: 'bienvenida',
     objetivo: null,
@@ -74,3 +75,18 @@ export const TOUR_PASOS: readonly PasoTour[] = [
     siFalta: 'centrado',
   },
 ];
+
+/**
+ * Los pasos que se muestran, según el interruptor de «Reportar un problema» (`reportar-config.ts`). Con `true`, los 9 pasos
+ * completos; con `false`, los mismos sin el de `reportar` (8), en el mismo orden. Función pura: así se prueban los dos
+ * estados sin recargar módulos.
+ */
+export function pasosDelTour(reportarVisible: boolean): readonly PasoTour[] {
+  return reportarVisible ? PASOS_COMPLETOS : PASOS_COMPLETOS.filter((paso) => paso.id !== 'reportar');
+}
+
+/**
+ * Los pasos del recorrido de bienvenida con el interruptor real: 8 con «Reportar un problema» oculto, 9 si está visible. Se
+ * cargan junto con el disparador (diferido): no pesan en la carga inicial.
+ */
+export const TOUR_PASOS: readonly PasoTour[] = pasosDelTour(REPORTAR_VISIBLE);

@@ -26,6 +26,7 @@ import { useAuth } from '@/features/auth/use-auth';
 import { CamionesCard } from '@/features/camiones/camiones-card';
 import { useMember } from '@/features/member/use-member';
 import { ReportarCard } from '@/features/reportar/reportar-card';
+import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
 import { NombreCard } from './nombre-card';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -283,8 +284,10 @@ export function ConfiguracionPage() {
         </CardContent>
       </Card>
 
-      {/* Para avisar de un error o algo raro (también hay un atajo en el header). */}
-      <ReportarCard />
+      {REPORTAR_VISIBLE ? (
+        // Para avisar de un error o algo raro (también hay un atajo en el header).
+        <ReportarCard />
+      ) : null}
     </div>
   );
 }
