@@ -1,15 +1,17 @@
 import { useCallback, useEffect, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { CheckCircle2, ChevronLeft, ChevronRight, Info, Pencil, Truck, X } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Info, Pencil, Truck, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { VolverLink } from '@/components/shared/volver-link';
 import { AYUDA_CLIENTE_DETALLE } from '@/features/ayuda/ayuda-pantallas';
 import { MOTIVO_LABELS } from '@/features/devoluciones/constants';
 import { estadoEditarDesdeCliente, rutaDelViaje, rutaEditarDevolucion } from '@/features/viajes/viaje-navegacion';
+import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { formatDateWithYear } from '@/lib/dates';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
@@ -28,8 +30,6 @@ import { ClienteNoEncontrado } from './cliente-no-encontrado';
 import type { ClienteDetalle, DevolucionDelCliente, ViajeDelCliente } from './clientes-api';
 import { DETALLE_LIMIT } from './constants';
 import { useClienteVista, useDevolucionesDelCliente, useViajesDelCliente } from './use-clientes';
-
-const AVISO_AUTOCIERRE_MS = 5000;
 
 // Foco visible de los enlaces de las filas (los de la fila de devolución son dos hermanos y se dibuja HACIA ADENTRO).
 const FOCO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
@@ -116,15 +116,7 @@ export function ClienteDetallePage() {
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <Link
-          to={`/clientes${volver}`}
-          className={cn(
-            '-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground',
-            FOCO,
-          )}
-        >
-          <ChevronLeft className="size-5" aria-hidden="true" /> Clientes
-        </Link>
+        <VolverLink to={`/clientes${volver}`} destino="a Clientes" />
         <PageHeader title={cliente ? cliente.nombre : 'Cliente'} ayuda={AYUDA_CLIENTE_DETALLE} />
       </div>
 
@@ -169,7 +161,7 @@ function DatosDelCliente({ cliente, volver }: { cliente: ClienteDetalle; volver:
 
   return (
     <section aria-labelledby="cliente-datos-titulo" className="space-y-4 rounded-lg border border-border bg-card p-4">
-      <h2 id="cliente-datos-titulo" className="text-sm font-medium text-muted-foreground">
+      <h2 id="cliente-datos-titulo" className="text-base font-medium text-muted-foreground">
         Datos de contacto
       </h2>
       {sinDatos ? (
@@ -178,7 +170,7 @@ function DatosDelCliente({ cliente, volver }: { cliente: ClienteDetalle; volver:
         <dl className="space-y-3">
           {telefono ? (
             <div>
-              <dt className="text-sm text-muted-foreground">Teléfono</dt>
+              <dt className="text-base text-muted-foreground">Teléfono</dt>
               <dd className="text-base">
                 {hrefTel ? (
                   <a href={hrefTel} className={enlace} aria-label={`Llamar al ${telefono}`}>
@@ -192,7 +184,7 @@ function DatosDelCliente({ cliente, volver }: { cliente: ClienteDetalle; volver:
           ) : null}
           {email ? (
             <div>
-              <dt className="text-sm text-muted-foreground">Email</dt>
+              <dt className="text-base text-muted-foreground">Email</dt>
               <dd className="text-base">
                 {hrefMail ? (
                   <a href={hrefMail} className={enlace} aria-label={`Escribir a ${email}`}>
@@ -206,7 +198,7 @@ function DatosDelCliente({ cliente, volver }: { cliente: ClienteDetalle; volver:
           ) : null}
           {direccion ? (
             <div>
-              <dt className="text-sm text-muted-foreground">Dirección</dt>
+              <dt className="text-base text-muted-foreground">Dirección</dt>
               <dd className="whitespace-pre-line break-words text-base font-semibold">{direccion}</dd>
             </div>
           ) : null}
@@ -265,9 +257,9 @@ function ViajesDelCliente({ desdeCliente, viajesQuery }: ViajesDelClienteProps) 
                   <p className="line-clamp-2 break-words font-medium">
                     <Recorrido origen={viaje.origen} destino={viaje.destino} />
                   </p>
-                  <p className="text-sm text-muted-foreground">{formatDateWithYear(viaje.fecha)}</p>
+                  <p className="text-base text-muted-foreground">{formatDateWithYear(viaje.fecha)}</p>
                   {incidencias ? (
-                    <p className="line-clamp-2 break-words text-sm text-muted-foreground">Incidencias: {incidencias}</p>
+                    <p className="line-clamp-2 break-words text-base text-muted-foreground">Incidencias: {incidencias}</p>
                   ) : null}
                 </div>
                 <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -325,7 +317,7 @@ function DevolucionDelClienteItem({ devolucion, desdeCliente }: { devolucion: De
         <div className="min-w-0 flex-1">
           <p className="font-medium">{MOTIVO_LABELS[devolucion.motivo]}</p>
           {devolucion.descripcion ? (
-            <p className="line-clamp-2 break-words text-sm text-muted-foreground">{devolucion.descripcion}</p>
+            <p className="line-clamp-2 break-words text-base text-muted-foreground">{devolucion.descripcion}</p>
           ) : null}
         </div>
         <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -334,7 +326,7 @@ function DevolucionDelClienteItem({ devolucion, desdeCliente }: { devolucion: De
         to={rutaDelViaje(devolucion.viaje_id)}
         state={estadoDesdeCliente(desdeCliente)}
         className={cn(
-          'flex min-h-12 items-center gap-2 rounded-b-lg border-t border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+          'flex min-h-12 items-center gap-2 rounded-b-lg border-t border-border px-4 py-2 text-base text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
           FOCO_ADENTRO,
         )}
       >

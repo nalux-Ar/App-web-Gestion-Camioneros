@@ -139,8 +139,8 @@ export function ReportarPage() {
             }
           />
 
-          <p className="flex items-start gap-2 text-sm text-muted-foreground">
-            <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <p className="flex items-start gap-2 text-base text-muted-foreground">
+            <Info className="mt-1 size-4 shrink-0" aria-hidden="true" />
             {QUE_SE_ENVIA}
           </p>
 

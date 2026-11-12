@@ -11,7 +11,7 @@ export function PasswordChecklist({ password }: { password: string }) {
 
   return (
     <div className="space-y-1.5">
-      <ul className="space-y-1 text-sm">
+      <ul className="space-y-1 text-base">
         {PASSWORD_REQUIREMENTS.map((requirement) => {
           const met = requirement.test(password);
           return (

@@ -457,7 +457,7 @@ describe('tarjeta Nombre: validación al guardar', () => {
       await click(guardar()!);
       const p = document.querySelector<HTMLElement>('p[role="alert"]')!;
       expect(p.textContent).toBe('Escribe un nombre entre 1 y 200 caracteres.');
-      expect(p.className).toBe('text-sm text-destructive-text');
+      expect(p.className).toBe('text-base text-destructive-text');
       expect(input().getAttribute('aria-invalid')).toBe('true');
       expect(input().getAttribute('aria-describedby')).toBe(p.id);
       expect(document.activeElement).toBe(input());

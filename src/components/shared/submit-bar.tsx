@@ -22,7 +22,8 @@ interface SubmitBarProps {
 
 /**
  * Pie de formulario: aviso sin conexión, error con "Reintentar" y botón
- * principal de 56 px. Va DENTRO del `<form>` (el botón es `type="submit"`).
+ * principal de 56 px como mínimo (crece si el rótulo se parte en líneas). Va
+ * DENTRO del `<form>` (el botón es `type="submit"`).
  * El patrón completo (qué no se limpia nunca, por qué) está documentado en
  * `src/lib/use-submit-feedback.ts`.
  *
@@ -51,7 +52,15 @@ export function SubmitBar({
         />
       ) : null}
 
-      <Button type="submit" size="lg" className="w-full" disabled={pending || disabled} aria-busy={pending}>
+      {/* `h-auto min-h-14 whitespace-normal`: 56 px como mínimo, pero un rótulo largo ("Guardar y pasar 12 gastos al camión
+          AB 123 CD", 380 px a 18 px) se parte en líneas en vez de salirse del botón a 360 px. */}
+      <Button
+        type="submit"
+        size="lg"
+        className="h-auto min-h-14 w-full whitespace-normal py-2 text-center"
+        disabled={pending || disabled}
+        aria-busy={pending}
+      >
         {pending ? (
           <>
             <Spinner /> {pendingLabel}

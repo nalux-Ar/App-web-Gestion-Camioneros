@@ -1,9 +1,9 @@
-import { Link, useLocation, useParams } from 'react-router';
-import { ChevronLeft } from 'lucide-react';
+import { useLocation, useParams } from 'react-router';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { VolverLink } from '@/components/shared/volver-link';
 import { AYUDA_CLIENTE_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { mapDataError } from '@/lib/data-errors';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
@@ -72,19 +72,13 @@ export function ClienteFormPage({ modo }: ClienteFormPageProps) {
   // El enlace de volver: al detalle del cliente al editar (si el id de la URL es válido) y a la lista al crear.
   const enlaceVolver =
     id !== null
-      ? { to: rutaDelCliente(id), state: { volver }, texto: 'Cliente' }
-      : { to: `/clientes${volver}`, state: undefined, texto: 'Clientes' };
+      ? { to: rutaDelCliente(id), state: { volver }, destino: 'al cliente' }
+      : { to: `/clientes${volver}`, state: undefined, destino: 'a Clientes' };
 
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <Link
-          to={enlaceVolver.to}
-          state={enlaceVolver.state}
-          className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <ChevronLeft className="size-5" aria-hidden="true" /> {enlaceVolver.texto}
-        </Link>
+        <VolverLink to={enlaceVolver.to} state={enlaceVolver.state} destino={enlaceVolver.destino} />
         <PageHeader title={titulo} ayuda={AYUDA_CLIENTE_FORM} />
       </div>
       {contenido}

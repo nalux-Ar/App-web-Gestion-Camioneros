@@ -466,9 +466,9 @@ describe('detalle de un viaje: las devoluciones', () => {
     expect(stateOf(byId('destino-editar-devolucion')!)).toEqual({ volver: '?vista=devoluciones&mes=2025-06' });
   });
 
-  it('el enlace "Viajes" del detalle vuelve a la pestaña de la que se vino (pestaña y mes en el volver)', async () => {
+  it('el enlace «Volver a Viajes» del detalle vuelve a la pestaña de la que se vino (pestaña y mes en el volver)', async () => {
     await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?vista=devoluciones&mes=2025-06' } });
-    const viajes = [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Viajes')!;
+    const viajes = [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Volver a Viajes')!;
     expect(viajes.getAttribute('href')).toBe('/viajes?vista=devoluciones&mes=2025-06');
   });
 
@@ -820,11 +820,12 @@ describe('detalle de un viaje: las acciones', () => {
 // Volver
 // ---------------------------------------------------------------------------
 describe('detalle de un viaje: volver a la lista', () => {
-  it('el enlace "Viajes" conserva el ?mes= (el mismo volver saneado de las demas pantallas)', async () => {
+  it('el enlace «Volver a Viajes» conserva el ?mes= (el mismo volver saneado de las demas pantallas)', async () => {
     await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?mes=2025-06' } });
     const volver = linkTo('/viajes?mes=2025-06');
     expect(volver).toHaveLength(1);
-    expect(volver[0]!.textContent).toContain('Viajes');
+    // A la vista dice solo "Volver"; el destino va en un texto solo para lectores de pantalla.
+    expect(volver[0]!.textContent?.trim()).toBe('Volver a Viajes');
     expect(volver[0]!.className).toContain('min-h-12');
   });
 
@@ -974,11 +975,11 @@ describe('detalle de un viaje: aviso al volver de guardar o borrar', () => {
     }
   });
 
-  it('se cierra solo a los 5 segundos', async () => {
+  it('se cierra solo a los 10 segundos', async () => {
     const real = window.setTimeout.bind(window);
     let pendiente: (() => void) | null = null;
     vi.spyOn(window, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
-      if (ms === 5000) {
+      if (ms === 10_000) {
         pendiente = fn;
         return 12345 as never;
       }

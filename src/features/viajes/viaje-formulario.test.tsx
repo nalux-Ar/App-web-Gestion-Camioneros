@@ -2280,7 +2280,7 @@ describe('formulario de viaje: abierto desde el detalle', () => {
     await mount(desdeDetalle());
     const volver = document.querySelector<HTMLAnchorElement>(`a[href="/viajes/${VIAJE_ID}"]`)!;
     expect(volver).not.toBeNull();
-    expect(volver.textContent).toContain('Viaje');
+    expect(volver.textContent?.trim()).toBe('Volver al viaje');
     expect(document.querySelector('a[href="/viajes"]')).toBeNull();
     await click(volver);
     expect(byId('detalle-del-viaje')!.dataset.volver).toBe('?mes=2025-06');

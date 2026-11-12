@@ -39,7 +39,7 @@ export function ResetPasswordPage() {
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
           <Spinner className="size-8 text-primary" />
-          <p className="text-sm text-muted-foreground">Comprobando el enlace…</p>
+          <p className="text-base text-muted-foreground">Comprobando el enlace…</p>
         </CardContent>
       </Card>
     );

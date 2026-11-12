@@ -1,9 +1,9 @@
-import { Link, useLocation, useParams, useSearchParams } from 'react-router';
-import { ChevronLeft } from 'lucide-react';
+import { useLocation, useParams, useSearchParams } from 'react-router';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { VolverLink } from '@/components/shared/volver-link';
 import { AYUDA_GASTO_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { useCamiones } from '@/features/camiones/use-camiones';
 import { estadoDesdeCliente } from '@/features/clientes/cliente-navegacion';
@@ -122,13 +122,11 @@ export function GastoFormPage({ modo }: GastoFormPageProps) {
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <Link
+        <VolverLink
           to={desdeViaje ? rutaDelViaje(desdeViaje.id) : `/gastos${volver}`}
           state={desdeViaje ? { volver: desdeViaje.volver, ...estadoDesdeCliente(desdeViaje.cliente) } : undefined}
-          className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <ChevronLeft className="size-5" aria-hidden="true" /> {desdeViaje ? 'Viaje' : 'Gastos'}
-        </Link>
+          destino={desdeViaje ? 'al viaje' : 'a Gastos'}
+        />
         <PageHeader title={titulo} ayuda={AYUDA_GASTO_FORM} />
       </div>
       {contenido}

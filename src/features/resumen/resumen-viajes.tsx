@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { BloqueResumen, type ConsultaDeBloque } from './resumen-bloque';
 import {
   etiquetaResultado,
-  formatMonto,
+  formatResultado,
   SIN_INGRESO,
   textoCantidadViajes,
   textoGastosDelViaje,
@@ -40,7 +40,7 @@ export function ViajesDelMes({ mes, enCurso, viajes }: ViajesDelMesProps) {
         const cortados = textoViajesCortados(datos.viajes.length, datos.total);
         return (
           <>
-            <p className="text-sm text-muted-foreground">{textoCantidadViajes(datos.total)}</p>
+            <p className="text-base text-muted-foreground">{textoCantidadViajes(datos.total)}</p>
             {/* `role="note"`: es información fija de la lista, no un aviso urgente (el `Alert` por defecto es `role="alert"`). */}
             {cortados ? (
               <Alert role="note" data-cortada="">
@@ -62,7 +62,8 @@ export function ViajesDelMes({ mes, enCurso, viajes }: ViajesDelMesProps) {
 
 /**
  * Una fila: toda es un enlace al detalle (≥ 64 px de alto). Arriba el recorrido y, a la derecha, la ganancia ("Ganancia" /
- * "Pérdida" con la palabra, o "Sin ingreso"); debajo la fecha, el camión y los km; y el ingreso y los gastos del viaje.
+ * "Pérdida" con la palabra y el monto con "−" delante si es pérdida, o "Sin ingreso"); debajo la fecha, el camión y los
+ * km; y el ingreso y los gastos del viaje.
  */
 function ViajeDelResumenItem({ viaje, volver }: { viaje: ViajeDelResumen; volver: string }) {
   const detalle = [
@@ -89,20 +90,20 @@ function ViajeDelResumenItem({ viaje, volver }: { viaje: ViajeDelResumen; volver
               <span className="sr-only"> a </span> {viaje.destino}
             </p>
             {ganancia === null ? (
-              <p data-ganancia="" className="shrink-0 text-right text-sm text-muted-foreground">
+              <p data-ganancia="" className="shrink-0 text-right text-base text-muted-foreground">
                 {SIN_INGRESO}
               </p>
             ) : (
               <p data-ganancia="" className="shrink-0 text-right">
-                <span className="block text-xs text-muted-foreground">{etiquetaResultado(ganancia)}</span>{' '}
+                <span className="block text-base text-muted-foreground">{etiquetaResultado(ganancia)}</span>{' '}
                 <span className={cn('block font-semibold tabular-nums', ganancia < 0 && 'text-destructive-text')}>
-                  {formatMonto(Math.abs(ganancia))}
+                  {formatResultado(ganancia)}
                 </span>
               </p>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">{detalle}</p>
-          <p className="text-sm text-muted-foreground">{plata}</p>
+          <p className="text-base text-muted-foreground">{detalle}</p>
+          <p className="text-base text-muted-foreground">{plata}</p>
         </div>
         <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
       </Link>

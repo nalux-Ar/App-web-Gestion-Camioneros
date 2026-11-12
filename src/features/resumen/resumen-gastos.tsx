@@ -54,7 +54,7 @@ export function GastosDelMes({ mes, enCurso, gastos, comparacion, gastosVarios }
             <>
               <div>
                 <p className="text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(datos.total.monto)}</p>
-                <p className="text-sm text-muted-foreground">{textoCantidadGastos(datos.total.cantidad)}</p>
+                <p className="text-base text-muted-foreground">{textoCantidadGastos(datos.total.cantidad)}</p>
               </div>
               <ComparacionDelGasto actual={datos.total.monto} consulta={comparacion} periodo={periodo} />
             </>
@@ -76,14 +76,14 @@ function ComparacionDelGasto({ actual, consulta, periodo }: { actual: number; co
     <div data-comparacion="" className="space-y-2">
       {consulta.isError ? <ErrorDeBloque consulta={consulta} prefijo={textoErrorComparacion(periodo)} /> : null}
       {anterior === undefined ? (
-        consulta.isError ? null : <div aria-hidden="true" data-cargando="" className="h-5 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+        consulta.isError ? null : <div aria-hidden="true" data-cargando="" className="h-6 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
       ) : anterior > 0 ? (
-        <p className="text-sm">
+        <p className="text-base">
           <span className="font-medium">{textoDiferencia(compararGasto(actual, anterior))}</span>{' '}
           <span className="text-muted-foreground">{textoVs(periodo, anterior)}</span>
         </p>
       ) : (
-        <p className="text-sm text-muted-foreground">{textoSinGastosParaComparar(periodo)}</p>
+        <p className="text-base text-muted-foreground">{textoSinGastosParaComparar(periodo)}</p>
       )}
     </div>
   );
@@ -164,8 +164,8 @@ function DetalleGastosVarios({ mes, consulta, conTitulo = false }: VariosDelMes 
         consulta.isError ? null : <LineaCargando />
       ) : datos.filas.length > 0 ? (
         <>
-          {conTitulo ? <h3 className="text-sm font-semibold">{ETIQUETA_DETALLE_GASTOS_VARIOS}</h3> : null}
-          <ul aria-label={conTitulo ? undefined : ETIQUETA_DETALLE_GASTOS_VARIOS} className="space-y-1 text-sm">
+          {conTitulo ? <h3 className="text-base font-semibold">{ETIQUETA_DETALLE_GASTOS_VARIOS}</h3> : null}
+          <ul aria-label={conTitulo ? undefined : ETIQUETA_DETALLE_GASTOS_VARIOS} className="space-y-1 text-base">
             {datos.filas.map((gasto) => {
               const descripcion = textoDescripcionGasto(gasto.descripcion, gasto.truncada);
               return (
@@ -181,7 +181,7 @@ function DetalleGastosVarios({ mes, consulta, conTitulo = false }: VariosDelMes 
             })}
           </ul>
           {faltan > 0 ? (
-            <p data-gastos-varios-mas="" className="text-sm text-muted-foreground">
+            <p data-gastos-varios-mas="" className="text-base text-muted-foreground">
               <Link
                 to={`/gastos${filtroToSearch({ mes, categoriaId: GASTOS_VARIOS_CATEGORIA_ID })}`}
                 className="-mx-1 inline-flex min-h-11 items-center rounded-md px-1 font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

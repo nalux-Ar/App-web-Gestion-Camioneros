@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
-import { ChevronLeft } from 'lucide-react';
+import { useLocation, useParams } from 'react-router';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { VolverLink } from '@/components/shared/volver-link';
 import { AYUDA_DEVOLUCION_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { estadoDesdeCliente, leerDesdeCliente, rutaDelCliente } from '@/features/clientes/cliente-navegacion';
 import { useClientes } from '@/features/clientes/use-clientes';
@@ -153,23 +153,17 @@ export function DevolucionFormPage({ modo }: DevolucionFormPageProps) {
   // El enlace de volver: a la lista de Devoluciones o al cliente si la edición se abrió desde ahí; si no, al detalle del
   // viaje (con el cliente, si lo había) o, sin un viaje válido en la URL, a la lista de viajes.
   const enlaceVolver = desdeLista
-    ? { to: rutaListaDevoluciones(volver), state: undefined, texto: 'Devoluciones' }
+    ? { to: rutaListaDevoluciones(volver), state: undefined, destino: 'a Devoluciones' }
     : alCliente
-      ? { to: rutaDelCliente(desdeCliente.id), state: { volver: desdeCliente.volver }, texto: 'Cliente' }
+      ? { to: rutaDelCliente(desdeCliente.id), state: { volver: desdeCliente.volver }, destino: 'al cliente' }
       : viajeId !== null
-        ? { to: rutaDelViaje(viajeId), state: { volver, ...estadoDesdeCliente(desdeCliente) }, texto: 'Viaje' }
-        : { to: `/viajes${volver}`, state: undefined, texto: 'Viajes' };
+        ? { to: rutaDelViaje(viajeId), state: { volver, ...estadoDesdeCliente(desdeCliente) }, destino: 'al viaje' }
+        : { to: `/viajes${volver}`, state: undefined, destino: 'a Viajes' };
 
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <Link
-          to={enlaceVolver.to}
-          state={enlaceVolver.state}
-          className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <ChevronLeft className="size-5" aria-hidden="true" /> {enlaceVolver.texto}
-        </Link>
+        <VolverLink to={enlaceVolver.to} state={enlaceVolver.state} destino={enlaceVolver.destino} />
         <PageHeader title={titulo} ayuda={AYUDA_DEVOLUCION_FORM} />
       </div>
       {contenido}

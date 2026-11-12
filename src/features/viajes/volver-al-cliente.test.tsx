@@ -201,7 +201,7 @@ const DETALLE_DESDE_CLIENTE: InitialEntry = { pathname: `/viajes/${VIAJE}`, stat
 function esperarVolverAlCliente() {
   expect(ruta()).toBe(`/viajes/${VIAJE}`);
   const volver = enlaceVolver();
-  expect(volver.textContent?.trim()).toBe('Cliente');
+  expect(volver.textContent?.trim()).toBe('Volver al cliente');
   expect(volver.getAttribute('href')).toBe(`/clientes/${CLIENTE}`);
 }
 
@@ -228,7 +228,7 @@ afterEach(async () => {
 });
 
 describe('detalle del viaje abierto desde un cliente', () => {
-  it('el enlace de volver dice "Cliente" y lleva a ESE cliente con la búsqueda de su lista', async () => {
+  it('el enlace de volver dice "Volver" (al cliente, para el lector de pantalla) y lleva a ESE cliente con la búsqueda de su lista', async () => {
     await mount(DETALLE_DESDE_CLIENTE);
     esperarVolverAlCliente();
     await click(enlaceVolver());
@@ -236,16 +236,16 @@ describe('detalle del viaje abierto desde un cliente', () => {
     expect(JSON.parse(byId('destino-cliente')!.dataset.state!)).toEqual({ volver: '?q=alma' });
   });
 
-  it('sin cliente en el state, el enlace de volver sigue siendo "Viajes" (como siempre)', async () => {
+  it('sin cliente en el state, el enlace de volver sigue siendo «Volver a Viajes» (como siempre)', async () => {
     await mount({ pathname: `/viajes/${VIAJE}`, state: { volver: '?mes=2025-06' } });
-    expect(enlaceVolver().textContent?.trim()).toBe('Viajes');
+    expect(enlaceVolver().textContent?.trim()).toBe('Volver a Viajes');
     expect(enlaceVolver().getAttribute('href')).toBe('/viajes?mes=2025-06');
   });
 
-  it('un desdeCliente que no es un uuid se ignora (rutas, URLs, objetos): vuelve a "Viajes"', async () => {
+  it('un desdeCliente que no es un uuid se ignora (rutas, URLs, objetos): vuelve a Viajes', async () => {
     for (const raro of ['/clientes/x', '//evil.test', 'https://evil.test', `${CLIENTE}/../gastos`, { id: CLIENTE }, 42]) {
       await mount({ pathname: `/viajes/${VIAJE}`, state: { desdeCliente: raro, volverCliente: '?q=a' } });
-      expect(enlaceVolver().textContent?.trim(), JSON.stringify(raro)).toBe('Viajes');
+      expect(enlaceVolver().textContent?.trim(), JSON.stringify(raro)).toBe('Volver a Viajes');
       expect(links().some((a) => (a.getAttribute('href') ?? '').startsWith('/clientes')), JSON.stringify(raro)).toBe(false);
       await act(async () => {
         root.unmount();
@@ -278,11 +278,11 @@ describe('detalle del viaje abierto desde un cliente', () => {
 });
 
 describe('lo que se abre desde ese detalle devuelve el cliente al volver', () => {
-  it('editar el viaje: el enlace "Viaje" y el guardado vuelven al detalle con el cliente', async () => {
+  it('editar el viaje: el enlace «Volver al viaje» y el guardado vuelven al detalle con el cliente', async () => {
     await mount(DETALLE_DESDE_CLIENTE);
     await click(linkConTexto('Editar viaje'));
     expect(document.querySelector('h1')!.textContent).toBe('Editar viaje');
-    expect(enlaceVolver().textContent?.trim()).toBe('Viaje');
+    expect(enlaceVolver().textContent?.trim()).toBe('Volver al viaje');
     await click(buttonByText('Guardar viaje'));
     expect(bodyText()).toContain('Viaje guardado.');
     expect(estado()).toMatchObject({ aviso: 'viaje-guardado', ...DESDE_CLIENTE });
@@ -320,7 +320,7 @@ describe('lo que se abre desde ese detalle devuelve el cliente al volver', () =>
   it('cargar un gasto y volver sin guardar: el detalle sigue ofreciendo "Cliente"', async () => {
     await mount(DETALLE_DESDE_CLIENTE);
     await click(links().find((a) => a.getAttribute('href') === `/gastos/nuevo?viaje=${VIAJE}`));
-    expect(enlaceVolver().textContent?.trim()).toBe('Viaje');
+    expect(enlaceVolver().textContent?.trim()).toBe('Volver al viaje');
     await click(enlaceVolver());
     esperarVolverAlCliente();
   });
@@ -329,7 +329,7 @@ describe('lo que se abre desde ese detalle devuelve el cliente al volver', () =>
     await mount(DETALLE_DESDE_CLIENTE);
     await click(links().find((a) => a.getAttribute('href') === `/viajes/${VIAJE}/devoluciones/${DEV}/editar`));
     expect(document.querySelector('h1')!.textContent).toBe('Editar devolución');
-    expect(enlaceVolver().textContent?.trim()).toBe('Viaje');
+    expect(enlaceVolver().textContent?.trim()).toBe('Volver al viaje');
     await click(buttonByText('Guardar devolución'));
     expect(bodyText()).toContain('Devolución guardada.');
     esperarVolverAlCliente();
@@ -355,9 +355,9 @@ describe('edición de una devolución abierta DESDE EL CLIENTE (origen "cliente"
   const EDITAR_DEV = `/viajes/${VIAJE}/devoluciones/${DEV}/editar`;
   const DESDE_EL_CLIENTE: InitialEntry = { pathname: EDITAR_DEV, state: { origen: 'cliente', ...DESDE_CLIENTE } };
 
-  it('el enlace de volver dice "Cliente" y lleva a ese cliente', async () => {
+  it('el enlace de volver dice "Volver" (al cliente, para el lector de pantalla) y lleva a ese cliente', async () => {
     await mount(DESDE_EL_CLIENTE);
-    expect(enlaceVolver().textContent?.trim()).toBe('Cliente');
+    expect(enlaceVolver().textContent?.trim()).toBe('Volver al cliente');
     expect(enlaceVolver().getAttribute('href')).toBe(`/clientes/${CLIENTE}`);
   });
 
@@ -378,7 +378,7 @@ describe('edición de una devolución abierta DESDE EL CLIENTE (origen "cliente"
   it('el origen "cliente" sin un cliente válido no cuenta: vuelve al viaje, como siempre', async () => {
     for (const desdeCliente of [undefined, '/clientes/x', '//evil.test', 42]) {
       await mount({ pathname: EDITAR_DEV, state: { origen: 'cliente', desdeCliente } });
-      expect(enlaceVolver().textContent?.trim(), String(desdeCliente)).toBe('Viaje');
+      expect(enlaceVolver().textContent?.trim(), String(desdeCliente)).toBe('Volver al viaje');
       await click(buttonByText('Guardar devolución'));
       expect(byId('destino-cliente'), String(desdeCliente)).toBeNull();
       expect(ruta(), String(desdeCliente)).toBe(`/viajes/${VIAJE}`);
@@ -392,12 +392,12 @@ describe('edición de una devolución abierta DESDE EL CLIENTE (origen "cliente"
 
   it('un origen parecido ("Cliente", "clientes") no cuenta aunque traiga un cliente válido', async () => {
     await mount({ pathname: EDITAR_DEV, state: { origen: 'clientes', ...DESDE_CLIENTE } });
-    expect(enlaceVolver().textContent?.trim()).toBe('Viaje');
+    expect(enlaceVolver().textContent?.trim()).toBe('Volver al viaje');
   });
 
   it('el origen solo vale al EDITAR: una devolución nueva vuelve al viaje (con el cliente, para su enlace)', async () => {
     await mount({ pathname: `/viajes/${VIAJE}/devoluciones/nueva`, state: { origen: 'cliente', ...DESDE_CLIENTE } });
-    expect(enlaceVolver().textContent?.trim()).toBe('Viaje');
+    expect(enlaceVolver().textContent?.trim()).toBe('Volver al viaje');
   });
 
   it('"Devolución no encontrada" abierta desde el cliente ofrece volver al cliente', async () => {

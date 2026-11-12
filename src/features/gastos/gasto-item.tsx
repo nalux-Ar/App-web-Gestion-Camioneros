@@ -47,10 +47,10 @@ export function GastoItem({ gasto, categoria, volver = '', desdeViaje, camion }:
       >
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium">{nombre}</p>
-          {gasto.descripcion ? <p className="truncate text-sm text-muted-foreground">{gasto.descripcion}</p> : null}
-          <p className="text-sm text-muted-foreground">{detalle}</p>
+          {gasto.descripcion ? <p className="truncate text-base text-muted-foreground">{gasto.descripcion}</p> : null}
+          <p className="text-base text-muted-foreground">{detalle}</p>
           {viaje ? (
-            <p className="truncate text-sm text-muted-foreground">
+            <p className="truncate text-base text-muted-foreground">
               Viaje: {viaje.origen} <span aria-hidden="true">→</span>
               <span className="sr-only"> a </span> {viaje.destino}
             </p>

@@ -40,11 +40,11 @@ export function ViajeItem({ viaje, volver, camion }: ViajeItemProps) {
             {viaje.origen} <span aria-hidden="true">→</span>
             <span className="sr-only"> a </span> {viaje.destino}
           </p>
-          <p className="text-sm text-muted-foreground">{detalle}</p>
+          <p className="text-base text-muted-foreground">{detalle}</p>
           {km.tipo === 'km' ? (
-            <p className="text-sm text-muted-foreground">{formatNumber(km.km, { decimales: 1, fijos: false })} km</p>
+            <p className="text-base text-muted-foreground">{formatNumber(km.km, { decimales: 1, fijos: false })} km</p>
           ) : km.tipo === 'sin-final' ? (
-            <p className="text-sm text-muted-foreground">Km final sin cargar</p>
+            <p className="text-base text-muted-foreground">Km final sin cargar</p>
           ) : null}
         </div>
         {viaje.ingreso !== null ? (

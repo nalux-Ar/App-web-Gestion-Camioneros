@@ -96,7 +96,7 @@ export function Header() {
       </div>
       {signOutError ? (
         <div role="alert" className="border-t border-brand-plate-border bg-destructive text-destructive-foreground">
-          <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 text-sm">
+          <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 text-base">
             <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
             <p className="flex-1 py-2">{signOutError}</p>
             <button

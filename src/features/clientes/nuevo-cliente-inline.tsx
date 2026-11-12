@@ -137,7 +137,7 @@ export function NuevoClienteInline({ idPrefix, clientes, onSeleccionar, onCancel
           aria-describedby={describedBy}
         />
         {validationError ? (
-          <p id={errorId} role="alert" className="text-sm text-destructive-text">
+          <p id={errorId} role="alert" className="text-base text-destructive-text">
             {validationError}
           </p>
         ) : null}

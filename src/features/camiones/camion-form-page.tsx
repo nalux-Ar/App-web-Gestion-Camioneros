@@ -1,9 +1,9 @@
-import { Link, useParams } from 'react-router';
-import { ChevronLeft } from 'lucide-react';
+import { useParams } from 'react-router';
 
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { VolverLink } from '@/components/shared/volver-link';
 import { AYUDA_CAMION_FORM } from '@/features/ayuda/ayuda-pantallas';
 import { useMember } from '@/features/member/use-member';
 import { mapDataError } from '@/lib/data-errors';
@@ -70,12 +70,7 @@ export function CamionFormPage({ modo }: CamionFormPageProps) {
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <Link
-          to={RUTA_CAMIONES}
-          className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <ChevronLeft className="size-5" aria-hidden="true" /> Camiones
-        </Link>
+        <VolverLink to={RUTA_CAMIONES} destino="a Camiones" />
         <PageHeader title={titulo} ayuda={AYUDA_CAMION_FORM} />
       </div>
       {contenido}

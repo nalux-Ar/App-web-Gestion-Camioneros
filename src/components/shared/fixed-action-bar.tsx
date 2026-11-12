@@ -8,7 +8,8 @@ interface FixedActionBarProps {
 /**
  * Acción primaria de una lista, FIJA abajo en el celular: queda a la vista
  * aunque la lista sea larga y se alcanza con el pulgar, justo arriba de la
- * barra de navegación inferior (`BottomNav`, 3.5 rem + borde + safe-area).
+ * barra de navegación inferior (`BottomNav`, 4 rem + borde + safe-area: si ese
+ * alto cambia, cambia también el `bottom` de acá y el `pb` del `<main>` en `AppShell`).
  *
  * Solo existe debajo de `md` (donde está la barra inferior). Desde `md` no se
  * dibuja: la acción vive en el encabezado (`PageHeader` con `actionDesktopOnly`)
@@ -25,7 +26,7 @@ export function FixedActionBar({ children }: FixedActionBarProps) {
   return (
     <div className="md:hidden">
       <div aria-hidden="true" className="h-12" />
-      <div className="fixed inset-x-4 bottom-[calc(3.5rem+1px+env(safe-area-inset-bottom)+0.75rem)] z-30 [&>*]:w-full [&>*]:shadow-lg">
+      <div className="fixed inset-x-4 bottom-[calc(4rem+1px+env(safe-area-inset-bottom)+0.75rem)] z-30 [&>*]:w-full [&>*]:shadow-lg">
         {children}
       </div>
     </div>

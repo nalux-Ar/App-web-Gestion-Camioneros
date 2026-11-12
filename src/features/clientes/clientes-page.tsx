@@ -12,6 +12,7 @@ import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
 import { AYUDA_CLIENTES } from '@/features/ayuda/ayuda-pantallas';
+import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import {
@@ -27,7 +28,6 @@ import { LISTA_CLIENTES_AVISO_MENSAJES, leerAvisoListaClientes, rutaDelCliente }
 import { CLIENTES_LIMIT } from './clientes-api';
 import { useClientes } from './use-clientes';
 
-const AVISO_AUTOCIERRE_MS = 5000;
 const BUSCAR_ID = 'clientes-buscar';
 
 /**
@@ -138,7 +138,7 @@ export function ClientesPage() {
         </FieldShell>
 
         {/* Siempre en el DOM: los lectores de pantalla anuncian cuántos quedan al tipear. */}
-        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+        <p role="status" aria-live="polite" className="text-base text-muted-foreground">
           {textoCantidadClientes(visibles.length, todos.length, conBusqueda)}
         </p>
 

@@ -11,6 +11,7 @@ import {
   ETIQUETA_INGRESOS,
   etiquetaResultado,
   formatMonto,
+  formatResultado,
   TEXTO_COMO_SE_CALCULA_RESULTADO,
   TEXTO_VER_VIAJES_DEL_MES,
   textoSinResultado,
@@ -78,7 +79,8 @@ interface ContenidoDelResultadoProps {
  *  - resultado null: no se muestra ningún resultado (sería solo "gastos" con signo menos, y engañaría); se invita a
  *    cargar el ingreso;
  *  - con viajes sin ingreso: el resultado se muestra CON el aviso de que puede estar incompleto;
- *  - negativo: se dice "Pérdida" (con la palabra; el color es un extra) y el monto va sin signo.
+ *  - negativo: se dice "Pérdida" (con la palabra), el monto lleva "−" delante y además va en el color de error: tres
+ *    señales, ninguna es la única (`formatResultado`). Las filas de Viajes y de "Resultado por mes" hacen lo mismo.
  */
 export function ContenidoDelResultado({ datos, etiquetaGastos, comoSeCalcula, sinResultado, accionSinResultado, extras = [] }: ContenidoDelResultadoProps) {
   const { resultado } = datos;
@@ -91,13 +93,13 @@ export function ContenidoDelResultado({ datos, etiquetaGastos, comoSeCalcula, si
         </div>
       ) : (
         <div data-resultado="">
-          <p className="text-sm font-medium text-muted-foreground">{etiquetaResultado(resultado)}</p>
+          <p className="text-base font-medium text-muted-foreground">{etiquetaResultado(resultado)}</p>
           <p className={cn('text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]', resultado < 0 && 'text-destructive-text')}>
-            {formatMonto(Math.abs(resultado))}
+            {formatResultado(resultado)}
           </p>
           {datos.viajesSinIngreso > 0 ? (
-            <p className="mt-2 flex items-start gap-2 text-sm">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <p className="mt-2 flex items-start gap-2 text-base">
+              <AlertTriangle className="mt-1 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               {textoViajesSinIngreso(datos.viajesSinIngreso)}
             </p>
           ) : null}
@@ -105,24 +107,24 @@ export function ContenidoDelResultado({ datos, etiquetaGastos, comoSeCalcula, si
       )}
       <dl className="grid grid-cols-2 gap-3">
         <div>
-          <dt className="text-sm text-muted-foreground">{ETIQUETA_INGRESOS}</dt>
+          <dt className="text-base text-muted-foreground">{ETIQUETA_INGRESOS}</dt>
           <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(datos.viajesIngreso)}</dd>
           {datos.viajesCantidad > 0 ? (
-            <dd className="text-sm text-muted-foreground">{textoViajesConIngreso(datos.viajesConIngreso, datos.viajesCantidad)}</dd>
+            <dd className="text-base text-muted-foreground">{textoViajesConIngreso(datos.viajesConIngreso, datos.viajesCantidad)}</dd>
           ) : null}
         </div>
         <div>
-          <dt className="text-sm text-muted-foreground">{etiquetaGastos}</dt>
+          <dt className="text-base text-muted-foreground">{etiquetaGastos}</dt>
           <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(datos.gastosMonto)}</dd>
         </div>
         {extras.map(({ etiqueta, valor }) => (
           <div key={etiqueta}>
-            <dt className="text-sm text-muted-foreground">{etiqueta}</dt>
+            <dt className="text-base text-muted-foreground">{etiqueta}</dt>
             <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{valor}</dd>
           </div>
         ))}
       </dl>
-      {resultado === null ? null : <p className="text-sm text-muted-foreground">{comoSeCalcula}</p>}
+      {resultado === null ? null : <p className="text-base text-muted-foreground">{comoSeCalcula}</p>}
     </>
   );
 }

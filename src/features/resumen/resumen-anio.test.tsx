@@ -690,15 +690,17 @@ describe('Resumen, vista Año: gasto por mes', () => {
     expect(textoDe('resumen-gasto-por-mes')).toContain('Todavía no cargaste gastos en 2026');
   });
 
-  it('accesible: barras aria-hidden sin texto, filas de al menos 44 px con foco visible', async () => {
+  it('accesible: barras aria-hidden sin texto, filas de al menos 48 px con 8 px de aire entre una y otra y foco visible', async () => {
     await mount();
     for (const li of filasPorMes()) {
       const barra = li.querySelector('[aria-hidden="true"]')!;
       expect(barra.textContent).toBe('');
       const clases = li.querySelector('a')!.className;
-      expect(clases).toContain('min-h-11');
+      expect(clases).toContain('min-h-12');
       expect(clases).toContain('focus-visible:ring-2');
     }
+    // space-y-2 = 8 px de aire entre filas (antes 4 px).
+    expect(filasPorMes()[0]!.parentElement!.className).toContain('space-y-2');
   });
 
   it('mientras carga la serie mensual: `aria-busy`; los gastos del año ya se ven', async () => {
@@ -770,12 +772,13 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
     expect(datos()[3]).toBe('Km recorridos 4.800 km');
   });
 
-  it('pérdida: "Pérdida" escrita, el monto sin signo y en el color de error del tema', async () => {
+  it('pérdida: "Pérdida" escrita, el monto con "−" delante y en el color de error del tema (tres señales)', async () => {
     porMes = (_anio, m) => ({ viajes_ingreso: m * 500, resultado: m * -500 });
     await mount();
-    expect(resultado()).toBe('Pérdida 27.500,00');
-    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('27.500,00');
-    expect(textoDe('resumen-resultado')).not.toContain('-27.500');
+    // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
+    expect(resultado()).toBe('Pérdida -27.500,00');
+    // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
+    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u221227.500,00');
   });
 
   it('ningún viaje del año con ingreso: NO hay resultado; invita a cargarlos (como el Mes, con "año")', async () => {
@@ -808,13 +811,13 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
     await mount();
     // Ingresos de enero a mayo: 1.500 × (1+2+3+4+5) = 22.500; gastos del año: 55.000. Sumar los resultados de los meses con
     // ingreso daría "Ganancia 7.500,00".
-    expect(resultado()).toBe('Pérdida 32.500,00 10 viajes sin ingreso cargado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Pérdida -32.500,00 10 viajes sin ingreso cargado: el resultado puede estar incompleto.');
   });
 
   it('un ingreso 0 cuenta como cargado: hay resultado (los gastos, como pérdida)', async () => {
     porMes = (_anio, m) => (m === 4 ? { viajes_con_ingreso: 1, viajes_sin_ingreso: 1, viajes_ingreso: 0, resultado: -4000 } : sinIngreso);
     await mount();
-    expect(resultado()).toBe('Pérdida 55.000,00 19 viajes sin ingreso cargado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Pérdida -55.000,00 19 viajes sin ingreso cargado: el resultado puede estar incompleto.');
   });
 
   it('no hay lista de viajes: una línea lo explica y lleva a la vista Mes (el mes actual / diciembre de un año pasado)', async () => {
@@ -876,8 +879,11 @@ describe('Resumen, vista Año: resultado por mes', () => {
     porMes = (_anio, m) => (m === 2 ? { viajes_ingreso: 1700, resultado: -300 } : {});
     await mount();
     expect(fila(filasResultado()[0]!)).toEqual(['enero', 'Ingresos 1.500,00 · Gastos 1.000,00', 'Ganancia 500,00']);
-    expect(fila(filasResultado()[1]!)).toEqual(['febrero', 'Ingresos 1.700,00 · Gastos 2.000,00', 'Pérdida 300,00']);
-    expect(filasResultado()[1]!.querySelector('.text-destructive-text')!.textContent).toBe('300,00');
+    // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
+    expect(fila(filasResultado()[1]!)).toEqual(['febrero', 'Ingresos 1.700,00 · Gastos 2.000,00', 'Pérdida -300,00']);
+    // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion; y la ganancia no lleva signo.
+    expect(filasResultado()[1]!.querySelector('.text-destructive-text')!.textContent).toBe('\u2212300,00');
+    expect(filasResultado()[0]!.querySelector('[data-resultado-del-mes]')!.textContent).not.toMatch(/-|\u2212/);
   });
 
   it('un mes sin ingresos (resultado null): "Sin ingresos cargados", nunca "Pérdida"', async () => {
@@ -992,12 +998,14 @@ describe('Resumen, vista Año: resultado por mes', () => {
     expect(anioMostrado()).toBe('2026');
   });
 
-  it('filas de al menos 44 px con foco visible', async () => {
+  it('filas de al menos 48 px con 8 px de aire entre una y otra y foco visible', async () => {
     await mount();
     for (const li of filasResultado()) {
-      expect(li.querySelector('a')!.className).toContain('min-h-11');
+      expect(li.querySelector('a')!.className).toContain('min-h-12');
       expect(li.querySelector('a')!.className).toContain('focus-visible:ring-2');
     }
+    // space-y-2 = 8 px de aire entre filas (antes 4 px).
+    expect(filasResultado()[0]!.parentElement!.className).toContain('space-y-2');
   });
 });
 

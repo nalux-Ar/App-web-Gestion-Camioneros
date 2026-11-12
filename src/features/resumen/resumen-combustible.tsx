@@ -53,7 +53,7 @@ export function CombustibleDelPeriodo({ vacio, combustible }: CombustibleDelPeri
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   return (
     <div>
-      <dt className="text-sm text-muted-foreground">{etiqueta}</dt>
+      <dt className="text-base text-muted-foreground">{etiqueta}</dt>
       <dd className="font-semibold tabular-nums [overflow-wrap:anywhere]">{valor}</dd>
     </div>
   );
@@ -83,12 +83,12 @@ function CombustibleDeUnCamion({ camion }: { camion: CombustibleDelCamion }) {
           <Dato etiqueta={ETIQUETAS_COMBUSTIBLE.costoPorKm} valor={formatMonto(costoPorKm)} />
         </dl>
       ) : (
-        <p data-sin-rendimiento="" className="text-sm text-muted-foreground">
+        <p data-sin-rendimiento="" className="text-base text-muted-foreground">
           {TEXTO_SIN_RENDIMIENTO}
         </p>
       )}
       {tramos ? (
-        <p data-tramos="" className="text-sm text-muted-foreground">
+        <p data-tramos="" className="text-base text-muted-foreground">
           {tramos}
         </p>
       ) : null}
@@ -104,7 +104,7 @@ function ComoSeCalcula() {
         {TITULO_COMO_SE_CALCULA}
         <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
       </summary>
-      <ul className="list-disc space-y-1 px-3 pb-3 pl-8 text-sm text-muted-foreground">
+      <ul className="list-disc space-y-1 px-3 pb-3 pl-8 text-base text-muted-foreground">
         {PASOS_COMO_SE_CALCULA.map((paso) => (
           <li key={paso}>{paso}</li>
         ))}

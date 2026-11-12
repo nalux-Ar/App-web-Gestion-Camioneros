@@ -177,7 +177,7 @@ export function ConfiguracionPage() {
               aria-pressed={tema === 'dark'}
               onClick={() => handleTemaChange('dark')}
               className={cn(
-                'flex min-h-14 items-center justify-center gap-2 rounded-md border-2 px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                'flex min-h-14 items-center justify-center gap-2 rounded-md border-2 px-4 text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                 tema === 'dark'
                   ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-input text-muted-foreground hover:bg-accent hover:text-accent-foreground',
@@ -190,7 +190,7 @@ export function ConfiguracionPage() {
               aria-pressed={tema === 'light'}
               onClick={() => handleTemaChange('light')}
               className={cn(
-                'flex min-h-14 items-center justify-center gap-2 rounded-md border-2 px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                'flex min-h-14 items-center justify-center gap-2 rounded-md border-2 px-4 text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                 tema === 'light'
                   ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-input text-muted-foreground hover:bg-accent hover:text-accent-foreground',
@@ -240,7 +240,7 @@ export function ConfiguracionPage() {
             </div>
           </div>
           {hexError ? (
-            <p id="color-acento-hex-error" role="alert" className="text-sm text-destructive-text">
+            <p id="color-acento-hex-error" role="alert" className="text-base text-destructive-text">
               {hexError}
             </p>
           ) : null}
@@ -265,7 +265,7 @@ export function ConfiguracionPage() {
             <RotateCcw aria-hidden="true" /> Volver al dorado
           </Button>
 
-          <div aria-live="polite" className="min-h-5 text-sm">
+          <div aria-live="polite" className="min-h-6 text-base">
             {saveState === 'saving' && (
               <p className="flex items-center gap-2 text-muted-foreground">
                 <Spinner className="size-4" /> Guardando…

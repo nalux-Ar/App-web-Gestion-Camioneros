@@ -55,7 +55,7 @@ export function ChoiceGroup({
 
   return (
     <fieldset disabled={disabled} aria-describedby={describedBy || undefined} className="min-w-0 space-y-1.5">
-      <legend className="mb-1.5 p-0 text-sm font-medium leading-none">
+      <legend className="mb-1.5 p-0 text-base font-medium leading-none">
         {legend}
         {optional ? <span className="font-normal text-muted-foreground"> (opcional)</span> : null}
       </legend>
@@ -93,15 +93,15 @@ export function ChoiceGroup({
       </div>
 
       {hint ? (
-        <p id={hintId} className="text-sm text-muted-foreground">
+        <p id={hintId} className="text-base text-muted-foreground">
           {hint}
         </p>
       ) : null}
 
       <div id={errorId} aria-live="polite">
         {error ? (
-          <p className="flex items-start gap-1.5 text-sm text-destructive-text">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <p className="flex items-start gap-1.5 text-base text-destructive-text">
+            <AlertCircle className="mt-1 size-4 shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         ) : null}

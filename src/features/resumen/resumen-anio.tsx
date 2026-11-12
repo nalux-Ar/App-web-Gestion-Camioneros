@@ -14,6 +14,7 @@ import {
   ETIQUETA_VIAJES,
   etiquetaResultado,
   formatMonto,
+  formatResultado,
   IR_A_LA_VISTA_MES,
   nombreDelMes,
   SIN_GASTOS,
@@ -100,14 +101,14 @@ function TotalYPromedio({ total, meses, enCurso }: { total: MontoYCantidad; mese
     <>
       <div>
         <p className="text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(total.monto)}</p>
-        <p className="text-sm text-muted-foreground">{textoCantidadGastos(total.cantidad)}</p>
+        <p className="text-base text-muted-foreground">{textoCantidadGastos(total.cantidad)}</p>
       </div>
       {promedio !== null ? (
         <dl>
           <div data-promedio="">
-            <dt className="text-sm text-muted-foreground">{ETIQUETA_PROMEDIO_POR_MES}</dt>
+            <dt className="text-base text-muted-foreground">{ETIQUETA_PROMEDIO_POR_MES}</dt>
             <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(promedio)}</dd>
-            <dd className="text-sm text-muted-foreground">{textoPromedioDeMeses(meses, enCurso)}</dd>
+            <dd className="text-base text-muted-foreground">{textoPromedioDeMeses(meses, enCurso)}</dd>
           </div>
         </dl>
       ) : null}
@@ -133,7 +134,7 @@ function GastoPorMes({ anio, enCurso, meses, mensual }: GastoPorMesProps) {
         const lista = gastoPorMes(filas, meses);
         if (lista.every((mes) => mes.monto === 0)) return <p className="text-muted-foreground">{textoSinGastosDelAnio(anio, enCurso)}</p>;
         return (
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {lista.map((mes) => (
               <FilaDeGastoDelMes key={mes.mes} gasto={mes} />
             ))}
@@ -144,7 +145,7 @@ function GastoPorMes({ anio, enCurso, meses, mensual }: GastoPorMesProps) {
   );
 }
 
-/** Un mes: enlace a su Mes (área táctil ≥ 44 px). Sin gastos: lo dice y no dibuja barra. */
+/** Un mes: enlace a su Mes (área táctil ≥ 48 px, con 8 px de aire entre filas). Sin gastos: lo dice y no dibuja barra. */
 function FilaDeGastoDelMes({ gasto }: { gasto: GastoDeUnMes }) {
   const mes = mesDeFecha(gasto.mes);
   if (mes === null) return null;
@@ -152,20 +153,20 @@ function FilaDeGastoDelMes({ gasto }: { gasto: GastoDeUnMes }) {
     <li data-mes={gasto.mes.slice(0, 7)}>
       <Link
         to={`/resumen${resumenFiltroToSearch({ vista: 'mes', mes })}`}
-        className="-mx-2 block min-h-11 rounded-md px-2 py-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="-mx-2 block min-h-12 rounded-md px-2 py-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="flex items-baseline justify-between gap-3">
           <span className="font-medium capitalize">{nombreDelMes(mes)}</span>
           {gasto.monto > 0 ? (
             <span className="shrink-0 font-semibold tabular-nums">{formatMonto(gasto.monto)}</span>
           ) : (
-            <span className="shrink-0 text-sm text-muted-foreground">{SIN_GASTOS}</span>
+            <span className="shrink-0 text-base text-muted-foreground">{SIN_GASTOS}</span>
           )}
         </span>
         {gasto.monto > 0 ? (
           <>
             <BarraDecorativa ancho={gasto.ancho} visible />
-            <span className="mt-1 block text-sm text-muted-foreground">{textoCantidadGastos(gasto.cantidad)}</span>
+            <span className="mt-1 block text-base text-muted-foreground">{textoCantidadGastos(gasto.cantidad)}</span>
           </>
         ) : null}
       </Link>
@@ -208,7 +209,7 @@ function ResultadoDelAnio({ anio, meses, mensual }: ResultadoDelAnioProps) {
                 { etiqueta: ETIQUETA_KM, valor: textoKm(totales.viajesKm) },
               ]}
             />
-            <p data-viajes-por-mes="" className="text-sm text-muted-foreground">
+            <p data-viajes-por-mes="" className="text-base text-muted-foreground">
               {TEXTO_VIAJES_EN_EL_ANIO}{' '}
               <Link
                 to={`/resumen${resumenFiltroToSearch(filtroEnVista({ vista: 'anio', anio }, 'mes'))}`}
@@ -231,7 +232,7 @@ function ResultadoDelAnio({ anio, meses, mensual }: ResultadoDelAnioProps) {
  * El resultado de cada mes transcurrido, con enlace a su Mes. A la derecha:
  *  - un mes SIN VIAJES: "Sin viajes" (no es que falten ingresos: no hubo viajes);
  *  - con viajes pero ninguno con ingreso (`resultado` null, el de la base): "Sin ingresos cargados";
- *  - si no, Ganancia / Pérdida / Resultado.
+ *  - si no, Ganancia / Pérdida / Resultado (la pérdida, con "−" delante del monto).
  * La línea "Ingresos … · Gastos …" se omite si el mes no tuvo ni viajes ni gastos (serían dos ceros).
  */
 function ResultadoPorMes({ filas }: { filas: readonly ResumenDelMes[] }) {
@@ -240,7 +241,7 @@ function ResultadoPorMes({ filas }: { filas: readonly ResumenDelMes[] }) {
       <h3 id="resumen-resultado-por-mes-titulo" className="font-semibold">
         {TITULO_RESULTADO_POR_MES}
       </h3>
-      <ul aria-labelledby="resumen-resultado-por-mes-titulo" className="space-y-1">
+      <ul aria-labelledby="resumen-resultado-por-mes-titulo" className="space-y-2">
         {filas.map((fila) => {
           const mes = mesDeFecha(fila.mes);
           if (mes === null) return null;
@@ -251,23 +252,23 @@ function ResultadoPorMes({ filas }: { filas: readonly ResumenDelMes[] }) {
             <li key={fila.mes} data-mes={fila.mes.slice(0, 7)}>
               <Link
                 to={`/resumen${resumenFiltroToSearch({ vista: 'mes', mes })}`}
-                className="-mx-2 flex min-h-11 items-center justify-between gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="-mx-2 flex min-h-12 items-center justify-between gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="min-w-0">
                   <span className="block font-medium capitalize">{nombreDelMes(mes)}</span>
                   {conMovimientos ? (
-                    <span className="block text-sm text-muted-foreground">{textoIngresosYGastos(fila.viajesIngreso, fila.gastosMonto)}</span>
+                    <span className="block text-base text-muted-foreground">{textoIngresosYGastos(fila.viajesIngreso, fila.gastosMonto)}</span>
                   ) : null}
                 </span>
                 {sinViajes || resultado === null ? (
-                  <span data-resultado-del-mes="" className="shrink-0 text-right text-sm text-muted-foreground">
+                  <span data-resultado-del-mes="" className="shrink-0 text-right text-base text-muted-foreground">
                     {sinViajes ? SIN_VIAJES : SIN_INGRESOS_CARGADOS}
                   </span>
                 ) : (
                   <span data-resultado-del-mes="" className="shrink-0 text-right">
-                    <span className="block text-xs text-muted-foreground">{etiquetaResultado(resultado)}</span>{' '}
+                    <span className="block text-base text-muted-foreground">{etiquetaResultado(resultado)}</span>{' '}
                     <span className={cn('block font-semibold tabular-nums', resultado < 0 && 'text-destructive-text')}>
-                      {formatMonto(Math.abs(resultado))}
+                      {formatResultado(resultado)}
                     </span>
                   </span>
                 )}

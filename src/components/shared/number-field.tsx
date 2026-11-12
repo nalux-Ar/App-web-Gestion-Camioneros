@@ -104,7 +104,7 @@ export function NumberField({
             className={cn(unit && 'pr-14')}
           />
           {unit ? (
-            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-base text-muted-foreground">
               {unit}
             </span>
           ) : null}

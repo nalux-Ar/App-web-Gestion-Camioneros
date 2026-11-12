@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { CheckCircle2, ChevronLeft, ChevronRight, Info, Plus, Truck, X } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Info, Plus, Truck, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,10 @@ import { FixedActionBar } from '@/components/shared/fixed-action-bar';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { VolverLink } from '@/components/shared/volver-link';
 import { AYUDA_CAMIONES } from '@/features/ayuda/ayuda-pantallas';
 import { useMember } from '@/features/member/use-member';
+import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { descripcionCamion, type CamionDeLista } from './camion';
@@ -20,7 +22,6 @@ import { CAMIONES_LIMIT } from './constants';
 import { formatearPatente } from './patente';
 import { useCamiones } from './use-camiones';
 
-const AVISO_AUTOCIERRE_MS = 5000;
 const FILA = 'flex min-h-16 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3';
 const FOCO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
@@ -144,12 +145,7 @@ export function CamionesPage() {
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <Link
-          to="/configuracion"
-          className={`-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground ${FOCO}`}
-        >
-          <ChevronLeft className="size-5" aria-hidden="true" /> Configuración
-        </Link>
+        <VolverLink to="/configuracion" destino="a Configuración" />
         <PageHeader title="Camiones" ayuda={AYUDA_CAMIONES} action={nuevoCamion ?? undefined} actionDesktopOnly />
       </div>
 
@@ -194,12 +190,12 @@ function FilaCamion({ camion, esAdmin, esCamionActivo = false }: { camion: Camio
             {camion.activa ? null : <span className="font-normal text-muted-foreground"> (archivado)</span>}
           </span>
           {esCamionActivo ? (
-            <span className="rounded-full border border-primary/50 bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground">
+            <span className="rounded-full border border-primary/50 bg-primary/10 px-2 py-0.5 text-base font-medium text-foreground">
               Camión activo
             </span>
           ) : null}
         </p>
-        {descripcion ? <p className="break-words text-sm text-muted-foreground">{descripcion}</p> : null}
+        {descripcion ? <p className="break-words text-base text-muted-foreground">{descripcion}</p> : null}
       </div>
     </>
   );

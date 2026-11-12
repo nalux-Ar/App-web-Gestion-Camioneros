@@ -83,7 +83,7 @@ export function LoginPage() {
               disabled={submitting}
             />
             <div className="text-right">
-              <Link to="/recuperar-contrasena" className="text-sm text-primary underline-offset-4 hover:underline">
+              <Link to="/recuperar-contrasena" className="text-base text-primary underline-offset-4 hover:underline">
                 ¿Olvidaste tu contraseña?
               </Link>
             </div>
@@ -110,7 +110,7 @@ export function LoginPage() {
               'Ingresar'
             )}
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-base text-muted-foreground">
             ¿Aún no tienes cuenta?{' '}
             <Link to="/registro" className="text-primary underline-offset-4 hover:underline">
               Regístrate aquí

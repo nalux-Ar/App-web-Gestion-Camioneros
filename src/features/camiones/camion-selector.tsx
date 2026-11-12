@@ -57,7 +57,7 @@ export function CamionSelector({ id, decision, value, onChange, error, carga, es
     if (carga.estado === 'error') {
       return (
         <div id={bloqueId} tabIndex={-1} className="space-y-2 focus-visible:outline-none">
-          <p className="text-sm font-medium leading-none">Camión</p>
+          <p className="text-base font-medium leading-none">Camión</p>
           <InlineError
             message={`No pudimos cargar tus camiones. ${mapDataError(carga.error)}`}
             onRetry={carga.onReintentar}
@@ -69,8 +69,8 @@ export function CamionSelector({ id, decision, value, onChange, error, carga, es
     }
     return (
       <div id={bloqueId} tabIndex={-1} className="space-y-1.5 focus-visible:outline-none">
-        <p className="text-sm font-medium leading-none">Camión</p>
-        <p className="text-sm text-muted-foreground">Cargando camiones…</p>
+        <p className="text-base font-medium leading-none">Camión</p>
+        <p className="text-base text-muted-foreground">Cargando camiones…</p>
         <ErrorDelCamion id={id} error={error} />
       </div>
     );
@@ -93,14 +93,14 @@ export function CamionSelector({ id, decision, value, onChange, error, carga, es
     case 'del-viaje':
       return (
         <div id={bloqueId} tabIndex={-1} className="space-y-1.5 focus-visible:outline-none">
-          <p className="text-sm font-medium leading-none">Camión</p>
+          <p className="text-base font-medium leading-none">Camión</p>
           <p className="flex items-center gap-2 text-base">
             <Lock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span>
               Camión del viaje: <span className="font-semibold">{etiquetaCamion(decision.camion)}</span>
             </span>
           </p>
-          <p className="text-sm text-muted-foreground">Va el mismo camión que el viaje. Para usar otro, cambia el camión del viaje.</p>
+          <p className="text-base text-muted-foreground">Va el mismo camión que el viaje. Para usar otro, cambia el camión del viaje.</p>
           <ErrorDelCamion id={id} error={error} />
         </div>
       );
@@ -108,11 +108,11 @@ export function CamionSelector({ id, decision, value, onChange, error, carga, es
     case 'crear':
       return (
         <div id={bloqueId} tabIndex={-1} className="space-y-2 focus-visible:outline-none">
-          <p className="text-sm font-medium leading-none">Camión</p>
+          <p className="text-base font-medium leading-none">Camión</p>
           {esAdmin ? (
             <NuevoCamionInline idPrefix={`${id}-nuevo`} esElPrimero={esElPrimero} onListo={onCamionListo} />
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Para guardar los litros hace falta un camión, y solo el administrador de la cuenta puede cargarlo.
             </p>
           )}
@@ -245,7 +245,7 @@ function ElegirCamion({ id, decision, value, onChange, error }: ElegirCamionProp
             ) : null}
           </div>
           {ayuda ? (
-            <p id={ayudaId} className="text-sm text-muted-foreground">
+            <p id={ayudaId} className="text-base text-muted-foreground">
               {ayuda}
             </p>
           ) : null}
@@ -288,8 +288,8 @@ function ErrorDelCamion({ id, error }: { id: string; error?: string }) {
   return (
     <div id={`${id}-error`} aria-live="polite">
       {error ? (
-        <p className="flex items-start gap-1.5 text-sm text-destructive-text">
-          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <p className="flex items-start gap-1.5 text-base text-destructive-text">
+          <AlertCircle className="mt-1 size-4 shrink-0" aria-hidden="true" />
           <span>{error}</span>
         </p>
       ) : null}

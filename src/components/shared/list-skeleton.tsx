@@ -35,7 +35,7 @@ export function ListSkeleton({ rows = 4, label = 'Cargando…' }: ListSkeletonPr
       </div>
       <div aria-live="polite">
         {online ? null : (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <p className="flex items-center gap-2 text-base text-muted-foreground">
             <WifiOff className="size-4 shrink-0" aria-hidden="true" />
             Sin conexión. Cargaremos tus datos cuando vuelva la señal.
           </p>

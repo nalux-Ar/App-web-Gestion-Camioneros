@@ -51,7 +51,7 @@ export function ErrorDeBloque({ consulta, prefijo }: { consulta: ConsultaDeBloqu
 
 /** Una línea gris mientras carga un detalle accesorio (no tapa nada; sin aviso propio, como `BloqueCargando`). */
 export function LineaCargando() {
-  return <div aria-hidden="true" data-cargando="" className="h-5 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />;
+  return <div aria-hidden="true" data-cargando="" className="h-6 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />;
 }
 
 /** Filas grises mientras carga un bloque. Mudas: el aviso de carga para lectores de pantalla es uno solo, el de la pantalla. */
@@ -102,7 +102,7 @@ export function ListaDeBarras({ filas, detalle }: { filas: readonly FilaDeBarra[
             <span className="shrink-0 font-semibold tabular-nums">{formatMonto(fila.monto)}</span>
           </div>
           <BarraDecorativa ancho={fila.ancho} visible={fila.monto > 0} />
-          <p className="mt-1 text-sm text-muted-foreground">{textoDetalleBarra(fila)}</p>
+          <p className="mt-1 text-base text-muted-foreground">{textoDetalleBarra(fila)}</p>
           {detalle?.(fila.clave)}
         </li>
       ))}
@@ -137,7 +137,7 @@ export function EstadoDeCarga({ consultas, periodo }: { consultas: readonly Esta
   const cargando = consultas.some((query) => query.isPending && query.fetchStatus === 'fetching');
   const enPausa = consultas.some((query) => query.isPending && query.fetchStatus === 'paused');
   return (
-    <p role="status" className={enPausa ? 'flex items-center gap-2 text-sm text-muted-foreground' : 'sr-only'}>
+    <p role="status" className={enPausa ? 'flex items-center gap-2 text-base text-muted-foreground' : 'sr-only'}>
       {enPausa ? (
         <>
           <WifiOff className="size-4 shrink-0" aria-hidden="true" />

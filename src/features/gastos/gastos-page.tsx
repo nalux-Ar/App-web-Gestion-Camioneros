@@ -12,6 +12,7 @@ import { MonthPicker } from '@/components/shared/month-picker';
 import { PageHeader } from '@/components/shared/page-header';
 import { AYUDA_GASTOS } from '@/features/ayuda/ayuda-pantallas';
 import { SelectField } from '@/components/shared/select-field';
+import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { formatMonthLabel } from '@/lib/dates';
 import { formatNumber } from '@/lib/numbers';
@@ -24,8 +25,6 @@ import { GastoItem } from './gasto-item';
 import { filtroToParams, filtroToSearch, readFiltro, type GastosFiltro } from './gastos-filters';
 import { sumMontos } from './gastos-list';
 import { useCategorias, useGastosDelMes } from './use-gastos';
-
-const AVISO_AUTOCIERRE_MS = 5000;
 
 function leerAviso(state: unknown): GastoAviso | null {
   const aviso = (state as { aviso?: unknown } | null)?.aviso;
@@ -159,12 +158,12 @@ export function GastosPage() {
       <>
         {errorLista}
         <section aria-labelledby="gastos-total-titulo" className="rounded-lg border border-border bg-card p-4">
-          <h2 id="gastos-total-titulo" className="text-sm font-medium text-muted-foreground">
+          <h2 id="gastos-total-titulo" className="text-base font-medium text-muted-foreground">
             Total de {mesLabel}
             {categoriaFiltrada ? ` · ${nombreParaMostrar(categoriaFiltrada)}` : ''}
           </h2>
           <p className="mt-1 text-3xl font-semibold tabular-nums">{formatNumber(total, { decimales: 2 })}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-base text-muted-foreground">
             {items.length === 1 ? '1 gasto' : truncado ? `${items.length} gastos (los más recientes)` : `${items.length} gastos`}
           </p>
         </section>

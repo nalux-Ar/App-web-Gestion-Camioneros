@@ -113,7 +113,7 @@ export function CamionActivoCard() {
           />
         ) : null}
         {/* Siempre presente: anuncia "Guardando…" y, al confirmar, el camión que quedó como activo. */}
-        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+        <p role="status" aria-live="polite" className="text-base text-muted-foreground">
           {pending ? GUARDANDO : anuncio}
         </p>
       </CardContent>
@@ -132,7 +132,7 @@ function TuCamion({ camion, tituloId }: { camion: CamionDeLista; tituloId: strin
       </CardHeader>
       <CardContent className="space-y-1">
         <p className="text-lg font-semibold tabular-nums">{formatearPatente(camion.patente)}</p>
-        {descripcion ? <p className="break-words text-sm text-muted-foreground">{descripcion}</p> : null}
+        {descripcion ? <p className="break-words text-base text-muted-foreground">{descripcion}</p> : null}
       </CardContent>
     </Card>
   );

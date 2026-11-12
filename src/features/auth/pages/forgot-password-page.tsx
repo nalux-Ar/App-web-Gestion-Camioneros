@@ -80,7 +80,7 @@ export function ForgotPasswordPage() {
           <CardDescription>{GENERIC_SENT_MESSAGE}</CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
-          <Link to="/ingresar" className="text-sm text-primary underline-offset-4 hover:underline">
+          <Link to="/ingresar" className="text-base text-primary underline-offset-4 hover:underline">
             Volver a ingresar
           </Link>
         </CardFooter>
@@ -121,7 +121,7 @@ export function ForgotPasswordPage() {
               'Enviar enlace'
             )}
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-base text-muted-foreground">
             <Link to="/ingresar" className="text-primary underline-offset-4 hover:underline">
               Volver a ingresar
             </Link>

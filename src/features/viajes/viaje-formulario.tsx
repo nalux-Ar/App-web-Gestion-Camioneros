@@ -460,7 +460,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
         />
 
         {/* Si el camión cambia y el viaje tiene gastos con otro camión, la base los mueve: queda dicho antes de guardar. */}
-        <p aria-live="polite" className={textosGuardar.aviso ? 'text-sm font-medium' : 'sr-only'}>
+        <p aria-live="polite" className={textosGuardar.aviso ? 'text-base font-medium' : 'sr-only'}>
           {textosGuardar.aviso ?? ''}
         </p>
         <SubmitBar

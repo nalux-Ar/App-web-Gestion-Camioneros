@@ -40,7 +40,7 @@ export function ArchivarCamion({ activa, esUnicoActivo, onCambiar }: ArchivarCam
   if (!activa) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">Este camión está archivado: no se puede elegir en viajes ni cargas nuevas.</p>
+        <p className="text-base text-muted-foreground">Este camión está archivado: no se puede elegir en viajes ni cargas nuevas.</p>
         {error ? <InlineError message={error} onRetry={retryable ? () => void cambiar(true) : undefined} retrying={pending} /> : null}
         <Button type="button" variant="outline" disabled={pending} aria-busy={pending} onClick={() => void cambiar(true)}>
           {pending ? <Spinner className="size-4" /> : <ArchiveRestore aria-hidden="true" />} Reactivar camión
@@ -50,7 +50,7 @@ export function ArchivarCamion({ activa, esUnicoActivo, onCambiar }: ArchivarCam
   }
 
   if (esUnicoActivo) {
-    return <p className="text-sm text-muted-foreground">{UNICO_ACTIVO_MESSAGE}</p>;
+    return <p className="text-base text-muted-foreground">{UNICO_ACTIVO_MESSAGE}</p>;
   }
 
   if (!confirmando) {

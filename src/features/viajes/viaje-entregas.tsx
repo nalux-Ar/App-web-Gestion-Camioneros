@@ -84,14 +84,14 @@ export function ViajeEntregas({
         <h2 id={ENTREGAS_DOM_ID} tabIndex={-1} className="text-lg font-semibold">
           Entregas
         </h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           Los clientes a los que entregas en este viaje. Puedes guardar el viaje sin entregas.
         </p>
       </div>
 
       {entregasGeneral ? (
-        <p role="alert" className="flex items-start gap-1.5 text-sm text-destructive-text">
-          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <p role="alert" className="flex items-start gap-1.5 text-base text-destructive-text">
+          <AlertCircle className="mt-1 size-4 shrink-0" aria-hidden="true" />
           <span>{entregasGeneral}</span>
         </p>
       ) : null}
@@ -144,7 +144,7 @@ export function ViajeEntregas({
           <Plus aria-hidden="true" /> Agregar entrega
         </Button>
         {llegoAlTope ? (
-          <p id={TOPE_ENTREGAS_ID} className="text-sm text-muted-foreground">
+          <p id={TOPE_ENTREGAS_ID} className="text-base text-muted-foreground">
             Llegaste al máximo de {MAX_ENTREGAS} entregas por viaje.
           </p>
         ) : null}

@@ -145,11 +145,11 @@ export function NuevoCamionInline({ idPrefix, esElPrimero, onListo }: NuevoCamio
           aria-invalid={validationError !== null ? true : undefined}
           aria-describedby={describedBy}
         />
-        <p id={hintId} className="text-sm text-muted-foreground">
+        <p id={hintId} className="text-base text-muted-foreground">
           {formato ? PATENTE_FORMATO_AVISO : 'La marca, el modelo y el año los puedes completar después en Camiones.'}
         </p>
         {validationError ? (
-          <p id={errorId} role="alert" className="text-sm text-destructive-text">
+          <p id={errorId} role="alert" className="text-base text-destructive-text">
             {validationError}
           </p>
         ) : null}
@@ -157,7 +157,7 @@ export function NuevoCamionInline({ idPrefix, esElPrimero, onListo }: NuevoCamio
 
       {archivado ? (
         <div className="space-y-2" role="alert">
-          <p className="text-sm font-medium">
+          <p className="text-base font-medium">
             Ya tienes un camión con esa patente ({formatearPatente(archivado.patente)}), pero está archivado.
           </p>
           <Button ref={reactivarRef} type="button" variant="outline" disabled={pending} aria-busy={pending} onClick={() => void reactivar()}>

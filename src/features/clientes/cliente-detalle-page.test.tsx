@@ -286,9 +286,9 @@ describe('detalle de un cliente: datos y consultas', () => {
     expect(stateOf(byId('destino-editar-cliente'))).toEqual({ volver: '?q=alma' });
   });
 
-  it('el enlace "Clientes" vuelve a la lista con su búsqueda (saneada); un volver raro se descarta', async () => {
+  it('el enlace «Volver a Clientes» vuelve a la lista con su búsqueda (saneada); un volver raro se descarta', async () => {
     await mount({ pathname: DETALLE, state: { volver: '?q=alma&next=//evil.test' } });
-    const volver = links().find((a) => a.textContent?.includes('Clientes'))!;
+    const volver = links().find((a) => a.textContent?.includes('Volver a Clientes'))!;
     expect(volver.getAttribute('href')).toBe('/clientes?q=alma');
     expect(volver.className).toContain('min-h-12');
     await act(async () => {
@@ -297,7 +297,7 @@ describe('detalle de un cliente: datos y consultas', () => {
     container.remove();
     queryClient.clear();
     await mount({ pathname: DETALLE, state: { volver: 'https://evil.test' } });
-    expect(links().find((a) => a.textContent?.includes('Clientes'))!.getAttribute('href')).toBe('/clientes');
+    expect(links().find((a) => a.textContent?.includes('Volver a Clientes'))!.getAttribute('href')).toBe('/clientes');
   });
 });
 
@@ -315,6 +315,13 @@ describe('detalle de un cliente: sus viajes', () => {
     expect(filas[1]!.textContent).toContain('2 dic 2024');
     expect(filas[1]!.textContent).not.toContain('Incidencias');
     expect(filas[0]!.className).toContain('min-h-16');
+    // La fecha y las incidencias de cada viaje van a 16 px, en el color de apoyo de siempre.
+    for (const fila of filas) {
+      const apoyo = [...fila.querySelectorAll('p')].filter((p) => p.className.includes('text-muted-foreground'));
+      expect(apoyo.length).toBeGreaterThan(0);
+      for (const p of apoyo) expect(p.className, p.textContent ?? '').toContain('text-base');
+      for (const p of fila.querySelectorAll('p')) expect(p.className, p.textContent ?? '').not.toMatch(/\btext-(xs|sm)\b/);
+    }
   });
 
   it('abrir un viaje lleva el cliente en el state (desdeCliente + la búsqueda de la lista), para volver acá', async () => {
@@ -428,7 +435,8 @@ describe('detalle de un cliente: no encontrado, errores y avisos', () => {
     route.cliente = () => ok(null);
     await mount({ pathname: DETALLE, state: { volver: '?q=x' } });
     expect(bodyText()).toContain('Cliente no encontrado');
-    expect(linkTo('/clientes?q=x').some((a) => a.textContent?.includes('Volver a Clientes'))).toBe(true);
+    // Dos enlaces al mismo lugar y con el mismo nombre: el de arriba («‹ Volver») y el botón de la pantalla de error.
+    expect(linkTo('/clientes?q=x').filter((a) => a.textContent?.includes('Volver a Clientes'))).toHaveLength(2);
     expect(section('Viajes')).toBeUndefined();
   });
 

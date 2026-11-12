@@ -376,7 +376,7 @@ export function GastoFormulario({
 
         {fuel ? (
           <div className="space-y-5 rounded-lg border border-border bg-card p-4">
-            <p className="text-sm font-semibold">Combustible</p>
+            <p className="text-base font-semibold">Combustible</p>
             <CamionSelector
               id={FIELD_DOM_IDS.camionId}
               decision={decisionCamion}
@@ -394,7 +394,7 @@ export function GastoFormulario({
               onCamionListo={usarCamionNuevo}
             />
             {/* Lo que pasó al cargar o reactivar un camión desde acá (p. ej. cuántos registros sin camión se le asignaron). */}
-            <p role="status" aria-live="polite" className={mensajeCamion ? 'text-sm font-medium' : 'sr-only'}>
+            <p role="status" aria-live="polite" className={mensajeCamion ? 'text-base font-medium' : 'sr-only'}>
               {mensajeCamion ?? ''}
             </p>
             <NumberField
@@ -407,11 +407,11 @@ export function GastoFormulario({
               error={errors.litros}
             />
             <div className="space-y-1.5">
-              <p className="text-sm font-medium leading-none">Precio por litro</p>
+              <p className="text-base font-medium leading-none">Precio por litro</p>
               <p className="text-base font-semibold tabular-nums">
                 {precioPorLitro !== null ? formatNumber(precioPorLitro, { decimales: 2 }) : '—'}
               </p>
-              <p className="text-sm text-muted-foreground">Se calcula solo: monto ÷ litros.</p>
+              <p className="text-base text-muted-foreground">Se calcula solo: monto ÷ litros.</p>
             </div>
             <NumberField
               id="gasto-km"

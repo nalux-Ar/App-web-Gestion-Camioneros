@@ -11,7 +11,7 @@ export function OfflineBanner() {
   return (
     <div
       role="status"
-      className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+      className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-base text-muted-foreground"
     >
       <WifiOff className="size-4 shrink-0" aria-hidden="true" />
       <span>No hay conexión. Revisa la señal antes de enviar el formulario.</span>

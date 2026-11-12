@@ -253,6 +253,16 @@ describe('lista de viajes: cada ítem', () => {
     expect(items()[0]!.querySelector('.sr-only')!.textContent).toBe(' a ');
   });
 
+  it('la fecha (con las entregas), los km y el resto de las líneas de apoyo de cada fila van a 16 px, en el color de apoyo de siempre', async () => {
+    await mount();
+    for (const item of items()) {
+      const lineas = [...item.querySelectorAll('p')].filter((p) => p.className.includes('text-muted-foreground'));
+      expect(lineas.length).toBeGreaterThan(0);
+      for (const p of lineas) expect(p.className, p.textContent ?? '').toContain('text-base');
+      for (const p of item.querySelectorAll('p')) expect(p.className, p.textContent ?? '').not.toMatch(/\btext-(xs|sm)\b/);
+    }
+  });
+
   it('el área táctil de cada fila es de al menos 64 px (min-h-16)', async () => {
     await mount();
     for (const item of items()) expect(item.className).toContain('min-h-16');
@@ -432,11 +442,11 @@ describe('lista de viajes: aviso al volver de guardar o eliminar', () => {
     expect(document.querySelector('[role="status"]')?.textContent ?? '').not.toContain('hack');
   });
 
-  it('se cierra solo a los 5 segundos', async () => {
+  it('se cierra solo a los 10 segundos', async () => {
     const real = window.setTimeout.bind(window);
     let pendiente: (() => void) | null = null;
     vi.spyOn(window, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
-      if (ms === 5000) {
+      if (ms === 10_000) {
         pendiente = fn;
         return 12345 as never;
       }

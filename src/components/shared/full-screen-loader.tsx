@@ -14,7 +14,7 @@ export function FullScreenLoader({ label = 'Cargando…' }: FullScreenLoaderProp
       aria-live="polite"
     >
       <Spinner className="size-8 text-primary" />
-      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-base text-muted-foreground">{label}</p>
     </div>
   );
 }

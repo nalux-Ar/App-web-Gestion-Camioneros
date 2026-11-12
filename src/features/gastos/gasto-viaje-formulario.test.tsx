@@ -669,7 +669,7 @@ describe('formulario de gasto: abierto desde el detalle de un viaje', () => {
     await mount(desdeDetalle());
     const volver = document.querySelector<HTMLAnchorElement>(`a[href="/viajes/${V_PILAR}"]`)!;
     expect(volver).not.toBeNull();
-    expect(volver.textContent).toContain('Viaje');
+    expect(volver.textContent?.trim()).toBe('Volver al viaje');
     expect(document.querySelector('a[href^="/gastos"]')).toBeNull();
     await click(volver);
     expect(byId('detalle-del-viaje')!.dataset.volver).toBe('?mes=2025-06');

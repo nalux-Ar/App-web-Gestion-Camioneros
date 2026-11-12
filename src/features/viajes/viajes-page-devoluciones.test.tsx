@@ -510,11 +510,11 @@ describe('pestaña Devoluciones: aviso al volver de guardar o eliminar', () => {
     expect(filas()).toHaveLength(3);
   });
 
-  it('se cierra solo a los 5 segundos, también conservando la pestaña y el mes', async () => {
+  it('se cierra solo a los 10 segundos, también conservando la pestaña y el mes', async () => {
     const real = window.setTimeout.bind(window);
     let pendiente: (() => void) | null = null;
     vi.spyOn(window, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
-      if (ms === 5000) {
+      if (ms === 10_000) {
         pendiente = fn;
         return 12345 as never;
       }

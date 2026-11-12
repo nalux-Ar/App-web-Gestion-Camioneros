@@ -31,9 +31,9 @@ export function DevolucionItem({ devolucion, viajeId, volver, desdeCliente = nul
       >
         <div className="min-w-0 flex-1">
           <p className="break-words font-medium">{devolucion.clientes?.nombre ?? 'Cliente'}</p>
-          <p className="text-sm text-muted-foreground">{MOTIVO_LABELS[devolucion.motivo]}</p>
+          <p className="text-base text-muted-foreground">{MOTIVO_LABELS[devolucion.motivo]}</p>
           {devolucion.descripcion ? (
-            <p className="line-clamp-2 break-words text-sm text-muted-foreground">{devolucion.descripcion}</p>
+            <p className="line-clamp-2 break-words text-base text-muted-foreground">{devolucion.descripcion}</p>
           ) : null}
         </div>
         <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />

@@ -71,7 +71,7 @@ export function DevolucionesDelMes({ filtro }: { filtro: ViajesFiltro }) {
     <>
       {errorLista}
       <section aria-labelledby="devoluciones-resumen-titulo" className="rounded-lg border border-border bg-card p-4">
-        <h2 id="devoluciones-resumen-titulo" className="text-sm font-medium text-muted-foreground">
+        <h2 id="devoluciones-resumen-titulo" className="text-base font-medium text-muted-foreground">
           Resumen de {mesLabel}
         </h2>
         <p className="mt-1 text-3xl font-semibold tabular-nums">{textoTotalDevoluciones(resumen.total, truncado)}</p>

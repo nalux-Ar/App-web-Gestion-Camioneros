@@ -264,7 +264,7 @@ describe('pantalla Camiones (/camiones)', () => {
   it('administrador: encabezado, volver a Configuración, activos con su descripción y enlace a la edición, "Nuevo camión"', async () => {
     await mount();
     expect(h1()).toBe('Camiones');
-    expect(linkByText('Configuración')!.getAttribute('href')).toBe('/configuracion');
+    expect(linkByText('Volver a Configuración')!.getAttribute('href')).toBe('/configuracion');
     expect(bodyText()).toContain('Activos (2)');
     const filaA = links().find((a) => a.getAttribute('href') === editar(C_A))!;
     expect(filaA.textContent).toContain('AB 123 CD');
@@ -359,7 +359,7 @@ describe('alta de camión: estructura y validación', () => {
   it('título, volver a Camiones, campos (patente obligatoria, el resto opcional) y "Guardar camión"', async () => {
     await mount(NUEVO);
     expect(h1()).toBe('Nuevo camión');
-    expect(linkByText('Camiones')!.getAttribute('href')).toBe('/camiones');
+    expect(linkByText('Volver a Camiones')!.getAttribute('href')).toBe('/camiones');
     expect(labelDe('patente')).toBe('Patente');
     expect(labelDe('marca')).toBe('Marca (opcional)');
     expect(labelDe('modelo')).toBe('Modelo (opcional)');
@@ -656,7 +656,10 @@ describe('edición de camión', () => {
   it('un camión que no existe (o es de otro): "Camión no encontrado"', async () => {
     await mount(editar('c0000000-0000-4000-8000-0000000000ff'));
     expect(bodyText()).toContain('Camión no encontrado');
-    expect(linkByText('Volver a Camiones')!.getAttribute('href')).toBe('/camiones');
+    // Dos enlaces con el mismo nombre y el mismo destino: el de arriba («‹ Volver») y el botón de la pantalla de error.
+    const volver = links().filter((a) => a.textContent?.includes('Volver a Camiones'));
+    expect(volver).toHaveLength(2);
+    expect(volver.map((a) => a.getAttribute('href'))).toEqual(['/camiones', '/camiones']);
   });
 
   it('abre con los datos del camión', async () => {

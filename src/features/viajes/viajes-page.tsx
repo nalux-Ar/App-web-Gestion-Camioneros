@@ -12,6 +12,7 @@ import { MonthPicker } from '@/components/shared/month-picker';
 import { PageHeader } from '@/components/shared/page-header';
 import { AYUDA_VIAJES } from '@/features/ayuda/ayuda-pantallas';
 import { DevolucionesDelMes } from '@/features/devoluciones/devoluciones-del-mes';
+import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { formatMonthLabel } from '@/lib/dates';
 import { formatNumber } from '@/lib/numbers';
@@ -25,8 +26,6 @@ import { LISTA_AVISO_MENSAJES, leerAvisoLista } from './viaje-navegacion';
 import { filtroToParams, filtroToSearch, readFiltro, type ViajesFiltro } from './viajes-filters';
 import { totalesDelMes } from './viajes-list';
 import { ViajesPestanas } from './viajes-pestanas';
-
-const AVISO_AUTOCIERRE_MS = 5000;
 
 /**
  * Pantalla de Viajes (`/viajes`) con dos vistas: "Viajes" (por defecto) y "Devoluciones". Las dos comparten el selector de
@@ -152,7 +151,7 @@ function ViajesDelMes({ filtro, nuevoViaje }: { filtro: ViajesFiltro; nuevoViaje
     <>
       {errorLista}
       <section aria-labelledby="viajes-resumen-titulo" className="rounded-lg border border-border bg-card p-4">
-        <h2 id="viajes-resumen-titulo" className="text-sm font-medium text-muted-foreground">
+        <h2 id="viajes-resumen-titulo" className="text-base font-medium text-muted-foreground">
           Resumen de {mesLabel}
         </h2>
         <p className="mt-1 text-3xl font-semibold tabular-nums">
@@ -160,11 +159,11 @@ function ViajesDelMes({ filtro, nuevoViaje }: { filtro: ViajesFiltro; nuevoViaje
         </p>
         <dl className="mt-3 grid grid-cols-2 gap-3">
           <div>
-            <dt className="text-sm text-muted-foreground">Km totales</dt>
+            <dt className="text-base text-muted-foreground">Km totales</dt>
             <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatNumber(totales.km, { decimales: 1, fijos: false })}</dd>
           </div>
           <div>
-            <dt className="text-sm text-muted-foreground">Ingresos</dt>
+            <dt className="text-base text-muted-foreground">Ingresos</dt>
             <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatNumber(totales.ingreso, { decimales: 2 })}</dd>
           </div>
         </dl>

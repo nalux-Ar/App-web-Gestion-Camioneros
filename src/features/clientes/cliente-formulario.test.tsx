@@ -282,7 +282,7 @@ describe('alta de cliente: estructura', () => {
     expect(campo('telefono').inputMode).toBe('tel');
     expect(campo('email').type).toBe('email');
     expect(campo('nombre').className).toContain('h-12');
-    expect(buttonByText('Guardar cliente')!.className).toContain('h-14');
+    expect(buttonByText('Guardar cliente')!.className).toContain('min-h-14'); // 56 px como mínimo (crece si el rótulo se parte)
     expect(buttonByText('Eliminar cliente')).toBeUndefined(); // solo al editar
   });
 
@@ -299,9 +299,9 @@ describe('alta de cliente: estructura', () => {
     expect(h.calls.filter((c) => c.table !== 'miembros')).toHaveLength(1);
   });
 
-  it('el enlace de volver dice "Clientes" y vuelve a la lista con la búsqueda (saneada)', async () => {
+  it('el enlace de volver dice "Volver" (a Clientes, para el lector de pantalla) y vuelve a la lista con la búsqueda (saneada)', async () => {
     await mount({ pathname: NUEVO, state: { volver: '?q=alma&next=//evil.test' } });
-    const volver = links().find((a) => a.textContent?.includes('Clientes'))!;
+    const volver = links().find((a) => a.textContent?.includes('Volver a Clientes'))!;
     expect(volver.getAttribute('href')).toBe('/clientes?q=alma');
   });
 });
@@ -485,7 +485,7 @@ describe('alta de cliente: guardar', () => {
 // Edición
 // ---------------------------------------------------------------------------
 describe('edición de cliente', () => {
-  it('pide el cliente por id y precarga los campos; título "Editar cliente"; volver dice "Cliente" y va a su detalle', async () => {
+  it('pide el cliente por id y precarga los campos; título "Editar cliente"; volver dice "Volver" (al cliente) y va a su detalle', async () => {
     await mount({ pathname: EDITAR, state: { volver: '?q=alma' } });
     expect(document.querySelector('h1')!.textContent).toBe('Editar cliente');
     const detalle = clientesCon('maybeSingle')[0]!;
@@ -495,7 +495,7 @@ describe('edición de cliente', () => {
     expect(campo('telefono').value).toBe('351 555-1234');
     expect(campo('email').value).toBe('ventas@almacen.test');
     expect(campo('direccion').value).toBe('Ruta 9 km 12');
-    const volver = links().find((a) => a.textContent?.includes('Cliente'))!;
+    const volver = links().find((a) => a.textContent?.includes('Volver al cliente'))!;
     expect(volver.getAttribute('href')).toBe(`/clientes/${C_ALMACEN}`);
   });
 

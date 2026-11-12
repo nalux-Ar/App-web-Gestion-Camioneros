@@ -133,12 +133,12 @@ export function NombreCard() {
               aria-describedby={describedBy || undefined}
             />
             {validationError ? (
-              <p id={ERROR_ID} role="alert" className="text-sm text-destructive-text">
+              <p id={ERROR_ID} role="alert" className="text-base text-destructive-text">
                 {validationError}
               </p>
             ) : null}
             {!puedeEditar ? (
-              <p id={HINT_ID} className="text-sm text-muted-foreground">
+              <p id={HINT_ID} className="text-base text-muted-foreground">
                 Solo el administrador de la cuenta puede cambiar el nombre.
               </p>
             ) : null}
@@ -161,7 +161,7 @@ export function NombreCard() {
           </Button>
 
           {/* Siempre en el DOM: los lectores de pantalla anuncian el texto cuando aparece. */}
-          <div aria-live="polite" className="min-h-5 text-sm text-muted-foreground">
+          <div aria-live="polite" className="min-h-6 text-base text-muted-foreground">
             {pending ? <span className="sr-only">Guardando…</span> : saved ? 'Nombre guardado.' : null}
           </div>
         </form>

@@ -165,6 +165,15 @@ export function etiquetaResultado(resultado: number): string {
   return 'Resultado';
 }
 
+/**
+ * El monto de un resultado, con su signo: una pérdida lleva "−" (el signo menos tipográfico, no el guion) delante. Es
+ * una señal MÁS, junto a la palabra ("Pérdida") y al color: ninguna de las tres es la única (con sol de frente el color
+ * no se distingue, y a quien lee rápido le alcanza con ver el signo). Una ganancia y el 0 van sin signo.
+ */
+export function formatResultado(resultado: number): string {
+  return resultado < 0 ? `${MENOS}${formatMonto(Math.abs(resultado))}` : formatMonto(resultado);
+}
+
 /** Sin resultado (ningún viaje del período tiene ingreso): qué falta para tenerlo. `periodo`: el Mes o el Año. */
 export function textoSinResultado(viajes: number, periodo: 'mes' | 'año' = 'mes'): string {
   const falta = `para ver si el ${periodo} dio ganancia o pérdida.`;

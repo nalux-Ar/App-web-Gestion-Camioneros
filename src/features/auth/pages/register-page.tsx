@@ -114,7 +114,7 @@ export function RegisterPage() {
             también en correo no deseado).
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col items-center gap-2 text-center text-sm">
+        <CardContent className="flex flex-col items-center gap-2 text-center text-base">
           <p className="text-muted-foreground">¿Ya tenías cuenta con ese email?</p>
           <Link to="/ingresar" className="text-primary underline-offset-4 hover:underline">
             Ingresar
@@ -154,7 +154,7 @@ export function RegisterPage() {
               autoComplete="new-password"
               disabled={submitting}
             />
-            {!passwordsMatch && <p className="text-sm text-destructive-text">Las contraseñas no coinciden.</p>}
+            {!passwordsMatch && <p className="text-base text-destructive-text">Las contraseñas no coinciden.</p>}
           </div>
           <TurnstileWidget
             ref={captchaRef}
@@ -178,7 +178,7 @@ export function RegisterPage() {
               'Crear cuenta'
             )}
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-base text-muted-foreground">
             ¿Ya tienes cuenta?{' '}
             <Link to="/ingresar" className="text-primary underline-offset-4 hover:underline">
               Ingresa aquí

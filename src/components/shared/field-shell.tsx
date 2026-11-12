@@ -59,15 +59,15 @@ export function FieldShell({ id, label, optional = false, hint, error, children 
       })}
 
       {hint ? (
-        <p id={hintId} className="text-sm text-muted-foreground">
+        <p id={hintId} className="text-base text-muted-foreground">
           {hint}
         </p>
       ) : null}
 
       <div id={errorId} aria-live="polite">
         {error ? (
-          <p className="flex items-start gap-1.5 text-sm text-destructive-text">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <p className="flex items-start gap-1.5 text-base text-destructive-text">
+            <AlertCircle className="mt-1 size-4 shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         ) : null}

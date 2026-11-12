@@ -772,13 +772,14 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     expect(byId('resumen-resultado')!.querySelector('.text-destructive-text')).toBeNull();
   });
 
-  it('pérdida: se dice "Pérdida" con la palabra y el monto va sin signo', async () => {
+  it('pérdida: se dice "Pérdida" con la palabra, el monto lleva "−" delante y va en el color de error (tres señales)', async () => {
     mensualCon({ viajes_ingreso: 7000, resultado: -3000 });
     await mount();
-    expect(resultado()).toBe('Pérdida3.000,00');
-    expect(textoDe('resumen-resultado')).not.toContain('-3.000');
+    // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
+    expect(resultado()).toBe('Pérdida-3.000,00');
     expect(textoDe('resumen-resultado')).not.toContain('Ganancia');
-    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('3.000,00');
+    // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
+    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u22123.000,00');
   });
 
   it('resultado 0: "Resultado", ni ganancia ni pérdida', async () => {
@@ -831,7 +832,7 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     queryClient.clear();
     mensualCon({ viajes_con_ingreso: 2, viajes_sin_ingreso: 1, viajes_ingreso: 8000, resultado: -2000 });
     await mount();
-    expect(resultado()).toBe('Pérdida2.000,001 viaje sin ingreso cargado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Pérdida-2.000,001 viaje sin ingreso cargado: el resultado puede estar incompleto.');
   });
 
   it('pide la fila de ESE mes (un mes) y la valida: un mes que no es el pedido es un error, con "Reintentar"', async () => {
@@ -1066,13 +1067,15 @@ describe('pantalla Resumen: viajes del mes', () => {
     expect(plano(filasDeViajes()[1]!.textContent)).not.toMatch(/Ganancia|Pérdida/);
   });
 
-  it('ganancia negativa: "Pérdida" con la palabra, sin signo; un ingreso 0 también cuenta', async () => {
+  it('ganancia negativa: "Pérdida" con la palabra y el monto con "−" delante, en el color de error; un ingreso 0 también cuenta', async () => {
     viajesDa({ ingreso: 1000, gastos_monto: 3000, ganancia: -2000 }, { viaje_id: V2, ingreso: 0, gastos_monto: 500, gastos_cantidad: 1, ganancia: -500 });
     await mount();
-    expect(fila(filasDeViajes()[0]!)[1]).toBe('Pérdida 2.000,00');
-    expect(filasDeViajes()[0]!.querySelector('[data-ganancia] .text-destructive-text')!.textContent).toBe('2.000,00');
-    expect(fila(filasDeViajes()[1]!)).toEqual(['Rosario → a Córdoba', 'Pérdida 500,00', '12 oct · AB 123 CD · 400 km', 'Ingreso 0,00 · 1 gasto: 500,00']);
-    expect(textoDe('resumen-viajes')).not.toContain('-2.000');
+    // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
+    expect(fila(filasDeViajes()[0]!)[1]).toBe('Pérdida -2.000,00');
+    // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
+    expect(filasDeViajes()[0]!.querySelector('[data-ganancia] .text-destructive-text')!.textContent).toBe('\u22122.000,00');
+    expect(fila(filasDeViajes()[1]!)).toEqual(['Rosario → a Córdoba', 'Pérdida -500,00', '12 oct · AB 123 CD · 400 km', 'Ingreso 0,00 · 1 gasto: 500,00']);
+    expect(filasDeViajes()[0]!.textContent).not.toContain('-2.000');
   });
 
   it('ganancia 0: "Resultado 0,00"', async () => {

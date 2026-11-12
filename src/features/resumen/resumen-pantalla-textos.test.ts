@@ -21,6 +21,7 @@ import {
   textoSinGastosParaComparar,
   textoVs,
   etiquetaResultado,
+  formatResultado,
   textoCantidadViajes,
   textoSinResultado,
   textoViajesConIngreso,
@@ -147,6 +148,19 @@ describe('textos de la pantalla Resumen: ingresos y resultado', () => {
     expect(etiquetaResultado(0.01)).toBe('Ganancia');
     expect(etiquetaResultado(-0.01)).toBe('Pérdida');
     expect(etiquetaResultado(0)).toBe('Resultado');
+  });
+
+  it('formatResultado: la pérdida lleva el signo menos tipográfico delante; la ganancia y el 0, sin signo', () => {
+    expect(formatResultado(-2000)).toBe('\u22122.000,00');
+    expect(formatResultado(-0.01)).toBe('\u22120,01');
+    expect(formatResultado(12000)).toBe('12.000,00');
+    expect(formatResultado(0)).toBe('0,00');
+    // El guion ASCII no: no se lee como signo menos.
+    expect(formatResultado(-5)).not.toContain('-');
+    // Va siempre de la mano de la palabra: hay signo si y solo si dice "Pérdida".
+    for (const n of [-1500.5, -0.01, 0, 0.01, 1500.5]) {
+      expect(formatResultado(n).startsWith('\u2212'), String(n)).toBe(etiquetaResultado(n) === 'Pérdida');
+    }
   });
 
   it('textoSinResultado: sin viajes, uno o varios', () => {

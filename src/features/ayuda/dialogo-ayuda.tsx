@@ -73,7 +73,7 @@ export function DialogoAyuda({ titulo, antetitulo, children, esquina, acciones, 
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 space-y-0.5 pt-2">
-          {antetitulo ? <p className="text-sm text-muted-foreground">{antetitulo}</p> : null}
+          {antetitulo ? <p className="text-base text-muted-foreground">{antetitulo}</p> : null}
           <h2 id={tituloId} ref={tituloRef} tabIndex={-1} className="break-words text-lg font-semibold focus-visible:outline-none">
             {titulo}
           </h2>

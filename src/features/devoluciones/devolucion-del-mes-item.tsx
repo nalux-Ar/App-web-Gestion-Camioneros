@@ -38,9 +38,9 @@ export function DevolucionDelMesItem({ devolucion, volver }: DevolucionDelMesIte
       >
         <div className="min-w-0 flex-1">
           <p className="break-words font-medium">{devolucion.clientes?.nombre ?? 'Cliente'}</p>
-          <p className="text-sm text-muted-foreground">{MOTIVO_LABELS[devolucion.motivo]}</p>
+          <p className="text-base text-muted-foreground">{MOTIVO_LABELS[devolucion.motivo]}</p>
           {devolucion.descripcion ? (
-            <p className="line-clamp-2 break-words text-sm text-muted-foreground">{devolucion.descripcion}</p>
+            <p className="line-clamp-2 break-words text-base text-muted-foreground">{devolucion.descripcion}</p>
           ) : null}
         </div>
         <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -50,7 +50,7 @@ export function DevolucionDelMesItem({ devolucion, volver }: DevolucionDelMesIte
         to={rutaDelViaje(devolucion.viaje_id)}
         state={{ volver }}
         className={cn(
-          'flex min-h-12 items-center gap-2 rounded-b-lg border-t border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+          'flex min-h-12 items-center gap-2 rounded-b-lg border-t border-border px-4 py-2 text-base text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
           FOCO,
         )}
       >

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { CheckCircle2, ChevronLeft, Info, Pencil, Plus, X } from 'lucide-react';
+import { CheckCircle2, Info, Pencil, Plus, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { FixedActionBar } from '@/components/shared/fixed-action-bar';
 import { InlineError } from '@/components/shared/inline-error';
 import { ListSkeleton } from '@/components/shared/list-skeleton';
 import { PageHeader } from '@/components/shared/page-header';
+import { VolverLink } from '@/components/shared/volver-link';
 import { AYUDA_VIAJE_DETALLE } from '@/features/ayuda/ayuda-pantallas';
 import { LIMITE_ALCANZADO_MESSAGE, SIN_DEVOLUCIONES_MESSAGE } from '@/features/devoluciones/constants';
 import { DevolucionItem } from '@/features/devoluciones/devolucion-item';
@@ -25,6 +26,7 @@ import {
   rutaDelCliente,
   type DesdeCliente,
 } from '@/features/clientes/cliente-navegacion';
+import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { formatDateWithYear } from '@/lib/dates';
 import { formatNumber } from '@/lib/numbers';
@@ -36,8 +38,6 @@ import { ViajeNoEncontrado } from './viaje-no-encontrado';
 import type { ViajeVista } from './viajes-api';
 import { sanitizeVolver } from './viajes-filters';
 import { kmDelViaje } from './viajes-list';
-
-const AVISO_AUTOCIERRE_MS = 5000;
 
 /** "Rosario → Córdoba": la flecha es decorativa y el lector de pantalla oye "a" entre origen y destino. */
 function Recorrido({ origen, destino }: { origen: string; destino: string }) {
@@ -169,13 +169,11 @@ export function ViajeDetallePage() {
     <div className="space-y-5">
       <div className="space-y-1">
         {/* Al cliente desde el que se abrió (ruta armada en el código con su uuid validado) o a la lista de Viajes. */}
-        <Link
+        <VolverLink
           to={desdeCliente ? rutaDelCliente(desdeCliente.id) : `/viajes${volver}`}
           state={desdeCliente ? { volver: desdeCliente.volver } : undefined}
-          className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <ChevronLeft className="size-5" aria-hidden="true" /> {desdeCliente ? 'Cliente' : 'Viajes'}
-        </Link>
+          destino={desdeCliente ? 'al cliente' : 'a Viajes'}
+        />
         <PageHeader
           title={viaje ? <Recorrido origen={viaje.origen} destino={viaje.destino} /> : 'Viaje'}
           ayuda={AYUDA_VIAJE_DETALLE}
@@ -231,25 +229,25 @@ function DatosDelViaje({ viaje, volver, desdeCliente, camiones }: DatosDelViajeP
       </h2>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-4">
         <div>
-          <dt className="text-sm text-muted-foreground">Fecha</dt>
+          <dt className="text-base text-muted-foreground">Fecha</dt>
           <dd className="text-base font-semibold">{formatDateWithYear(viaje.fecha)}</dd>
         </div>
         <div>
-          <dt className="text-sm text-muted-foreground">Ingreso</dt>
+          <dt className="text-base text-muted-foreground">Ingreso</dt>
           <dd className="text-base font-semibold tabular-nums [overflow-wrap:anywhere]">
             {viaje.ingreso !== null ? formatNumber(viaje.ingreso, { decimales: 2 }) : 'Sin cargar'}
           </dd>
         </div>
         {camiones !== undefined && camiones.length > 0 ? (
           <div className="col-span-2">
-            <dt className="text-sm text-muted-foreground">Camión</dt>
+            <dt className="text-base text-muted-foreground">Camión</dt>
             <dd className="text-base font-semibold">
               {viaje.camion_id ? etiquetaCamion(buscarCamion(camiones, viaje.camion_id)) : 'Sin asignar'}
             </dd>
           </div>
         ) : null}
         <div className="col-span-2">
-          <dt className="text-sm text-muted-foreground">Kilometraje</dt>
+          <dt className="text-base text-muted-foreground">Kilometraje</dt>
           <dd className="text-base font-semibold tabular-nums">
             {km.tipo === 'km'
               ? `${formatNumber(km.km, { decimales: 1, fijos: false })} km`
@@ -260,7 +258,7 @@ function DatosDelViaje({ viaje, volver, desdeCliente, camiones }: DatosDelViajeP
         </div>
         {viaje.observaciones ? (
           <div className="col-span-2">
-            <dt className="text-sm text-muted-foreground">Observaciones</dt>
+            <dt className="text-base text-muted-foreground">Observaciones</dt>
             <dd className="whitespace-pre-line break-words text-base">{viaje.observaciones}</dd>
           </div>
         ) : null}
@@ -292,7 +290,7 @@ function EntregasDelViaje({ viaje }: { viaje: ViajeVista }) {
             <li key={entrega.id} className="rounded-lg border border-border bg-card px-4 py-3">
               <p className="break-words font-medium">{entrega.clientes?.nombre ?? 'Cliente'}</p>
               {entrega.incidencias ? (
-                <p className="whitespace-pre-line break-words text-sm text-muted-foreground">
+                <p className="whitespace-pre-line break-words text-base text-muted-foreground">
                   Incidencias: {entrega.incidencias}
                 </p>
               ) : null}
@@ -419,11 +417,11 @@ function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categorias
       <>
         {errorLista}
         <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm font-medium text-muted-foreground">Total de gastos del viaje</p>
+          <p className="text-base font-medium text-muted-foreground">Total de gastos del viaje</p>
           <p className="mt-1 text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]">
             {formatNumber(total, { decimales: 2 })}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">{textoCantidadGastos(items.length, truncado)}</p>
+          <p className="mt-1 text-base text-muted-foreground">{textoCantidadGastos(items.length, truncado)}</p>
         </div>
 
         {truncado ? (

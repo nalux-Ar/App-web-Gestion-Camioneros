@@ -199,7 +199,7 @@ describe('lista de gastos: el viaje vinculado', () => {
     // Con el "a" oculto a la vista para el lector de pantalla entre la flecha y el destino.
     expect(linea!.textContent!.replace(/\s+/g, ' ')).toBe('Viaje: Pilar → a Villa María');
     expect(linea!.className).toContain('truncate');
-    expect(linea!.className).toContain('text-sm');
+    expect(linea!.className).toContain('text-base');
     expect(linea!.className).toContain('text-muted-foreground'); // discreta: mismo tono que la fecha
   });
 
@@ -232,6 +232,16 @@ describe('lista de gastos: el viaje vinculado', () => {
     expect(item.textContent).toContain('Combustible');
     expect(item.textContent).toContain('40 L');
     expect(item.className).toContain('min-h-16');
+  });
+
+  it('la fecha de la fila (junto a los litros) y el resto de las líneas de apoyo van a 16 px, en el color de apoyo de siempre', async () => {
+    await mount();
+    const detalle = [...itemOf(G_LARGO).querySelectorAll('p')].find((p) => p.textContent?.includes('40 L'))!;
+    expect(detalle.className).toContain('text-base');
+    expect(detalle.className).toContain('text-muted-foreground'); // el color NO cambió
+    for (const item of items()) {
+      for (const p of item.querySelectorAll('p')) expect(p.className, p.textContent ?? '').not.toMatch(/\btext-(xs|sm)\b/);
+    }
   });
 
   it('toda la fila sigue siendo un enlace a la edicion, que vuelve a Gastos con sus filtros (state.volver), no a un viaje', async () => {
