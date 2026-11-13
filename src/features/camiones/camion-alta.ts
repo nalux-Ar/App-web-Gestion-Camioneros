@@ -106,7 +106,7 @@ export async function altaCamion({
   return { tipo: 'duplicado', camionId: resultado.camionId, activa: resultado.activa };
 }
 
-export const UNICO_ACTIVO_MESSAGE = 'Es tu único camión activo: primero carga el camión que lo reemplaza.';
+export const UNICO_ACTIVO_MESSAGE = 'Es tu único camión activo. Para dejar de usarlo, primero agrega otro camión.';
 
 /**
  * Regla SOLO del front (la base no la impone): no se archiva el único camión activo. Se cuenta FRESCO justo antes de

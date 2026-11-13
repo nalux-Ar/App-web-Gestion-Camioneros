@@ -135,14 +135,14 @@ export const EntregaFila = memo(function EntregaFila({
 
         <TextareaField
           id={entregaDomId(fila.key, 'incidencias')}
-          label="Incidencias"
+          label="Problemas o novedades"
           optional
           rows={2}
           value={fila.incidencias}
           onChange={(incidencias) => onChange(fila.key, { incidencias })}
           hint={
             incidenciasLength > MAX_INCIDENCIAS
-              ? `Más de ${MAX_INCIDENCIAS} caracteres: acórtalas.`
+              ? `Más de ${MAX_INCIDENCIAS} caracteres: acórtalo.`
               : incidenciasLength >= TEXTO_COUNTER_FROM
                 ? `${incidenciasLength} de ${MAX_INCIDENCIAS} caracteres`
                 : undefined

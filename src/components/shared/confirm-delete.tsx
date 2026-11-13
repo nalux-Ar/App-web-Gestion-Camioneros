@@ -1,10 +1,15 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { InlineError } from '@/components/shared/inline-error';
 import { Spinner } from '@/components/shared/spinner';
-import { RecordNotFoundError, type DataErrorContext } from '@/lib/data-errors';
+import {
+  NETWORK_DELETE_ERROR_MESSAGE,
+  RecordNotFoundError,
+  TIMEOUT_DELETE_ERROR_MESSAGE,
+  type DataErrorContext,
+} from '@/lib/data-errors';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +21,7 @@ interface ConfirmDeleteProps {
   /** Qué se borra, para el lector de pantalla cuando hay varios botones en una lista: "gasto del 30 sep". */
   itemLabel?: string;
   /** Mensajes propios de error, p.ej. `{ foreignKey: 'No se puede eliminar porque tiene gastos asociados.' }`.
-   *  Definirlo como constante de módulo. */
+   *  Definirlo como constante de módulo. Puede pisar también los textos de «sin señal» y de timeout (`network`, `timeout`). */
   context?: DataErrorContext;
   disabled?: boolean;
   className?: string;
@@ -54,6 +59,9 @@ interface ConfirmDeleteProps {
  * Mientras borra, los dos botones quedan deshabilitados ("Eliminando…"). Si
  * falla, muestra el error (ícono + texto) y "Reintentar" cuando reintentar
  * tiene sentido; si no (p.ej. tiene gastos asociados), solo queda "Cancelar".
+ * Sin señal o con timeout, el texto es el de ELIMINAR («Todavía NO se eliminó… inténtalo de
+ * nuevo»), que no habla de guardar ni nombra el botón: con `keepConfirmLabelOnError` el botón
+ * conserva su rótulo y no dice "Reintentar".
  *
  * Tras borrar con éxito queda "Eliminado." y el componente sigue bloqueado
  * (mismo guard que `SubmitBar`: el registro ya no existe, no hay nada más que
@@ -87,7 +95,14 @@ export function ConfirmDelete({
 }: ConfirmDeleteProps) {
   const [confirming, setConfirming] = useState(false);
   const [deleted, setDeleted] = useState(false);
-  const { run, pending, error, retryable, clearError } = useSubmitFeedback({ context });
+  // Los textos de «sin señal» y de timeout de ELIMINAR (no los de guardar: no hay nada escrito, y con
+  // `keepConfirmLabelOnError` el botón no dice «Reintentar»). Un `context` de la pantalla puede pisar cualquiera de los dos.
+  // `useMemo`: `useSubmitFeedback` espera un contexto estable, no un objeto nuevo por render.
+  const contextoDeBorrado = useMemo<DataErrorContext>(
+    () => ({ network: NETWORK_DELETE_ERROR_MESSAGE, timeout: TIMEOUT_DELETE_ERROR_MESSAGE, ...context }),
+    [context],
+  );
+  const { run, pending, error, retryable, clearError } = useSubmitFeedback({ context: contextoDeBorrado });
 
   const promptId = useId();
   const groupRef = useRef<HTMLDivElement>(null);

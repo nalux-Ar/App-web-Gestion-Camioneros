@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DataRequestError,
+  NETWORK_CAMION_ESTADO_ERROR_MESSAGE,
+  NETWORK_DELETE_ERROR_MESSAGE,
+  NETWORK_SAVE_ERROR_MESSAGE,
+  RecordNotFoundError,
+  TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE,
+  TIMEOUT_DELETE_ERROR_MESSAGE,
+  TIMEOUT_ERROR_MESSAGE,
   UserMessageError,
   classifyDataError,
   isForeignKeyViolationOf,
@@ -10,8 +17,11 @@ import {
   mentionsConstraint,
   type DataErrorContext,
 } from '@/lib/data-errors';
+import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
+import { ARCHIVAR_CAMION_CONTEXT, GUARDAR_CAMION_CONTEXT, REACTIVAR_CAMION_REPETIDO_CONTEXT } from '@/features/camiones/constants';
 import { ELIMINAR_VIAJE_CONTEXT, GUARDAR_VIAJE_CONTEXT } from '@/features/viajes/constants';
-import { GASTOS_VIAJE_FK, GUARDAR_GASTO_CONTEXT } from '@/features/gastos/constants';
+import { ELIMINAR_DEVOLUCION_CONTEXT } from '@/features/devoluciones/constants';
+import { ELIMINAR_GASTO_CONTEXT, GASTOS_VIAJE_FK, GUARDAR_GASTO_CONTEXT } from '@/features/gastos/constants';
 
 /** Lo que devuelve PostgREST (con el status que copia `unwrap`). */
 const fk = (message: string, details = '', code = '23503') => new DataRequestError({ message, details, code }, 409);
@@ -115,7 +125,7 @@ describe('mapDataError al GUARDAR un gasto: el mismo 23503 según el constraint'
   });
 
   it('el resto de los errores de un gasto sigue igual (red, check, permiso, único)', () => {
-    expect(mapDataError({ message: 'TypeError: Failed to fetch', code: '' }, GUARDAR_GASTO_CONTEXT)).toContain('conexión');
+    expect(mapDataError({ message: 'TypeError: Failed to fetch', code: '' }, GUARDAR_GASTO_CONTEXT)).toBe(NETWORK_ERROR_MESSAGE);
     expect(mapDataError(fk('x', '', '23514'), GUARDAR_GASTO_CONTEXT)).toBe(mapDataError(fk('x', '', '23514')));
     expect(mapDataError(fk('x', '', '42501'), GUARDAR_GASTO_CONTEXT)).toBe('No tienes permiso para hacer esto.');
     expect(mapDataError(fk('x', '', '23505'), GUARDAR_GASTO_CONTEXT)).toBe('Ya existe un registro con esos datos.');
@@ -151,7 +161,7 @@ describe('lo que NO cambia para el resto de las pantallas', () => {
 
 describe('borrar un viaje: 23001 (PostgreSQL 18) es lo mismo que 23503', () => {
   const MSG_RESTRICT = 'update or delete on table "viajes" violates RESTRICT setting of foreign key constraint "gastos_viaje_fk" on table "gastos"';
-  const MENSAJE = 'Se vinculó un gasto a este viaje mientras lo borrabas. Vuelve a intentarlo.';
+  const MENSAJE = 'Mientras lo borrabas, se le agregó un gasto a este viaje. Vuelve a intentarlo.';
 
   it('23503 (PostgreSQL 17, la base real hoy): el mensaje de la carrera y reintentable', () => {
     const error = fk(MSG_RESTRICT, '', '23503');
@@ -178,7 +188,7 @@ describe('borrar un viaje: 23001 (PostgreSQL 18) es lo mismo que 23503', () => {
   });
 
   it('en el borrado, los demás errores no se alteran (red, permiso, check)', () => {
-    expect(mapDataError({ message: 'TypeError: Failed to fetch', code: '' }, ELIMINAR_VIAJE_CONTEXT)).toContain('conexión');
+    expect(mapDataError({ message: 'TypeError: Failed to fetch', code: '' }, ELIMINAR_VIAJE_CONTEXT)).toBe(NETWORK_ERROR_MESSAGE);
     expect(isRetryableDataError({ message: 'TypeError: Failed to fetch', code: '' }, ELIMINAR_VIAJE_CONTEXT)).toBe(true);
     expect(isRetryableDataError(fk('x', '', '42501'), ELIMINAR_VIAJE_CONTEXT)).toBe(false);
     expect(mapDataError(fk('x', '', '23514'), ELIMINAR_VIAJE_CONTEXT)).toBe(mapDataError(fk('x', '', '23514')));
@@ -235,7 +245,7 @@ describe('messagesByConstraint: un mensaje por constraint, para cualquier clase 
 
   it('GUARDAR un gasto: FK del camión, camión archivado y no coincide con el viaje; la FK del viaje y la de categoría siguen igual', () => {
     expect(mapDataError(FK_CAMION_GASTO, GUARDAR_GASTO_CONTEXT)).toBe('El camión elegido ya no existe. Elige otro.');
-    expect(mapDataError(ARCHIVADO, GUARDAR_GASTO_CONTEXT)).toBe('Ese camión está archivado. Elige otro camión o reactívalo desde Camiones.');
+    expect(mapDataError(ARCHIVADO, GUARDAR_GASTO_CONTEXT)).toBe('Ese camión ya no se usa. Elige otro camión o reactívalo desde Camiones.');
     expect(mapDataError(NO_COINCIDE, GUARDAR_GASTO_CONTEXT)).toBe(
       'El camión no coincide con el del viaje: el viaje cambió de camión. Vuelve a elegir el viaje.',
     );
@@ -263,7 +273,7 @@ describe('messagesByConstraint: un mensaje por constraint, para cualquier clase 
 
   it('GUARDAR un viaje: FK del camión y camión archivado; la FK de un cliente sigue con su mensaje', () => {
     expect(mapDataError(FK_CAMION_VIAJE, GUARDAR_VIAJE_CONTEXT)).toBe('El camión elegido ya no existe. Elige otro.');
-    expect(mapDataError(ARCHIVADO, GUARDAR_VIAJE_CONTEXT)).toBe('Ese camión está archivado. Elige otro camión o reactívalo desde Camiones.');
+    expect(mapDataError(ARCHIVADO, GUARDAR_VIAJE_CONTEXT)).toBe('Ese camión ya no se usa. Elige otro camión o reactívalo desde Camiones.');
     expect(mapDataError(fk('El cliente no existe'), GUARDAR_VIAJE_CONTEXT)).toBe('Alguno de los clientes ya no existe: actualiza la lista y elígelo de nuevo.');
     expect(isRetryableDataError(FK_CAMION_VIAJE, GUARDAR_VIAJE_CONTEXT)).toBe(false);
   });
@@ -271,5 +281,136 @@ describe('messagesByConstraint: un mensaje por constraint, para cualquier clase 
   it('sin messagesByConstraint todo sigue como antes (contexto vacío)', () => {
     expect(mapDataError(ARCHIVADO)).toBe(mapDataError(new DataRequestError({ code: '55000', message: 'x' }, 400)));
     expect(isRetryableDataError(NO_COINCIDE)).toBe(false);
+  });
+});
+
+describe('eliminar un gasto o una devolución: un error de FK dice «No se pudo eliminar. Prueba de nuevo.» (sin «vinculado a otros datos»)', () => {
+  it.each([
+    ['gasto', ELIMINAR_GASTO_CONTEXT],
+    ['devolución', ELIMINAR_DEVOLUCION_CONTEXT],
+  ])('%s', (_nombre, contexto) => {
+    const error = fk('update or delete violates foreign key constraint "algo_fk"');
+    expect(mapDataError(error, contexto)).toBe('No se pudo eliminar. Prueba de nuevo.');
+    expect(mapDataError(error, contexto)).not.toMatch(/vincul|relacionad/i);
+    expect(isRetryableDataError(error, contexto)).toBe(false); // sigue sin ofrecer «Reintentar»: daría lo mismo
+  });
+});
+
+describe('sin señal y timeout: un texto para LEER y otro para GUARDAR', () => {
+  const SIN_RED = { message: 'TypeError: Failed to fetch', code: '' };
+  const TIMEOUT = new DOMException('signal timed out', 'TimeoutError');
+
+  it('al LEER (sin contexto) y en Auth: «No hay señal…», sin hablar de guardar (una lista que no cargó no perdió nada)', () => {
+    expect(mapDataError(SIN_RED)).toBe(NETWORK_ERROR_MESSAGE);
+    expect(NETWORK_ERROR_MESSAGE).toBe('No hay señal. Revisa la conexión y prueba de nuevo.');
+    expect(NETWORK_ERROR_MESSAGE).not.toMatch(/guard|escrito|Reintentar/i);
+  });
+
+  it('al GUARDAR: todavía NO se guardó, lo escrito sigue aquí y qué tocar (el contexto pone su texto de red)', () => {
+    expect(NETWORK_SAVE_ERROR_MESSAGE).toBe('No hay señal. Todavía NO se guardó, pero lo escrito sigue aquí. Cuando vuelva, toca Reintentar.');
+    expect(mapDataError(SIN_RED, { network: NETWORK_SAVE_ERROR_MESSAGE })).toBe(NETWORK_SAVE_ERROR_MESSAGE);
+    // Mezclado con el contexto de una pantalla que no define `network` (así lo arma `useSubmitFeedback`).
+    expect(mapDataError(SIN_RED, { network: NETWORK_SAVE_ERROR_MESSAGE, ...GUARDAR_GASTO_CONTEXT })).toBe(NETWORK_SAVE_ERROR_MESSAGE);
+  });
+
+  it('el texto de red del contexto solo afecta a la red: los demás errores siguen igual', () => {
+    const contexto: DataErrorContext = { network: 'RED' };
+    expect(mapDataError(fk('x', '', '42501'), contexto)).toBe('No tienes permiso para hacer esto.');
+    expect(mapDataError(fk('x', '', '23505'), contexto)).toBe('Ya existe un registro con esos datos.');
+    expect(mapDataError(TIMEOUT, contexto)).toBe(TIMEOUT_ERROR_MESSAGE);
+    expect(isRetryableDataError(SIN_RED, contexto)).toBe(true);
+  });
+
+  it('timeout (solo las escrituras lo tienen): la señal está lenta, no sabemos si se guardó y reintentar no duplica', () => {
+    expect(classifyDataError(TIMEOUT)).toBe('timeout');
+    expect(mapDataError(TIMEOUT)).toBe('La señal está lenta y no sabemos si se guardó. Toca Reintentar: no se duplica.');
+    expect(isRetryableDataError(TIMEOUT)).toBe(true);
+  });
+
+  it('`context.timeout` pisa el texto de timeout; sin él vale el de guardar; y no toca a la red ni a los demás errores', () => {
+    expect(mapDataError(TIMEOUT)).toBe(TIMEOUT_ERROR_MESSAGE);
+    expect(mapDataError(TIMEOUT, {})).toBe(TIMEOUT_ERROR_MESSAGE);
+    expect(mapDataError(TIMEOUT, { timeout: 'Texto propio.' })).toBe('Texto propio.');
+    // Cada uno en lo suyo, también con los dos en el mismo contexto.
+    expect(mapDataError(TIMEOUT, { network: 'RED', timeout: 'TIEMPO' })).toBe('TIEMPO');
+    expect(mapDataError(SIN_RED, { network: 'RED', timeout: 'TIEMPO' })).toBe('RED');
+    // Un contexto con `timeout` no cambia la red ni los demás errores.
+    expect(mapDataError(SIN_RED, { timeout: 'TIEMPO' })).toBe(NETWORK_ERROR_MESSAGE);
+    expect(mapDataError(fk('x', '', '42501'), { timeout: 'TIEMPO' })).toBe('No tienes permiso para hacer esto.');
+    // Con otro texto el timeout sigue siendo reintentable, venga como `TimeoutError` o como el mensaje de postgrest-js.
+    expect(isRetryableDataError(TIMEOUT, { timeout: 'TIEMPO' })).toBe(true);
+    const crudo = new DataRequestError({ code: '', message: 'TimeoutError: signal timed out' }, 0);
+    expect(mapDataError(crudo, { timeout: 'TIEMPO' })).toBe('TIEMPO');
+    expect(mapDataError(crudo)).toBe(TIMEOUT_ERROR_MESSAGE);
+  });
+
+  it('ningún texto de red o de timeout lleva «$», voseo ni «acá»', () => {
+    for (const texto of [NETWORK_ERROR_MESSAGE, NETWORK_SAVE_ERROR_MESSAGE, TIMEOUT_ERROR_MESSAGE]) {
+      expect(texto).not.toMatch(/\$|\bacá\b|\b(?:tocá|revisá|probá|esperá)\b/i);
+    }
+  });
+});
+
+describe('eliminar y cambiar el estado de un camión: textos de red y de timeout que no hablan de guardar un formulario ni nombran un botón', () => {
+  const SIN_RED = { message: 'TypeError: Failed to fetch', code: '' };
+  const TIMEOUT = new DOMException('signal timed out', 'TimeoutError');
+  const CUATRO = [
+    NETWORK_DELETE_ERROR_MESSAGE,
+    TIMEOUT_DELETE_ERROR_MESSAGE,
+    NETWORK_CAMION_ESTADO_ERROR_MESSAGE,
+    TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE,
+  ];
+
+  it('los cuatro textos, exactos', () => {
+    expect(NETWORK_DELETE_ERROR_MESSAGE).toBe('No hay señal. Todavía NO se eliminó. Cuando tengas señal, inténtalo de nuevo.');
+    expect(TIMEOUT_DELETE_ERROR_MESSAGE).toBe('La señal está lenta y no sabemos si se eliminó. Inténtalo de nuevo.');
+    expect(NETWORK_CAMION_ESTADO_ERROR_MESSAGE).toBe('No hay señal. Todavía NO se guardó. Cuando tengas señal, inténtalo de nuevo.');
+    expect(TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE).toBe('La señal está lenta y no sabemos si se guardó. Inténtalo de nuevo.');
+  });
+
+  it('ninguno nombra un botón («Reintentar») ni habla de «lo escrito» (no hay nada escrito que se conserve)', () => {
+    for (const texto of CUATRO) expect(texto).not.toMatch(/Reintentar|lo escrito|no se duplica/i);
+  });
+
+  it('los de eliminar no dicen «guardó»; los de cambiar el estado no dicen «eliminó»; son distintos de los de guardar un formulario', () => {
+    for (const texto of [NETWORK_DELETE_ERROR_MESSAGE, TIMEOUT_DELETE_ERROR_MESSAGE]) expect(texto).not.toMatch(/guard/i);
+    for (const texto of [NETWORK_CAMION_ESTADO_ERROR_MESSAGE, TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE]) expect(texto).not.toMatch(/elimin/i);
+    for (const texto of CUATRO) expect([NETWORK_SAVE_ERROR_MESSAGE, TIMEOUT_ERROR_MESSAGE]).not.toContain(texto);
+  });
+
+  it('puestos en el contexto, la red y el timeout salen con su texto y siguen siendo reintentables', () => {
+    for (const [red, tiempo] of [
+      [NETWORK_DELETE_ERROR_MESSAGE, TIMEOUT_DELETE_ERROR_MESSAGE],
+      [NETWORK_CAMION_ESTADO_ERROR_MESSAGE, TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE],
+    ] as const) {
+      const contexto: DataErrorContext = { network: red, timeout: tiempo };
+      expect(mapDataError(SIN_RED, contexto)).toBe(red);
+      expect(mapDataError(TIMEOUT, contexto)).toBe(tiempo);
+      expect(isRetryableDataError(SIN_RED, contexto)).toBe(true);
+      expect(isRetryableDataError(TIMEOUT, contexto)).toBe(true);
+    }
+  });
+
+  it('ARCHIVAR_CAMION_CONTEXT (archivar y reactivar) los trae y conserva su mensaje de «no encontrado»', () => {
+    expect(mapDataError(SIN_RED, ARCHIVAR_CAMION_CONTEXT)).toBe(NETWORK_CAMION_ESTADO_ERROR_MESSAGE);
+    expect(mapDataError(TIMEOUT, ARCHIVAR_CAMION_CONTEXT)).toBe(TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE);
+    expect(mapDataError(new RecordNotFoundError(), ARCHIVAR_CAMION_CONTEXT)).toContain('No pudimos cambiar ese camión');
+  });
+
+  it('REACTIVAR_CAMION_REPETIDO_CONTEXT (el «Reactivarlo» del aviso de patente repetida): esos textos, y todo lo demás como guardar un camión', () => {
+    expect(mapDataError(SIN_RED, REACTIVAR_CAMION_REPETIDO_CONTEXT)).toBe(NETWORK_CAMION_ESTADO_ERROR_MESSAGE);
+    expect(mapDataError(TIMEOUT, REACTIVAR_CAMION_REPETIDO_CONTEXT)).toBe(TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE);
+    for (const codigo of ['42501', 'P0002', '23505', '23514']) {
+      expect(mapDataError(fk('x', '', codigo), REACTIVAR_CAMION_REPETIDO_CONTEXT), codigo).toBe(mapDataError(fk('x', '', codigo), GUARDAR_CAMION_CONTEXT));
+    }
+    // Guardar un camión (el formulario, con su «Reintentar») NO cambia: sigue con el texto de guardar.
+    expect(GUARDAR_CAMION_CONTEXT.network).toBeUndefined();
+    expect(GUARDAR_CAMION_CONTEXT.timeout).toBeUndefined();
+    expect(mapDataError(SIN_RED, { network: NETWORK_SAVE_ERROR_MESSAGE, ...GUARDAR_CAMION_CONTEXT })).toBe(NETWORK_SAVE_ERROR_MESSAGE);
+    expect(mapDataError(TIMEOUT, GUARDAR_CAMION_CONTEXT)).toBe(TIMEOUT_ERROR_MESSAGE);
+  });
+
+  it('sin «$», voseo ni «acá»', () => {
+    for (const texto of CUATRO) expect(texto).not.toMatch(/\$|\bacá\b|\b(?:tocá|revisá|probá|esperá|intentá|inténtalo vos)\b/i);
   });
 });

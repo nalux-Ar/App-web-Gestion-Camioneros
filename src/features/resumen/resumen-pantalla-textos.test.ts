@@ -115,8 +115,8 @@ describe('textos de la pantalla Resumen: comparación', () => {
   });
 
   it('textoSinGastosDelMes: "este mes" en curso; el mes por nombre si ya cerró', () => {
-    expect(textoSinGastosDelMes({ year: 2026, month: 10 }, true)).toBe('Todavía no cargaste gastos este mes');
-    expect(textoSinGastosDelMes({ year: 2026, month: 8 }, false)).toBe('No cargaste gastos en agosto 2026');
+    expect(textoSinGastosDelMes({ year: 2026, month: 10 }, true)).toBe('Todavía no anotaste gastos este mes');
+    expect(textoSinGastosDelMes({ year: 2026, month: 8 }, false)).toBe('No anotaste gastos en agosto 2026');
   });
 });
 
@@ -139,9 +139,9 @@ describe('textos de la pantalla Resumen: ingresos y resultado', () => {
   it('textoCantidadViajes y textoViajesConIngreso', () => {
     expect(textoCantidadViajes(1)).toBe('1 viaje');
     expect(textoCantidadViajes(1500)).toBe('1.500 viajes');
-    expect(textoViajesConIngreso(3, 3)).toBe('3 viajes con ingreso');
-    expect(textoViajesConIngreso(1, 1)).toBe('1 viaje con ingreso');
-    expect(textoViajesConIngreso(2, 3)).toBe('2 de 3 viajes con ingreso');
+    expect(textoViajesConIngreso(3, 3)).toBe('3 viajes con cobro anotado');
+    expect(textoViajesConIngreso(1, 1)).toBe('1 viaje con cobro anotado');
+    expect(textoViajesConIngreso(2, 3)).toBe('2 de 3 viajes con cobro anotado');
   });
 
   it('etiquetaResultado: Ganancia / Pérdida / Resultado (0)', () => {
@@ -164,14 +164,14 @@ describe('textos de la pantalla Resumen: ingresos y resultado', () => {
   });
 
   it('textoSinResultado: sin viajes, uno o varios', () => {
-    expect(textoSinResultado(0)).toBe('No hay viajes en el mes. Carga tus viajes con su ingreso para ver si el mes dio ganancia o pérdida.');
-    expect(textoSinResultado(1)).toBe('Tu viaje del mes no tiene el ingreso cargado. Cárgalo para ver si el mes dio ganancia o pérdida.');
-    expect(textoSinResultado(1200)).toBe('Ninguno de tus 1.200 viajes del mes tiene el ingreso cargado. Cárgalo para ver si el mes dio ganancia o pérdida.');
+    expect(textoSinResultado(0)).toBe('No hay viajes en el mes. Anota tus viajes con lo que cobraste para ver si el mes dio ganancia o pérdida.');
+    expect(textoSinResultado(1)).toBe('Tu viaje del mes no tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
+    expect(textoSinResultado(1200)).toBe('Ninguno de tus 1.200 viajes del mes tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
   });
 
   it('textoViajesSinIngreso: singular y plural', () => {
-    expect(textoViajesSinIngreso(1)).toBe('1 viaje sin ingreso cargado: el resultado puede estar incompleto.');
-    expect(textoViajesSinIngreso(4)).toBe('4 viajes sin ingreso cargado: el resultado puede estar incompleto.');
+    expect(textoViajesSinIngreso(1)).toBe('1 viaje sin cobro anotado: el resultado puede estar incompleto.');
+    expect(textoViajesSinIngreso(4)).toBe('4 viajes sin cobro anotado: el resultado puede estar incompleto.');
   });
 });
 
@@ -188,15 +188,15 @@ describe('textos de la pantalla Resumen: combustible', () => {
     expect(formatDecimales(1234.5, 1, 3)).toBe('1.234,5');
   });
 
-  it('unidades: litros, km, km/L, L/100 km, precio por litro, cargas', () => {
+  it('unidades: litros, km, km por litro, litros cada 100 km, precio por litro, cargas', () => {
     expect(textoLitros(300)).toBe('300,0 L');
     expect(textoLitros(300.5)).toBe('300,5 L');
     expect(textoKm(900)).toBe('900 km');
     expect(textoKm(1234.56)).toBe('1.234,6 km');
-    expect(textoKmPorLitro(3)).toBe('3,0 km/L');
-    expect(textoKmPorLitro(2.851)).toBe('2,85 km/L');
-    expect(textoLitrosCada100(33.333)).toBe('33,3 L/100 km');
-    expect(textoLitrosCada100(35)).toBe('35,0 L/100 km');
+    expect(textoKmPorLitro(3)).toBe('3,0 km por litro');
+    expect(textoKmPorLitro(2.851)).toBe('2,85 km por litro');
+    expect(textoLitrosCada100(33.333)).toBe('33,3 litros cada 100 km');
+    expect(textoLitrosCada100(35)).toBe('35,0 litros cada 100 km');
     expect(textoPrecioPorLitro(23.29)).toBe('23,29 por litro');
     expect(textoCantidadCargas(1)).toBe('1 carga');
     expect(textoCantidadCargas(12)).toBe('12 cargas');
@@ -213,13 +213,13 @@ describe('textos de la pantalla Resumen: combustible', () => {
 
   it('textoTramos: un solo motivo, sin contar; varios motivos, con cuántos por cada uno (en el orden de MOTIVOS_DESCARTE)', () => {
     expect(textoTramos({ usados: 1, km: 450, litros: 150 }, { ...sinDescartes, fueraDeRango: 2 })).toBe(
-      '1 tramo usado (450 km, 150,0 L), 2 descartados: dio menos de 0,5 o más de 15 km por litro: casi siempre es un odómetro mal escrito.',
+      '1 tramo usado (450 km, 150,0 L), 2 descartados: dio menos de 0,5 o más de 15 km por litro: casi siempre es un error al escribir los km del tablero.',
     );
     expect(textoTramos({ usados: 0, km: null, litros: null }, { retroceso: 1, sinAvance: 2, fueraDeRango: 0 })).toBe(
-      'Ningún tramo usado, 3 descartados: el odómetro bajó respecto de la carga llena anterior (1); el odómetro no avanzó desde la carga llena anterior (2).',
+      'Ningún tramo usado, 3 descartados: los km del tablero bajaron respecto de la carga llena anterior (1); los km del tablero no avanzaron desde la carga llena anterior (2).',
     );
     expect(textoTramos({ usados: 0, km: null, litros: null }, { ...sinDescartes, retroceso: 1 })).toBe(
-      'Ningún tramo usado, 1 descartado: el odómetro bajó respecto de la carga llena anterior.',
+      'Ningún tramo usado, 1 descartado: los km del tablero bajaron respecto de la carga llena anterior.',
     );
   });
 
@@ -228,7 +228,7 @@ describe('textos de la pantalla Resumen: combustible', () => {
     expect(textoSinCombustible({ year: 2026, month: 8 }, false)).toBe('No cargaste combustible en agosto 2026');
     expect(TITULO_COMO_SE_CALCULA).toBe('¿Cómo se calcula?');
     expect(PASOS_COMO_SE_CALCULA).toHaveLength(5);
-    expect(TEXTO_SIN_RENDIMIENTO).toBe('Todavía no hay rendimiento para este camión: carga el odómetro en cargas con tanque lleno');
+    expect(TEXTO_SIN_RENDIMIENTO).toBe('Todavía no podemos calcular cuánto rinde. Al cargar combustible, llena el tanque y anota los km del tablero.');
   });
 });
 
@@ -237,19 +237,19 @@ describe('textos de la pantalla Resumen: viajes', () => {
     expect(textoSinViajes({ year: 2026, month: 10 }, true)).toBe('Todavía no hay viajes este mes');
     expect(textoSinViajes({ year: 2026, month: 8 }, false)).toBe('No hubo viajes en agosto 2026');
     expect(textoIngresoDelViaje(null)).toBeNull();
-    expect(textoIngresoDelViaje(0)).toBe('Ingreso 0,00');
-    expect(textoIngresoDelViaje(15000)).toBe('Ingreso 15.000,00');
+    expect(textoIngresoDelViaje(0)).toBe('Cobraste 0,00');
+    expect(textoIngresoDelViaje(15000)).toBe('Cobraste 15.000,00');
     expect(textoGastosDelViaje(0, 0)).toBe('Sin gastos');
     expect(textoGastosDelViaje(1, 500)).toBe('1 gasto: 500,00');
     expect(textoGastosDelViaje(2, 3000)).toBe('2 gastos: 3.000,00');
-    expect(SIN_INGRESO).toBe('Sin ingreso');
+    expect(SIN_INGRESO).toBe('Sin cobro anotado');
   });
 });
 
 describe('textos de la pantalla Resumen: vista Año (gastos)', () => {
   it('textoSinGastosDelAnio: "Todavía…" en el año en curso, el año a secas si ya pasó', () => {
-    expect(textoSinGastosDelAnio(2026, true)).toBe('Todavía no cargaste gastos en 2026');
-    expect(textoSinGastosDelAnio(2025, false)).toBe('No cargaste gastos en 2025');
+    expect(textoSinGastosDelAnio(2026, true)).toBe('Todavía no anotaste gastos en 2026');
+    expect(textoSinGastosDelAnio(2025, false)).toBe('No anotaste gastos en 2025');
   });
 
   it('textoPromedioDeMeses: sobre cuántos meses se promedia', () => {
@@ -272,17 +272,17 @@ describe('textos de la pantalla Resumen: vista Año (gastos)', () => {
 
 describe('textos de la pantalla Resumen: vista Año (resultado)', () => {
   it('textoSinResultado del año: los mismos textos que el Mes, con "año"', () => {
-    expect(textoSinResultado(0, 'año')).toBe('No hay viajes en el año. Carga tus viajes con su ingreso para ver si el año dio ganancia o pérdida.');
-    expect(textoSinResultado(1, 'año')).toBe('Tu viaje del año no tiene el ingreso cargado. Cárgalo para ver si el año dio ganancia o pérdida.');
-    expect(textoSinResultado(20, 'año')).toBe('Ninguno de tus 20 viajes del año tiene el ingreso cargado. Cárgalo para ver si el año dio ganancia o pérdida.');
+    expect(textoSinResultado(0, 'año')).toBe('No hay viajes en el año. Anota tus viajes con lo que cobraste para ver si el año dio ganancia o pérdida.');
+    expect(textoSinResultado(1, 'año')).toBe('Tu viaje del año no tiene anotado lo que cobraste. Anótalo para ver si el año dio ganancia o pérdida.');
+    expect(textoSinResultado(20, 'año')).toBe('Ninguno de tus 20 viajes del año tiene anotado lo que cobraste. Anótalo para ver si el año dio ganancia o pérdida.');
     // Sin período: el del Mes (los textos del paso 2 no cambiaron).
-    expect(textoSinResultado(3)).toBe('Ninguno de tus 3 viajes del mes tiene el ingreso cargado. Cárgalo para ver si el mes dio ganancia o pérdida.');
+    expect(textoSinResultado(3)).toBe('Ninguno de tus 3 viajes del mes tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
   });
 
   it('textoIngresosYGastos y los textos fijos del Año', () => {
-    expect(textoIngresosYGastos(1500, 1000)).toBe('Ingresos 1.500,00 · Gastos 1.000,00');
-    expect(textoIngresosYGastos(0, 0)).toBe('Ingresos 0,00 · Gastos 0,00');
-    expect(SIN_INGRESOS_CARGADOS).toBe('Sin ingresos cargados');
+    expect(textoIngresosYGastos(1500, 1000)).toBe('Cobraste 1.500,00 · Gastaste 1.000,00');
+    expect(textoIngresosYGastos(0, 0)).toBe('Cobraste 0,00 · Gastaste 0,00');
+    expect(SIN_INGRESOS_CARGADOS).toBe('Sin cobros anotados');
     expect(SIN_VIAJES).toBe('Sin viajes');
     expect(TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO).toContain('del año menos todos los gastos del año');
     expect(TEXTO_VIAJES_EN_EL_ANIO).toContain('mes a mes');

@@ -43,6 +43,7 @@ import { COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID } from '@/features
 import type { Categoria } from '@/features/gastos/categorias';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { etiquetaDeViaje } from '@/features/viajes/viaje-opciones';
+import { NETWORK_DELETE_ERROR_MESSAGE, NETWORK_SAVE_ERROR_MESSAGE, TIMEOUT_DELETE_ERROR_MESSAGE } from '@/lib/data-errors';
 import { todayLocal } from '@/lib/dates';
 import { queryClient } from '@/lib/query-client';
 
@@ -412,7 +413,7 @@ describe('formulario de gasto: si la lista de viajes no carga', () => {
     route.recientes = () => sinRed();
     await mount();
     expect(bodyText()).toContain('No pudimos cargar los viajes.');
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     const reintentar = buttonByText('Reintentar')!;
     expect(reintentar).toBeTruthy();
     expect(reintentar.type).toBe('button'); // no envia el formulario
@@ -623,7 +624,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
       return intento === 1 ? sinRed() : ok(PRESELECCIONADO);
     };
     await mount(`/gastos/nuevo?viaje=${V_PRESELECCIONADO}`);
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(byId('gasto-monto')).toBeNull();
     await click(buttonByText('Reintentar'));
     await settle(4);
@@ -692,6 +693,9 @@ describe('formulario de gasto: abierto desde el detalle de un viaje', () => {
       state: { desdeViaje: V_VIEJO, volverViaje: '?mes=2025-06' },
     });
     await click(buttonByText('Eliminar gasto'));
+    // La pregunta dice CUÁL gasto se borra (categoría, monto y fecha), no un «¿Seguro?» genérico.
+    expect(bodyText()).toMatch(/¿Eliminar el gasto( de [^?]+)? por [\d.,]+ del \d{1,2} [a-zñ]{3}\? Esto no se puede deshacer\./);
+    expect(bodyText()).not.toContain('¿Seguro?');
     await click(buttonByText('Sí, eliminar'));
     await settle(4);
     expect(callsTo('gastos').some((c) => c.ops.some((o) => o.m === 'delete'))).toBe(true);
@@ -701,6 +705,29 @@ describe('formulario de gasto: abierto desde el detalle de un viaje', () => {
     expect(detalle.dataset.volver).toBe('?mes=2025-06');
     expect(byId('lista-de-gastos')).toBeNull();
   });
+
+  it.each([
+    ['sin señal', (): Resp => sinRed(), NETWORK_DELETE_ERROR_MESSAGE],
+    ['con timeout', (): Resp => ({ data: null, error: { code: '', message: 'TimeoutError: signal timed out' }, status: 0 }), TIMEOUT_DELETE_ERROR_MESSAGE],
+  ] as Array<[string, () => Resp, string]>)(
+    'eliminar el gasto %s: el texto de ELIMINAR (no «se guardó» ni «lo escrito» ni nombra un botón) y volver a tocar lo completa',
+    async (_nombre, falla, esperado) => {
+      let intento = 0;
+      route.borrar = () => {
+        intento += 1;
+        return intento === 1 ? falla() : ok([{ id: GASTO_ID }]);
+      };
+      await mount({ pathname: `/gastos/${GASTO_ID}/editar`, state: { desdeViaje: V_VIEJO, volverViaje: '?mes=2025-06' } });
+      await click(buttonByText('Eliminar gasto'));
+      await click(buttonByText('Sí, eliminar'));
+      const avisos = [...document.querySelectorAll('[role="alert"] [data-slot="alert-description"]')].map((el) => el.textContent);
+      expect(avisos).toEqual([esperado]);
+      expect(avisos[0]).not.toMatch(/guard|lo escrito|Reintentar/i);
+      expect(byId('detalle-del-viaje')).toBeNull(); // sigue en el formulario
+      await click(buttonByText('Reintentar')); // por defecto el botón de confirmar pasa a «Reintentar»
+      expect(byId('detalle-del-viaje')!.dataset.aviso).toBe('gasto-eliminado');
+    },
+  );
 
   it('sin desdeViaje todo funciona como hoy: guardar vuelve a /gastos (con el mes del gasto) y "volver" lleva a /gastos', async () => {
     await mount({ pathname: '/gastos/nuevo', state: { volver: '?mes=2025-06' } });
@@ -756,7 +783,9 @@ describe('formulario de gasto: abierto desde el detalle de un viaje', () => {
     await llenarLoMinimo();
     await guardar();
     expect(byId('detalle-del-viaje')).toBeNull();
-    expect(bodyText()).toContain('No hay conexión');
+    // Guardar un gasto SIGUE con el texto de guardar (lo escrito sigue aquí, toca Reintentar), no con el de eliminar.
+    expect(bodyText()).toContain(NETWORK_SAVE_ERROR_MESSAGE);
+    expect(bodyText()).not.toContain(NETWORK_DELETE_ERROR_MESSAGE);
     expect(byId<HTMLInputElement>('gasto-monto')!.value).toBe('800');
   });
 });
@@ -844,7 +873,7 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain(NETWORK_SAVE_ERROR_MESSAGE);
     expect(recientesCalls()).toHaveLength(1);
     await click(buttonByText('Reintentar'));
     await settle(4);

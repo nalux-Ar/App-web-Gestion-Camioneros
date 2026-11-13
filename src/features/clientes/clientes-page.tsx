@@ -108,7 +108,7 @@ export function ClientesPage() {
         <EmptyState
           icon={Users}
           title="Todavía no tienes clientes"
-          description="Crea el primero aquí, o con «Nuevo cliente» al cargar una entrega en un viaje."
+          description="Crea el primero aquí, o con «Nuevo cliente» al anotar una entrega en un viaje."
           action={nuevoCliente}
           actionDesktopOnly
         />

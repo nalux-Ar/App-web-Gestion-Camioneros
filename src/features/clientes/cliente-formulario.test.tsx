@@ -271,7 +271,7 @@ describe('alta de cliente: estructura', () => {
     expect(document.querySelector('h1')!.textContent).toBe('Nuevo cliente');
     expect(labelDe('nombre')).toBe('Nombre');
     expect(labelDe('telefono')).toBe('Teléfono (opcional)');
-    expect(labelDe('email')).toBe('Email (opcional)');
+    expect(labelDe('email')).toBe('Correo electrónico (opcional)');
     expect(labelDe('direccion')).toBe('Dirección (opcional)');
     const orden = ['nombre', 'telefono', 'email', 'direccion'].map((n) => campo(n as never));
     for (let i = 1; i < orden.length; i++) {
@@ -320,7 +320,7 @@ describe('alta de cliente: validación', () => {
     await tipear(campo('nombre'), 'Distribuidora Este');
     await tipear(campo('email'), 'no tiene');
     await guardar();
-    expect(errorDe('email')).toBe('Escribe un email válido, como nombre@empresa.test.');
+    expect(errorDe('email')).toBe('Escribe un correo válido, como nombre@empresa.test.');
     expect(document.activeElement).toBe(campo('email'));
     expect(inserts()).toHaveLength(0);
   });
@@ -424,7 +424,7 @@ describe('alta de cliente: guardar', () => {
     await tipear(campo('nombre'), 'Distribuidora Este');
     await tipear(campo('email'), 'ventas@este.test');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(campo('nombre').value).toBe('Distribuidora Este');
     expect(campo('email').value).toBe('ventas@este.test');
     await click(buttonByText('Reintentar'));
@@ -545,7 +545,7 @@ describe('edición de cliente', () => {
     await mount(EDITAR);
     await tipear(campo('nombre'), 'Almacén Central SA');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(invalido(devolucionesKeys.delosMeses('tenant-a'))).toBe(true);
     expect(invalido(viajesKeys.vistas('tenant-a'))).toBe(true);
   });

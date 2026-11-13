@@ -184,7 +184,7 @@ function DatosDelCliente({ cliente, volver }: { cliente: ClienteDetalle; volver:
           ) : null}
           {email ? (
             <div>
-              <dt className="text-base text-muted-foreground">Email</dt>
+              <dt className="text-base text-muted-foreground">Correo electrónico</dt>
               <dd className="text-base">
                 {hrefMail ? (
                   <a href={hrefMail} className={enlace} aria-label={`Escribir a ${email}`}>
@@ -219,7 +219,7 @@ interface ViajesDelClienteProps {
   viajesQuery: ReturnType<typeof useViajesDelCliente>;
 }
 
-/** El texto de las incidencias del cliente en un viaje (puede tener más de una entrega en el mismo viaje), o null. */
+/** El texto de los problemas o novedades del cliente en un viaje (puede tener más de una entrega en el mismo viaje), o null. */
 function incidenciasDe(viaje: ViajeDelCliente): string | null {
   const textos = viaje.entregas.map((entrega) => entrega.incidencias?.trim() ?? '').filter((texto) => texto !== '');
   return textos.length > 0 ? textos.join(' · ') : null;
@@ -259,7 +259,7 @@ function ViajesDelCliente({ desdeCliente, viajesQuery }: ViajesDelClienteProps) 
                   </p>
                   <p className="text-base text-muted-foreground">{formatDateWithYear(viaje.fecha)}</p>
                   {incidencias ? (
-                    <p className="line-clamp-2 break-words text-base text-muted-foreground">Incidencias: {incidencias}</p>
+                    <p className="line-clamp-2 break-words text-base text-muted-foreground">Problemas o novedades: {incidencias}</p>
                   ) : null}
                 </div>
                 <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />

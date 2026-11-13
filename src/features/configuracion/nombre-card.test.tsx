@@ -95,7 +95,7 @@ function installResponder(onUpdate: (call: Call) => unknown) {
       });
     }
     if (call.table === 'transportistas') return onUpdate(call);
-    // Las tarjetas de camiones (Inicio y Configuración) leen la lista: con un camión, Inicio no muestra "Carga tu camión".
+    // Las tarjetas de camiones (Inicio y Configuración) leen la lista: con un camión, Inicio no muestra "Agrega tu camión".
     if (call.table === 'camiones') {
       return ok([{ id: 'c0000000-0000-4000-8000-000000000001', patente: 'AB123CD', marca: null, modelo: null, anio: null, activa: true }]);
     }
@@ -352,7 +352,7 @@ describe('tarjeta Nombre: errores', () => {
     expect(bodyText()).toContain(NO_EDITABLE);
     expect(buttonByText('Reintentar')).toBeNull();
     expect(bodyText()).not.toContain('Nombre guardado.');
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
     expect(headerName()).toBe('Transportes A');
     expect(greeting()).toBe('Hola, Transportes A');
     expect(probe.ctx!.member!.transportistaNombre).toBe('Transportes A');
@@ -378,7 +378,7 @@ describe('tarjeta Nombre: errores', () => {
     await click(guardar()!);
     await settle();
 
-    expect(bodyText()).toContain('No hay conexión. Revisa la señal y prueba de nuevo.');
+    expect(bodyText()).toContain('No hay señal. Todavía NO se guardó, pero lo escrito sigue aquí. Cuando vuelva, toca Reintentar.');
     expect(bodyText()).not.toContain('TypeError');
     const retry = buttonByText('Reintentar');
     expect(retry).not.toBeNull();
@@ -394,12 +394,12 @@ describe('tarjeta Nombre: errores', () => {
     expect(headerName()).toBe('Nombre sin señal');
     expect(bodyText()).toContain('Nombre guardado.');
     expect(buttonByText('Reintentar')).toBeNull();
-    expect(bodyText()).not.toContain('No hay conexión. Revisa');
+    expect(bodyText()).not.toContain('No hay señal. Todavía NO se guardó');
   });
 
   it('timeout y 5xx -> reintentables; permiso (42501) y check (23514) -> mensajes propios y sin Reintentar; nunca texto crudo', async () => {
     const cases: Array<{ resp: Resp; text: string; retry: boolean }> = [
-      { resp: fail('TimeoutError: signal timed out'), text: 'Tardó demasiado en responder', retry: true },
+      { resp: fail('TimeoutError: signal timed out'), text: 'La señal está lenta y no sabemos si se guardó', retry: true },
       { resp: fail('upstream connect error', '', 502), text: 'El servicio no está disponible', retry: true },
       { resp: fail('permission denied for table transportistas', '42501', 403), text: NO_EDITABLE, retry: false },
       {
@@ -432,17 +432,17 @@ describe('tarjeta Nombre: errores', () => {
     installResponder(() => fail('TypeError: Failed to fetch'));
     await mount('user-a');
 
-    expect(bodyText()).toContain('No hay conexión. Revisa la señal antes de enviar el formulario.');
+    expect(bodyText()).toContain('Sin señal. Revisa la conexión antes de guardar.');
     expect(document.querySelectorAll('[role="status"]').length).toBeGreaterThan(0);
     await typeInto(input(), 'Intento offline');
     expect(guardar()!.disabled).toBe(false); // se deja intentar
     await click(guardar()!);
     await settle();
     expect(writes()).toHaveLength(1); // salió el pedido igual (networkMode: 'always')
-    expect(bodyText()).toContain('No hay conexión. Revisa la señal y prueba de nuevo.');
+    expect(bodyText()).toContain('No hay señal. Todavía NO se guardó, pero lo escrito sigue aquí. Cuando vuelva, toca Reintentar.');
     expect(buttonByText('Reintentar')).not.toBeNull();
     // Un solo banner (el de la pantalla): la tarjeta no agrega otro.
-    expect(document.body.textContent!.match(/No hay conexión\. Revisa la señal antes de enviar/g)).toHaveLength(1);
+    expect(document.body.textContent!.match(/Sin señal\. Revisa la conexión antes de guardar/g)).toHaveLength(1);
   });
 });
 

@@ -144,7 +144,8 @@ describe('los pasos del recorrido', () => {
       siFalta: 'saltar',
     });
     expect(pasos[8]!.siFalta).toBe('centrado');
-    expect(pasos[2]!.texto).toContain('el odómetro (los kilómetros del tablero)');
+    expect(pasos[2]!.texto).toContain('los kilómetros que marca el tablero');
+    expect(pasos[2]!.texto).not.toMatch(/odómetro/i);
   });
 
   it('APAGADO: los mismos pasos sin el de Reportar, en el mismo orden y sin tocar ninguno de los otros', () => {
@@ -162,10 +163,23 @@ describe('los pasos del recorrido', () => {
     expect(pasos).toEqual(pasosDelTour(true).filter((p) => p.id !== 'reportar'));
     expect(pasos[0]).toMatchObject({ titulo: 'Te mostramos la app', texto: 'Son pocos pasos. Puedes saltarlo cuando quieras.' });
     expect(pasos.at(-1)).toMatchObject({ id: 'cierre', siFalta: 'centrado' });
-    expect(pasos[2]!.texto).toContain('el odómetro (los kilómetros del tablero)');
+    expect(pasos[2]!.texto).toContain('los kilómetros que marca el tablero');
+    expect(pasos[2]!.texto).not.toMatch(/odómetro/i);
     // Ni el paso ni una mención suelta: nada del recorrido manda a una función oculta.
     expect(pasos.some((p) => p.id === 'reportar' || p.objetivo === 'reportar')).toBe(false);
     expect(pasos.map((p) => `${p.titulo} ${p.texto}`).join(' ')).not.toMatch(/Reportar/i);
+  });
+
+  it('el cierre manda a tocar «Ayuda» (no la «i») y ningún paso usa las palabras viejas: «cargar» un dato, «odómetro»', () => {
+    const pasos = pasosDelTour(true);
+    expect(pasos.at(-1)!.texto).toBe('Eso es todo. Si quieres verlo otra vez, toca «Ayuda»: ahí está «Ver el recorrido otra vez».');
+    for (const paso of pasos) {
+      const texto = `${paso.titulo} ${paso.texto}`;
+      expect(texto, paso.id).not.toMatch(/«i»|"i"|odómetro/i);
+      // «cargas de combustible» (la del tanque) es palabra del oficio y se queda.
+      expect(texto.replace(/cargas? de combustible/gi, ''), paso.id).not.toMatch(/\bcarg(?:ar|as?|aste|ado|ada|ados|adas)\b/i);
+    }
+    expect(pasos.find((p) => p.id === 'viajes')!.texto).toContain('Aquí anotas tus viajes');
   });
 
   it('`TOUR_PASOS` (lo que usa la app) es `pasosDelTour` con el interruptor real', () => {

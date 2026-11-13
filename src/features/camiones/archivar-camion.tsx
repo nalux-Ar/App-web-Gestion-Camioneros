@@ -40,7 +40,7 @@ export function ArchivarCamion({ activa, esUnicoActivo, onCambiar }: ArchivarCam
   if (!activa) {
     return (
       <div className="space-y-3">
-        <p className="text-base text-muted-foreground">Este camión está archivado: no se puede elegir en viajes ni cargas nuevas.</p>
+        <p className="text-base text-muted-foreground">Ya no usas este camión: no se puede elegir en viajes ni gastos nuevos.</p>
         {error ? <InlineError message={error} onRetry={retryable ? () => void cambiar(true) : undefined} retrying={pending} /> : null}
         <Button type="button" variant="outline" disabled={pending} aria-busy={pending} onClick={() => void cambiar(true)}>
           {pending ? <Spinner className="size-4" /> : <ArchiveRestore aria-hidden="true" />} Reactivar camión
@@ -56,16 +56,16 @@ export function ArchivarCamion({ activa, esUnicoActivo, onCambiar }: ArchivarCam
   if (!confirmando) {
     return (
       <Button type="button" variant="outline" onClick={() => setConfirmando(true)}>
-        <Archive aria-hidden="true" /> Archivar camión
+        <Archive aria-hidden="true" /> Ya no uso este camión
       </Button>
     );
   }
 
   return (
-    <div role="group" aria-label="Confirmar archivar" className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
+    <div role="group" aria-label="Confirmar que ya no usas este camión" className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
       <p className="text-base font-medium">
-        Un camión archivado ya no se puede elegir en viajes ni cargas nuevas. Lo que ya tiene cargado se conserva y lo puedes
-        reactivar cuando quieras.
+        Si ya no lo usas, no podrás elegirlo en viajes ni gastos nuevos. Lo que ya anotaste no se borra y lo puedes reactivar
+        cuando quieras.
       </p>
       {error ? <InlineError message={error} /> : null}
       <div className="flex flex-col gap-2 sm:flex-row">
@@ -73,12 +73,12 @@ export function ArchivarCamion({ activa, esUnicoActivo, onCambiar }: ArchivarCam
           <Button type="button" disabled={pending} aria-busy={pending} onClick={() => void cambiar(false)}>
             {pending ? (
               <>
-                <Spinner className="size-4" /> Archivando…
+                <Spinner className="size-4" /> Guardando…
               </>
             ) : error ? (
               'Reintentar'
             ) : (
-              'Sí, archivar'
+              'Sí, ya no lo uso'
             )}
           </Button>
         ) : null}
@@ -96,7 +96,7 @@ export function ArchivarCamion({ activa, esUnicoActivo, onCambiar }: ArchivarCam
         </Button>
       </div>
       <span role="status" aria-live="polite" className="sr-only">
-        {pending ? 'Archivando…' : ''}
+        {pending ? 'Guardando…' : ''}
       </span>
     </div>
   );

@@ -30,12 +30,12 @@ describe('etiquetas', () => {
     expect(etiquetaMetodoPago('transferencia')).toBe('Transferencia');
   });
 
-  it('camión: "Sin camión", la patente con espacios y "(archivado)"', () => {
+  it('camión: "Sin camión", la patente con espacios y "(ya no se usa)"', () => {
     expect(etiquetaCamionResumen({ camionId: null, patente: null, activa: null })).toBe(SIN_CAMION);
     expect(SIN_CAMION).toBe('Sin camión');
     const id = 'c1000000-0000-4000-8000-000000000001';
     expect(etiquetaCamionResumen({ camionId: id, patente: 'AB123CD', activa: true })).toBe('AB 123 CD');
-    expect(etiquetaCamionResumen({ camionId: id, patente: 'ABC123', activa: false })).toBe('ABC 123 (archivado)');
+    expect(etiquetaCamionResumen({ camionId: id, patente: 'ABC123', activa: false })).toBe('ABC 123 (ya no se usa)');
     expect(etiquetaCamionResumen({ camionId: id, patente: null, activa: true })).toBe('Camión no disponible');
   });
 

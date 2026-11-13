@@ -230,7 +230,7 @@ describe('formulario de gasto: un refresco fallido no desmonta el formulario abi
       throw new Error(`pedido inesperado: ${call.table}`);
     };
     await mount('/gastos/nuevo');
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Reintentar'))).toBe(true);
     expect(byId('gasto-monto')).toBeNull();
   });

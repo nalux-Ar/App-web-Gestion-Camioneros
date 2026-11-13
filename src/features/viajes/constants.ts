@@ -43,7 +43,7 @@ export const GUARDAR_VIAJE_CONTEXT: DataErrorContext = {
 export const ELIMINAR_VIAJE_CONTEXT: DataErrorContext = {
   // 23503: `gastos_viaje_fk` es ON DELETE RESTRICT. Repetir los dos pasos es seguro (son idempotentes), así que se
   // ofrece "Reintentar" (`foreignKeyRetryable`): el segundo intento vuelve a desvincular y recién ahí borra.
-  foreignKey: 'Se vinculó un gasto a este viaje mientras lo borrabas. Vuelve a intentarlo.',
+  foreignKey: 'Mientras lo borrabas, se le agregó un gasto a este viaje. Vuelve a intentarlo.',
   foreignKeyRetryable: true,
   // PostgreSQL 18 responde 23001 (restrict_violation) en vez de 23503 a un DELETE que choca con un RESTRICT: acá es lo
   // mismo (la base real hoy es PG 17 y da 23503). Solo vale para el borrado: en el resto 23001 no cambia de clase.

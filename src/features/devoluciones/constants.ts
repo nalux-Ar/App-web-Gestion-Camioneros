@@ -59,11 +59,11 @@ export const GUARDAR_DEVOLUCION_CONTEXT: DataErrorContext = {
 
 /** Ídem al ELIMINAR. */
 export const ELIMINAR_DEVOLUCION_CONTEXT: DataErrorContext = {
-  foreignKey: 'No se puede eliminar esta devolución porque está vinculada a otros datos.',
+  foreignKey: 'No se pudo eliminar. Prueba de nuevo.',
 };
 
-/** Texto cuando el transportista todavía no tiene ningún cliente (se crean en la sección Clientes o al cargar una entrega). */
-export const SIN_CLIENTES_MESSAGE = 'Todavía no tienes clientes: créalos en la sección Clientes o al cargar una entrega en un viaje.';
+/** Texto cuando el transportista todavía no tiene ningún cliente (se crean en la sección Clientes o al anotar una entrega). */
+export const SIN_CLIENTES_MESSAGE = 'Todavía no tienes clientes: créalos en la sección Clientes o al anotar una entrega en un viaje.';
 
 /** Títulos de los grupos del selector de cliente. */
 export const GRUPO_CLIENTES_DEL_VIAJE = 'Clientes de este viaje';
@@ -76,4 +76,4 @@ export const LIMITE_ALCANZADO_MESSAGE = `Hay más de ${LIST_LIMIT} devoluciones 
 
 /** Textos de la pestaña Devoluciones de `/viajes` (la lista de un mes). */
 export const LIMITE_MES_ALCANZADO_MESSAGE = `Hay más de ${LIST_LIMIT} devoluciones en este mes. Se muestran las ${LIST_LIMIT} más recientes y el resumen solo suma esas.`;
-export const SIN_DEVOLUCIONES_EN_EL_MES_DESCRIPTION = 'Las devoluciones se cargan desde el detalle de un viaje.';
+export const SIN_DEVOLUCIONES_EN_EL_MES_DESCRIPTION = 'Las devoluciones se anotan desde el detalle de un viaje.';

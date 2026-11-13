@@ -22,6 +22,7 @@ import {
 } from '@/lib/theme';
 import { writeCachedThemePreference } from '@/lib/theme-cache';
 import { AYUDA_CONFIGURACION } from '@/features/ayuda/ayuda-pantallas';
+import { SESSION_EXPIRED_MESSAGE } from '@/features/auth/auth-errors';
 import { useAuth } from '@/features/auth/use-auth';
 import { CamionesCard } from '@/features/camiones/camiones-card';
 import { useMember } from '@/features/member/use-member';
@@ -59,7 +60,7 @@ export function ConfiguracionPage() {
     async (nextTema: ThemeMode, nextColor: string) => {
       if (!user) {
         setSaveState('error');
-        setSaveError('Tu sesión venció. Vuelve a ingresar.');
+        setSaveError(SESSION_EXPIRED_MESSAGE);
         return;
       }
 

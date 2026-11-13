@@ -237,6 +237,8 @@ describe('detalle de un cliente: datos y consultas', () => {
     const mail = datos.querySelector<HTMLAnchorElement>('a[href^="mailto:"]')!;
     expect(mail.getAttribute('href')).toBe('mailto:ventas@almacen.test');
     expect(datos.textContent).toContain('Ruta 9 km 12');
+    // La etiqueta del correo es «Correo electrónico» (antes «Email»).
+    expect([...datos.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual(['Teléfono', 'Correo electrónico', 'Dirección']);
   });
 
   it('un teléfono o un email que no pasan la validación estricta se muestran como TEXTO, sin enlace', async () => {
@@ -311,9 +313,9 @@ describe('detalle de un cliente: sus viajes', () => {
     expect(filas[0]!.textContent).toContain('Rosario');
     expect(filas[0]!.textContent).toContain('Córdoba');
     expect(filas[0]!.textContent).toContain('20 jun 2025');
-    expect(filas[0]!.textContent).toContain('Incidencias: Faltó un pallet · Llegó tarde');
+    expect(filas[0]!.textContent).toContain('Problemas o novedades: Faltó un pallet · Llegó tarde');
     expect(filas[1]!.textContent).toContain('2 dic 2024');
-    expect(filas[1]!.textContent).not.toContain('Incidencias');
+    expect(filas[1]!.textContent).not.toContain('Problemas o novedades');
     expect(filas[0]!.className).toContain('min-h-16');
     // La fecha y las incidencias de cada viaje van a 16 px, en el color de apoyo de siempre.
     for (const fila of filas) {
@@ -350,7 +352,7 @@ describe('detalle de un cliente: sus viajes', () => {
   it('si los viajes no cargan: error con "Reintentar" en SU sección; las devoluciones se ven igual', async () => {
     route.viajes = () => sinRed();
     await mount();
-    expect(section('Viajes').textContent).toContain('No hay conexión');
+    expect(section('Viajes').textContent).toContain('No hay señal');
     expect(section('Devoluciones').querySelectorAll('li')).toHaveLength(2);
     route.viajes = () => ok(VIAJES);
     await click(buttonByText('Reintentar', section('Viajes')));
@@ -365,7 +367,7 @@ describe('detalle de un cliente: sus viajes', () => {
       await queryClient.refetchQueries({ queryKey: clientesKeys.viajesDelCliente('tenant-a', CLIENTE_ID) });
     });
     await settle(4);
-    expect(section('Viajes').textContent).toContain('No hay conexión');
+    expect(section('Viajes').textContent).toContain('No hay señal');
     expect(section('Viajes').querySelectorAll('li')).toHaveLength(2);
   });
 });
@@ -425,7 +427,7 @@ describe('detalle de un cliente: sus devoluciones', () => {
   it('si las devoluciones no cargan: error en SU sección; los viajes se ven igual', async () => {
     route.devoluciones = () => sinRed();
     await mount();
-    expect(section('Devoluciones').textContent).toContain('No hay conexión');
+    expect(section('Devoluciones').textContent).toContain('No hay señal');
     expect(section('Viajes').querySelectorAll('li')).toHaveLength(2);
   });
 });
@@ -457,7 +459,7 @@ describe('detalle de un cliente: no encontrado, errores y avisos', () => {
   it('si el cliente no carga: error con "Reintentar" en vez de la pantalla', async () => {
     route.cliente = () => sinRed();
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(bodyText()).not.toContain('Cliente no encontrado');
     route.cliente = () => ok(cliente());
     await click(buttonByText('Reintentar'));

@@ -21,8 +21,8 @@ function textoEntregas(cantidad: number): string {
 /**
  * Una fila de la lista: toda es un enlace al DETALLE del viaje (área táctil ≥ 64 px; desde ahí se edita). Lo principal es el recorrido
  * ("origen → destino", hasta dos líneas: los nombres de lugares pueden ser largos); debajo, la fecha y la
- * cantidad de entregas; después los km (el valor, "Km final sin cargar" si el viaje sigue en curso, o nada
- * si no se cargaron); y a la derecha el ingreso, si lo hay. Los números van sin símbolo de moneda.
+ * cantidad de entregas; después los km (el valor, "Falta el km de llegada." si el viaje sigue en curso, o nada
+ * si no se anotaron); y a la derecha lo que cobraste, si está. Los números van sin símbolo de moneda.
  */
 export function ViajeItem({ viaje, volver, camion }: ViajeItemProps) {
   const km = kmDelViaje(viaje);
@@ -44,7 +44,7 @@ export function ViajeItem({ viaje, volver, camion }: ViajeItemProps) {
           {km.tipo === 'km' ? (
             <p className="text-base text-muted-foreground">{formatNumber(km.km, { decimales: 1, fijos: false })} km</p>
           ) : km.tipo === 'sin-final' ? (
-            <p className="text-base text-muted-foreground">Km final sin cargar</p>
+            <p className="text-base text-muted-foreground">Falta el km de llegada.</p>
           ) : null}
         </div>
         {viaje.ingreso !== null ? (

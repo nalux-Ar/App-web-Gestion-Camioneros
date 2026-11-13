@@ -316,7 +316,7 @@ describe('useCambiarCamionActivo: errores', () => {
     await mount();
     onUpdate = () => sinRed();
     const error = await cambiar(vars(C2));
-    expect(mapDataError(error, CAMBIAR_CAMION_ACTIVO_CONTEXT)).toBe('No hay conexión. Revisa la señal y prueba de nuevo.');
+    expect(mapDataError(error, CAMBIAR_CAMION_ACTIVO_CONTEXT)).toBe('No hay señal. Revisa la conexión y prueba de nuevo.');
     expect(isRetryableDataError(error, CAMBIAR_CAMION_ACTIVO_CONTEXT)).toBe(true);
     await settle(10);
     expect(updates()).toHaveLength(1);
@@ -324,11 +324,11 @@ describe('useCambiarCamionActivo: errores', () => {
     expect(invalidadas).toEqual([]);
   });
 
-  it('timeout: "Tardó demasiado…", reintentable, un solo UPDATE', async () => {
+  it('timeout: "La señal está lenta…", reintentable, un solo UPDATE', async () => {
     await mount();
     onUpdate = () => ({ data: null, error: { code: '', message: 'TimeoutError: signal timed out' }, status: 0 });
     const error = await cambiar(vars(C2));
-    expect(mapDataError(error, CAMBIAR_CAMION_ACTIVO_CONTEXT)).toBe('Tardó demasiado en responder. Revisa tu conexión e inténtalo de nuevo.');
+    expect(mapDataError(error, CAMBIAR_CAMION_ACTIVO_CONTEXT)).toBe('La señal está lenta y no sabemos si se guardó. Toca Reintentar: no se duplica.');
     expect(isRetryableDataError(error, CAMBIAR_CAMION_ACTIVO_CONTEXT)).toBe(true);
     await settle(10);
     expect(updates()).toHaveLength(1);

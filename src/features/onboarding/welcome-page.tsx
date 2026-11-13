@@ -38,7 +38,7 @@ export function WelcomePage() {
     if (submitting) return;
 
     if (!isValid) {
-      setError('Escribe un nombre (hasta 200 caracteres).');
+      setError('Escribe tu nombre para seguir.');
       return;
     }
 
@@ -77,10 +77,8 @@ export function WelcomePage() {
   return (
     <Card>
       <CardHeader className="space-y-1.5 text-center">
-        <CardTitle className="text-2xl">¡Bienvenido a Elan!</CardTitle>
-        <CardDescription>
-          ¿Cómo se llama tu empresa o cómo te llamas tú? Por ejemplo "Juan Pérez" o "Transportes Pérez SRL".
-        </CardDescription>
+        <CardTitle className="text-2xl">Te damos la bienvenida a Elan</CardTitle>
+        <CardDescription>Escribe tu nombre o el de tu empresa. Lo verás arriba, en el saludo.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">

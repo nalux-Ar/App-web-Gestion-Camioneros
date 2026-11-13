@@ -26,8 +26,8 @@ const FILA = 'flex min-h-16 items-center gap-3 rounded-lg border border-border b
 const FOCO = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
 /**
- * Pantalla de Camiones (`/camiones`): los activos y, plegados, los archivados. Se llega desde la tarjeta "Camiones" de
- * Configuración (y desde "Carga tu camión" en Inicio mientras no haya ninguno): no está en la barra de abajo.
+ * Pantalla de Camiones (`/camiones`): los activos y, plegados, los que ya no se usan (archivados). Se llega desde la tarjeta
+ * "Camiones" de Configuración (y desde "Agrega tu camión" en Inicio mientras no haya ninguno): no está en la barra de abajo.
  *
  * Solo el administrador escribe camiones: a él se le ofrecen "Nuevo camión" (en el encabezado desde `md`, fijo abajo en el
  * celular) y cada fila abre la edición. Un chofer ve la lista (la necesita para saber qué camiones hay), sin acciones.
@@ -86,11 +86,11 @@ export function CamionesPage() {
         {errorLista}
         <EmptyState
           icon={Truck}
-          title="Todavía no hay camiones cargados"
+          title="Todavía no hay camiones agregados"
           description={
             esAdmin
-              ? 'Carga tu camión para que cada carga de combustible quede asociada a él y se pueda calcular el rendimiento.'
-              : 'El administrador de la cuenta todavía no cargó camiones.'
+              ? 'Agrega tu camión para que cada carga de combustible quede asociada a él y se pueda calcular el rendimiento.'
+              : 'El administrador de la cuenta todavía no agregó camiones.'
           }
           action={nuevoCamion ?? undefined}
           actionDesktopOnly
@@ -129,7 +129,7 @@ export function CamionesPage() {
               className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-md text-lg font-semibold marker:content-none ${FOCO}`}
             >
               <ChevronRight className="size-5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
-              Archivados ({archivados.length})
+              Camiones que ya no uso ({archivados.length})
             </summary>
             <ul className="space-y-2 pt-3">
               {archivados.map((camion) => (
@@ -187,7 +187,7 @@ function FilaCamion({ camion, esAdmin, esCamionActivo = false }: { camion: Camio
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold tabular-nums">
           <span>
             {formatearPatente(camion.patente)}
-            {camion.activa ? null : <span className="font-normal text-muted-foreground"> (archivado)</span>}
+            {camion.activa ? null : <span className="font-normal text-muted-foreground"> (ya no se usa)</span>}
           </span>
           {esCamionActivo ? (
             <span className="rounded-full border border-primary/50 bg-primary/10 px-2 py-0.5 text-base font-medium text-foreground">

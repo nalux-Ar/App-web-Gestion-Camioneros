@@ -351,10 +351,10 @@ describe('TourAyuda: objetivos', () => {
   });
 });
 
-describe('HojaAyuda (la de la "i")', () => {
+describe('HojaAyuda (la del botón «Ayuda»)', () => {
   async function abrir(onCerrar: () => void = () => {}, puntos: readonly string[] = ['Uno.', 'Dos.']) {
-    app.innerHTML = '<button id="i">i</button><div id="montaje"></div>';
-    (document.getElementById('i') as HTMLButtonElement).focus();
+    app.innerHTML = '<button id="ayuda">Ayuda</button><div id="montaje"></div>';
+    (document.getElementById('ayuda') as HTMLButtonElement).focus();
     root = createRoot(document.getElementById('montaje')!);
     await act(async () => {
       root.render(<HojaAyuda titulo="Ayuda de Gastos" puntos={puntos} onCerrar={onCerrar} />);
@@ -362,31 +362,44 @@ describe('HojaAyuda (la de la "i")', () => {
     await asentar();
   }
 
-  it('el mismo diálogo: título, puntos, "Cerrar", foco al título, app inerte', async () => {
+  it('el mismo diálogo: título, puntos, «Entendido», foco al título, app inerte', async () => {
     await abrir();
     const d = dialogo()!;
     expect(d.getAttribute('aria-modal')).toBe('true');
     expect(titulo()).toBe('Ayuda de Gastos');
     expect([...d.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Uno.', 'Dos.']);
-    expect(boton('Cerrar')!.className).toContain('h-12');
+    expect(boton('Entendido')!.className).toContain('h-12');
     expect(document.activeElement).toBe(d.querySelector('h2'));
     expect(app.hasAttribute('inert')).toBe(true);
     expect(app.contains(d)).toBe(false);
   });
 
-  it('se cierra con "Cerrar", con Esc y tocando el velo', async () => {
+  it('el cierre es «Entendido»: el único botón, a todo el ancho, abajo de los puntos; ya no hay un «Cerrar» en la esquina', async () => {
+    await abrir();
+    const d = dialogo()!;
+    expect(boton('Cerrar')).toBeUndefined();
+    const botones = [...d.querySelectorAll('button')];
+    expect(botones).toHaveLength(1);
+    expect(botones[0]!.textContent).toBe('Entendido');
+    expect(botones[0]!.className.split(/\s+/)).toContain('w-full');
+    expect(d.querySelector('ul')!.compareDocumentPosition(botones[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // El encabezado (el título) no lleva ningún botón al lado.
+    expect(d.querySelector('h2')!.parentElement!.parentElement!.querySelector('button')).toBeNull();
+  });
+
+  it('se cierra con «Entendido», con Esc y tocando el velo', async () => {
     const cerrar = vi.fn();
     await abrir(cerrar);
-    await tocar(boton('Cerrar'));
+    await tocar(boton('Entendido'));
     await tecla('Escape');
     await tocar(velo());
     expect(cerrar).toHaveBeenCalledTimes(3);
   });
 
-  it('al cerrar, el foco vuelve a la "i" y la app deja de estar inerte', async () => {
+  it('al cerrar, el foco vuelve al botón «Ayuda» y la app deja de estar inerte', async () => {
     await abrir();
     await act(async () => root.unmount());
-    expect(document.activeElement).toBe(document.getElementById('i'));
+    expect(document.activeElement).toBe(document.getElementById('ayuda'));
     expect(app.hasAttribute('inert')).toBe(false);
   });
 
@@ -407,8 +420,8 @@ describe('HojaAyuda (la de la "i")', () => {
 
   it('Tab atrapado también acá (un solo botón: se queda en él)', async () => {
     await abrir();
-    boton('Cerrar')!.focus();
+    boton('Entendido')!.focus();
     await tecla('Tab');
-    expect(document.activeElement).toBe(boton('Cerrar'));
+    expect(document.activeElement).toBe(boton('Entendido'));
   });
 });

@@ -8,8 +8,8 @@ import { RUTA_NUEVO_CAMION } from './camion-navegacion';
 import { useCamiones } from './use-camiones';
 
 /**
- * Tarjeta "Carga tu camión" de Inicio: aparece SOLO mientras la cuenta no tiene ningún camión (contando archivados) y solo
- * para el administrador (es el único que puede cargarlo). Así el camión se carga antes de llegar a una carga de
+ * Tarjeta "Agrega tu camión" de Inicio: aparece SOLO mientras la cuenta no tiene ningún camión (contando archivados) y solo
+ * para el administrador (es el único que puede agregarlo). Así el camión se agrega antes de llegar a una carga de
  * combustible con litros, que lo exige. Mientras la lista carga, o si falla, no se muestra nada.
  */
 export function CargarCamionCard() {
@@ -22,15 +22,15 @@ export function CargarCamionCard() {
   return (
     <Card data-ayuda="camion" className="border-primary/50">
       <CardHeader>
-        <CardTitle>Carga tu camión</CardTitle>
+        <CardTitle>Agrega tu camión</CardTitle>
         <CardDescription>
-          Con tu camión cargado, cada carga de combustible queda asociada a él y se puede calcular el rendimiento.
+          Con tu camión agregado, cada carga de combustible queda asociada a él y se puede calcular el rendimiento.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Button asChild size="lg" className="w-full sm:w-auto">
           <Link to={RUTA_NUEVO_CAMION}>
-            <Truck aria-hidden="true" /> Cargar camión
+            <Truck aria-hidden="true" /> Agregar camión
           </Link>
         </Button>
       </CardContent>

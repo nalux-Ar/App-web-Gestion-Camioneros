@@ -305,7 +305,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
   const today = todayLocal();
   const observacionesLength = charLength(values.observaciones, MAX_OBSERVACIONES);
 
-  // El aviso de "falta cargar la lista de clientes" deja de valer apenas la lista carga.
+  // El aviso de "todavía no se pudo traer la lista de clientes" deja de valer apenas la lista carga.
   const entregasGeneral =
     errors.entregasGeneral === CLIENTES_SIN_CARGAR_MESSAGE && clientes !== null ? undefined : errors.entregasGeneral;
 
@@ -367,7 +367,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
             hint={
               values.kmModo === 'recorridos'
                 ? 'Los km que hiciste en el viaje, en total.'
-                : 'El odómetro al salir y al llegar. Si el viaje sigue en curso, carga solo el inicial.'
+                : 'Los km del tablero al salir y al llegar. Si el viaje sigue en curso, anota solo el de salida.'
             }
           />
           {values.kmModo === 'inicial-final' ? (
@@ -412,7 +412,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
 
         <NumberField
           id={CAMPO_DOM_IDS.ingreso}
-          label="Ingreso"
+          label="Lo que cobraste"
           kind="dinero"
           allowZero
           optional

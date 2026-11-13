@@ -2,7 +2,7 @@ import { WifiOff } from 'lucide-react';
 
 import { useOnlineStatus } from '@/lib/use-online-status';
 
-/** Aviso liviano de "no hay conexión" para formularios. No bloquea el
+/** Aviso liviano de "sin señal" para formularios. No bloquea el
  *  envío (podría reconectarse justo al tocar el botón): solo avisa. */
 export function OfflineBanner() {
   const online = useOnlineStatus();
@@ -14,7 +14,7 @@ export function OfflineBanner() {
       className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-base text-muted-foreground"
     >
       <WifiOff className="size-4 shrink-0" aria-hidden="true" />
-      <span>No hay conexión. Revisa la señal antes de enviar el formulario.</span>
+      <span>Sin señal. Revisa la conexión antes de guardar.</span>
     </div>
   );
 }

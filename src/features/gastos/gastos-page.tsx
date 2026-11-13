@@ -146,7 +146,7 @@ export function GastosPage() {
           description={
             filtro.categoriaId
               ? `No hay gastos de ${categoriaFiltrada ? nombreParaMostrar(categoriaFiltrada) : 'esa categoría'} en ${mesLabel}.`
-              : 'Carga el primero para empezar a llevar el control.'
+              : 'Anota el primero para empezar a llevar el control.'
           }
           action={nuevoGasto}
           actionDesktopOnly

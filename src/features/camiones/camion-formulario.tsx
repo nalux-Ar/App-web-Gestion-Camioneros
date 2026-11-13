@@ -25,7 +25,7 @@ import {
 import { RUTA_CAMIONES, estadoAvisoCamiones, rutaEditarCamion } from './camion-navegacion';
 import { CamionNoEncontrado } from './camion-no-encontrado';
 import { ArchivarCamion } from './archivar-camion';
-import { GUARDAR_CAMION_CONTEXT, MIN_ANIO } from './constants';
+import { GUARDAR_CAMION_CONTEXT, MIN_ANIO, REACTIVAR_CAMION_REPETIDO_CONTEXT } from './constants';
 import { PATENTE_FORMATO_AVISO, formatearPatente } from './patente';
 import { PrimerCamionAviso } from './primer-camion-aviso';
 import { useActualizarCamion, useCambiarActivaCamion, useCrearCamion } from './use-camion-mutations';
@@ -97,7 +97,7 @@ export function CamionFormulario({ camion, camiones }: CamionFormularioProps) {
   const actualizar = useActualizarCamion();
   const cambiarActiva = useCambiarActivaCamion();
   const { run, pending, release, error, retryable, clearError } = useSubmitFeedback({ context: GUARDAR_CAMION_CONTEXT });
-  const reactivar = useSubmitFeedback({ context: GUARDAR_CAMION_CONTEXT });
+  const reactivar = useSubmitFeedback({ context: REACTIVAR_CAMION_REPETIDO_CONTEXT });
 
   useEffect(() => {
     if (!focusRequest) return;
@@ -202,7 +202,7 @@ export function CamionFormulario({ camion, camiones }: CamionFormularioProps) {
                 <AlertDescription className="font-medium">
                   {repetida.activa
                     ? `Ya tienes un camión con esa patente (${formatearPatente(repetida.patente)}).`
-                    : `Ya tienes un camión con esa patente (${formatearPatente(repetida.patente)}), pero está archivado.`}
+                    : `Ya tienes un camión con esa patente (${formatearPatente(repetida.patente)}), pero ya no lo usas.`}
                 </AlertDescription>
                 {reactivar.error ? <AlertDescription className="text-destructive-text">{reactivar.error}</AlertDescription> : null}
                 {repetida.activa ? (

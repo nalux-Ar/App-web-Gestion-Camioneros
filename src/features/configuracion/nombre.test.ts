@@ -119,7 +119,7 @@ describe('NombreNoEditableError + mensajes de error', () => {
       NOMBRE_NO_EDITABLE_MESSAGE,
     );
     expect(mapDataError({ message: 'TypeError: Failed to fetch', code: '' }, GUARDAR_NOMBRE_CONTEXT)).toBe(
-      'No hay conexión. Revisa la señal y prueba de nuevo.',
+      'No hay señal. Revisa la conexión y prueba de nuevo.',
     );
   });
 });

@@ -5,9 +5,10 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Cobertura de la "i": se monta CADA pantalla de la app (las rutas de `router.tsx`, menos "Reportar un problema") con el
-// código real y un supabase vacío, y se exige una "i" que abra la ayuda de ESA pantalla. Si se agrega una ruta y no se anota
-// acá, falla. Las pantallas se ven en su primer estado (cargando o vacía): la "i" tiene que estar desde el primer render.
+// Cobertura del botón «Ayuda»: se monta CADA pantalla de la app (las rutas de `router.tsx`, menos "Reportar un problema") con
+// el código real y un supabase vacío, y se exige un botón «Ayuda» que abra la ayuda de ESA pantalla. Si se agrega una ruta y
+// no se anota acá, falla. Las pantallas se ven en su primer estado (cargando o vacía): el botón tiene que estar desde el
+// primer render.
 const h = vi.hoisted(() => {
   function from() {
     let uno = false;
@@ -173,7 +174,7 @@ async function esperarDialogo() {
   for (let t = 0; t < 3000 && !dialogo(); t += 20) await act(async () => void (await new Promise((r) => setTimeout(r, 20))));
 }
 
-describe('cobertura: toda pantalla de la app (menos Reportar) tiene su "i"', () => {
+describe('cobertura: toda pantalla de la app (menos Reportar) tiene su botón «Ayuda»', () => {
   it('las pantallas de esta prueba son TODAS las rutas de router.tsx (menos Reportar y la redirección)', () => {
     const delRouter = rutasDeLaApp().filter((r) => !SIN_AYUDA.includes(r) && !REDIRECCIONES.includes(r));
     expect(delRouter.length).toBeGreaterThan(15);
@@ -187,12 +188,14 @@ describe('cobertura: toda pantalla de la app (menos Reportar) tiene su "i"', () 
     expect(new Set(PANTALLAS.map((p) => p.ayuda)).size).toBe(14);
   });
 
-  it.each(PANTALLAS.map((p) => [p.ruta || '(Inicio)', p] as const))('%s: una sola "i", que abre la ayuda de ESA pantalla y devuelve el foco', async (_nombre, p) => {
+  it.each(PANTALLAS.map((p) => [p.ruta || '(Inicio)', p] as const))('%s: un solo botón «Ayuda», que abre la ayuda de ESA pantalla y devuelve el foco', async (_nombre, p) => {
     await montar(p.ruta, p.url, p.pagina);
     expect(botonesI()).toHaveLength(1);
     const i = botonesI()[0]!;
     expect(i.getAttribute('type')).toBe('button');
-    // La "i" está junto al título de la pantalla.
+    // Con el texto «Ayuda» a la vista (no un ícono suelto).
+    expect(i.textContent!.trim()).toBe('Ayuda');
+    // El botón está junto al título de la pantalla.
     expect(document.querySelector('h1')!.parentElement!.contains(i) || document.querySelector('h1')!.parentElement!.parentElement!.contains(i)).toBe(true);
 
     await act(async () => i.click());
@@ -203,12 +206,12 @@ describe('cobertura: toda pantalla de la app (menos Reportar) tiene su "i"', () 
     const recorrido = [...dialogo()!.querySelectorAll('button')].some((b) => b.textContent?.includes('Ver el recorrido otra vez'));
     expect(recorrido).toBe(p.ruta === '');
 
-    await act(async () => [...dialogo()!.querySelectorAll('button')].find((b) => b.textContent === 'Cerrar')!.click());
+    await act(async () => [...dialogo()!.querySelectorAll('button')].find((b) => b.textContent === 'Entendido')!.click());
     expect(dialogo()).toBeNull();
     expect(document.activeElement).toBe(i);
   });
 
-  it('Inicio: la "i" lleva data-ayuda="ayuda-inicio" (la señala el último paso del recorrido) y las demás no', async () => {
+  it('Inicio: el botón «Ayuda» lleva data-ayuda="ayuda-inicio" (lo señala el último paso del recorrido) y los demás no', async () => {
     await montar('', '/', <InicioPage />);
     expect(botonesI()[0]!.getAttribute('data-ayuda')).toBe('ayuda-inicio');
     for (const p of PANTALLAS.filter((x) => x.ruta !== '').slice(0, 3)) {
@@ -224,7 +227,7 @@ describe('cobertura: toda pantalla de la app (menos Reportar) tiene su "i"', () 
     expect([...app.querySelectorAll('button')].some((b) => b.textContent?.includes('Ver el recorrido otra vez'))).toBe(false);
   });
 
-  it('Reportar un problema NO tiene "i"', async () => {
+  it('Reportar un problema NO tiene botón «Ayuda»', async () => {
     await montar('reportar', '/reportar', <ReportarPage />);
     expect(document.querySelector('h1')).not.toBeNull();
     expect(botonesI()).toHaveLength(0);

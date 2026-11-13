@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { isRetryableDataError, mapDataError, type DataErrorContext } from '@/lib/data-errors';
+import { isRetryableDataError, mapDataError, NETWORK_SAVE_ERROR_MESSAGE, type DataErrorContext } from '@/lib/data-errors';
 
 /**
  * PATRÓN DE RESILIENCIA DE FORMULARIOS (leer antes de armar un formulario)
@@ -15,7 +15,7 @@ import { isRetryableDataError, mapDataError, type DataErrorContext } from '@/lib
  *     formulario: este hook nunca toca el estado de los campos.
  *  2. Al fallar, se muestra el error (ícono + texto, nunca solo color) con
  *     un botón "Reintentar" que reenvía los MISMOS valores. Sin red, el
- *     aviso "No hay conexión" sale antes de tocar nada (`OfflineBanner`).
+ *     aviso "Sin señal" sale antes de tocar nada (`OfflineBanner`).
  *  3. Mientras envía: botón deshabilitado con "Guardando…" y un guard contra
  *     el doble toque (un ref, no solo el `disabled`, porque dos toques
  *     seguidos pueden entrar antes de que React repinte el botón).
@@ -97,7 +97,12 @@ export function useSubmitFeedback({ context }: SubmitFeedbackOptions = {}) {
         stayLocked = keepLocked;
         return { ok: true, data };
       } catch (error) {
-        setFailure({ message: mapDataError(error, context), retryable: isRetryableDataError(error, context) });
+        // Sin señal AL GUARDAR UN FORMULARIO: «todavía NO se guardó, lo escrito sigue aquí, toca Reintentar». Una acción que no es
+        // eso (eliminar, cambiar el estado de un camión) pone sus propios textos de red y de timeout en el `context`.
+        setFailure({
+          message: mapDataError(error, { network: NETWORK_SAVE_ERROR_MESSAGE, ...context }),
+          retryable: isRetryableDataError(error, context),
+        });
         return { ok: false };
       } finally {
         if (!stayLocked) {

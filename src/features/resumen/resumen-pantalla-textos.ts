@@ -92,7 +92,7 @@ export function textoErrorComparacion(periodo: string): string {
 
 /** El mes no tiene gastos. */
 export function textoSinGastosDelMes(mes: YearMonth, enCurso: boolean): string {
-  return enCurso ? 'Todavía no cargaste gastos este mes' : `No cargaste gastos en ${formatMonthLabel(mes)}`;
+  return enCurso ? 'Todavía no anotaste gastos este mes' : `No anotaste gastos en ${formatMonthLabel(mes)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,8 +141,8 @@ export function textoYMasEnGastos(faltan: number): string {
 // Ingresos y resultado
 // ---------------------------------------------------------------------------
 
-export const TITULO_RESULTADO = 'Ingresos y resultado';
-export const ETIQUETA_INGRESOS = 'Ingresos de viajes';
+export const TITULO_RESULTADO = '¿Cuánto te quedó?';
+export const ETIQUETA_INGRESOS = 'Lo que cobraste';
 export const ETIQUETA_GASTOS_DEL_MES = 'Gastos del mes';
 /** Qué es el resultado (lo calcula la base: `resumen_mensual.resultado`). */
 export const TEXTO_COMO_SE_CALCULA_RESULTADO = 'El resultado es lo que cobraste por los viajes del mes menos todos los gastos del mes.';
@@ -153,9 +153,11 @@ export function textoCantidadViajes(cantidad: number): string {
   return cantidad === 1 ? '1 viaje' : `${formatEntero(cantidad)} viajes`;
 }
 
-/** Debajo de los ingresos: "3 viajes con ingreso" o, si no todos lo tienen, "2 de 3 viajes con ingreso". */
+/** Debajo de lo que cobraste: "3 viajes con cobro anotado" o, si no todos lo tienen, "2 de 3 viajes con cobro anotado". */
 export function textoViajesConIngreso(conIngreso: number, total: number): string {
-  return conIngreso === total ? `${textoCantidadViajes(total)} con ingreso` : `${formatEntero(conIngreso)} de ${textoCantidadViajes(total)} con ingreso`;
+  return conIngreso === total
+    ? `${textoCantidadViajes(total)} con cobro anotado`
+    : `${formatEntero(conIngreso)} de ${textoCantidadViajes(total)} con cobro anotado`;
 }
 
 /** El nombre del resultado: una pérdida se dice con la palabra, no solo con el signo o el color. */
@@ -177,14 +179,14 @@ export function formatResultado(resultado: number): string {
 /** Sin resultado (ningún viaje del período tiene ingreso): qué falta para tenerlo. `periodo`: el Mes o el Año. */
 export function textoSinResultado(viajes: number, periodo: 'mes' | 'año' = 'mes'): string {
   const falta = `para ver si el ${periodo} dio ganancia o pérdida.`;
-  if (viajes === 0) return `No hay viajes en el ${periodo}. Carga tus viajes con su ingreso ${falta}`;
-  if (viajes === 1) return `Tu viaje del ${periodo} no tiene el ingreso cargado. Cárgalo ${falta}`;
-  return `Ninguno de tus ${formatEntero(viajes)} viajes del ${periodo} tiene el ingreso cargado. Cárgalo ${falta}`;
+  if (viajes === 0) return `No hay viajes en el ${periodo}. Anota tus viajes con lo que cobraste ${falta}`;
+  if (viajes === 1) return `Tu viaje del ${periodo} no tiene anotado lo que cobraste. Anótalo ${falta}`;
+  return `Ninguno de tus ${formatEntero(viajes)} viajes del ${periodo} tiene anotado lo que cobraste. Anótalo ${falta}`;
 }
 
-/** Hay resultado, pero algunos viajes no tienen ingreso: puede faltar plata. */
+/** Hay resultado, pero algunos viajes no tienen lo que cobraste anotado: puede faltar plata. */
 export function textoViajesSinIngreso(cantidad: number): string {
-  return `${textoCantidadViajes(cantidad)} sin ingreso cargado: el resultado puede estar incompleto.`;
+  return `${textoCantidadViajes(cantidad)} sin cobro anotado: el resultado puede estar incompleto.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,11 +199,11 @@ export const ETIQUETAS_COMBUSTIBLE = {
   litros: 'Litros',
   gasto: 'Gasto',
   precio: 'Precio promedio',
-  rendimiento: 'Rendimiento',
-  consumo: 'Consumo',
-  costoPorKm: 'Costo por km',
+  rendimiento: 'Rinde',
+  consumo: 'Gasta',
+  costoPorKm: 'Cada km te cuesta',
 } as const;
-export const TEXTO_SIN_RENDIMIENTO = 'Todavía no hay rendimiento para este camión: carga el odómetro en cargas con tanque lleno';
+export const TEXTO_SIN_RENDIMIENTO = 'Todavía no podemos calcular cuánto rinde. Al cargar combustible, llena el tanque y anota los km del tablero.';
 
 /**
  * Un número con entre `min` y `max` decimales: los que tenga, redondeado a `max`, pero nunca menos de `min`
@@ -224,14 +226,14 @@ export function textoKm(km: number): string {
   return `${formatNumber(km, { decimales: 1, fijos: false })} km`;
 }
 
-/** Rendimiento: 1 a 2 decimales ("3,0 km/L", "2,85 km/L"). */
+/** Lo que rinde: 1 a 2 decimales ("3,0 km por litro", "2,85 km por litro"). */
 export function textoKmPorLitro(kmPorLitro: number): string {
-  return `${formatDecimales(kmPorLitro, 1, 2)} km/L`;
+  return `${formatDecimales(kmPorLitro, 1, 2)} km por litro`;
 }
 
-/** Consumo: 1 decimal ("33,3 L/100 km"). */
+/** Lo que gasta: 1 decimal ("33,3 litros cada 100 km"). */
 export function textoLitrosCada100(litros100km: number): string {
-  return `${formatNumber(litros100km, { decimales: 1 })} L/100 km`;
+  return `${formatNumber(litros100km, { decimales: 1 })} litros cada 100 km`;
 }
 
 /** "23,29 por litro". */
@@ -244,7 +246,7 @@ export function textoCantidadCargas(cantidad: number): string {
   return cantidad === 1 ? '1 carga' : `${formatEntero(cantidad)} cargas`;
 }
 
-/** "El odómetro bajó…" → "el odómetro bajó…" (va después de dos puntos), sin el punto final. */
+/** "Los km del tablero bajaron…" → "los km del tablero bajaron…" (va después de dos puntos), sin el punto final. */
 function motivoEnFrase(motivo: string): string {
   const sinPunto = motivo.replace(/\.$/, '');
   return sinPunto.charAt(0).toLowerCase() + sinPunto.slice(1);
@@ -254,8 +256,8 @@ function motivoEnFrase(motivo: string): string {
  * UNA línea con los tramos usados y los descartados, con el motivo de cada descarte (`MOTIVOS_DESCARTE`; si hay más de
  * un motivo, cuántos por cada uno). null si no hay ni tramos ni descartes.
  *   "2 tramos usados (900 km, 300,0 L), ninguno descartado."
- *   "1 tramo usado (450 km, 150,0 L), 1 descartado: el odómetro bajó respecto de la carga llena anterior."
- *   "Ningún tramo usado, 3 descartados: el odómetro bajó… (2); dio menos de 0,5… (1)."
+ *   "1 tramo usado (450 km, 150,0 L), 1 descartado: los km del tablero bajaron respecto de la carga llena anterior."
+ *   "Ningún tramo usado, 3 descartados: los km del tablero bajaron… (2); dio menos de 0,5… (1)."
  */
 export function textoTramos(
   tramos: { usados: number; km: number | null; litros: number | null },
@@ -289,9 +291,9 @@ export const TITULO_COMO_SE_CALCULA = '¿Cómo se calcula?';
 /** Cómo sale el rendimiento (lo calcula la base, `resumen_combustible`). */
 export const PASOS_COMO_SE_CALCULA: readonly string[] = [
   'Se mide de tanque lleno a tanque lleno: cada tramo va de una carga con tanque lleno a la siguiente.',
-  'Solo una carga con tanque lleno Y odómetro cierra un tramo. Las cargas parciales del medio suman sus litros a ese tramo.',
+  'Solo una carga con tanque lleno Y con los km del tablero cierra un tramo. Las cargas parciales del medio suman sus litros a ese tramo.',
   'Cada tramo cuenta en el mes en que se cierra.',
-  'Se descartan los tramos en que el odómetro bajó o no avanzó, y los que dan menos de 0,5 o más de 15 km por litro (casi siempre, un odómetro mal escrito).',
+  'Se descartan los tramos en que los km del tablero bajaron o no avanzaron, y los que dan menos de 0,5 o más de 15 km por litro (casi siempre, un error al escribir los km).',
   'El rendimiento del mes es ponderado: todos los km de los tramos divididos por todos sus litros (no un promedio de promedios).',
 ];
 
@@ -300,17 +302,17 @@ export const PASOS_COMO_SE_CALCULA: readonly string[] = [
 // ---------------------------------------------------------------------------
 
 export const TITULO_VIAJES = 'Viajes del mes';
-/** El viaje no tiene ingreso cargado: no hay ganancia que mostrar. */
-export const SIN_INGRESO = 'Sin ingreso';
+/** El viaje no tiene lo que cobraste anotado: no hay ganancia que mostrar. */
+export const SIN_INGRESO = 'Sin cobro anotado';
 
 /** El mes sin viajes. */
 export function textoSinViajes(mes: YearMonth, enCurso: boolean): string {
   return enCurso ? 'Todavía no hay viajes este mes' : `No hubo viajes en ${formatMonthLabel(mes)}`;
 }
 
-/** "Ingreso 15.000,00" (null si no tiene: ya lo dice "Sin ingreso"). */
+/** "Cobraste 15.000,00" (null si no tiene: ya lo dice "Sin cobro anotado"). */
 export function textoIngresoDelViaje(ingreso: number | null): string | null {
-  return ingreso === null ? null : `Ingreso ${formatMonto(ingreso)}`;
+  return ingreso === null ? null : `Cobraste ${formatMonto(ingreso)}`;
 }
 
 /** Los gastos vinculados al viaje: "Sin gastos" o "2 gastos: 3.000,00". */
@@ -343,7 +345,7 @@ export const SIN_GASTOS = 'Sin gastos';
 
 /** El año no tiene gastos. */
 export function textoSinGastosDelAnio(anio: number, enCurso: boolean): string {
-  return enCurso ? `Todavía no cargaste gastos en ${anio}` : `No cargaste gastos en ${anio}`;
+  return enCurso ? `Todavía no anotaste gastos en ${anio}` : `No anotaste gastos en ${anio}`;
 }
 
 /**
@@ -369,17 +371,17 @@ export const TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO = 'El resultado es lo que cobr
 export const ETIQUETA_VIAJES = 'Viajes';
 export const ETIQUETA_KM = 'Km recorridos';
 export const TITULO_RESULTADO_POR_MES = 'Resultado por mes';
-/** Un mes con viajes pero ninguno con ingreso: no tiene resultado. */
-export const SIN_INGRESOS_CARGADOS = 'Sin ingresos cargados';
+/** Un mes con viajes pero ninguno con lo que cobraste anotado: no tiene resultado. */
+export const SIN_INGRESOS_CARGADOS = 'Sin cobros anotados';
 /** Un mes sin ningún viaje (no faltan ingresos: no hubo viajes). */
 export const SIN_VIAJES = 'Sin viajes';
 /** En el Año no hay lista de viajes (la base la limita a 62 días). */
 export const TEXTO_VIAJES_EN_EL_ANIO = 'La lista de viajes se ve mes a mes: toca un mes o pasa a la vista Mes.';
 export const IR_A_LA_VISTA_MES = 'Ir a la vista Mes';
 
-/** Debajo de cada mes de "Resultado por mes": "Ingresos 1.500,00 · Gastos 1.000,00". */
+/** Debajo de cada mes de "Resultado por mes": "Cobraste 1.500,00 · Gastaste 1.000,00". */
 export function textoIngresosYGastos(ingresos: number, gastos: number): string {
-  return `Ingresos ${formatMonto(ingresos)} · Gastos ${formatMonto(gastos)}`;
+  return `Cobraste ${formatMonto(ingresos)} · Gastaste ${formatMonto(gastos)}`;
 }
 
 /** El año sin cargas de combustible. */

@@ -117,7 +117,7 @@ describe('eliminarViaje', () => {
     expect(isRetryableDataError(error, GUARDAR_VIAJE_CONTEXT)).toBe(false);
 
     const mensaje = mapDataError(error, ELIMINAR_VIAJE_CONTEXT);
-    expect(mensaje).toBe('Se vinculó un gasto a este viaje mientras lo borrabas. Vuelve a intentarlo.');
+    expect(mensaje).toBe('Mientras lo borrabas, se le agregó un gasto a este viaje. Vuelve a intentarlo.');
     expect(mensaje).not.toContain('gastos_viaje_fk'); // nunca el nombre del constraint
     expect(mensaje).not.toContain('Cambia o quita esos gastos'); // el mensaje viejo ya no existe
 
@@ -207,7 +207,7 @@ describe('borrar un viaje: desvincular los gastos y borrar, SIEMPRE en dos pasos
       (e: unknown) => e,
     );
     expect(classifyDataError(error)).toBe('foreign-key');
-    expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT)).toContain('Se vinculó un gasto');
+    expect(mapDataError(error, ELIMINAR_VIAJE_CONTEXT)).toContain('se le agregó un gasto');
     await expect(eliminarViajeDesvinculandoGastos(VIAJE_ID, null)).resolves.toBeUndefined();
     expect(secuencia()).toEqual([...BORRADO_COMPLETO, ...BORRADO_COMPLETO]);
   });
@@ -251,7 +251,7 @@ describe('borrar un viaje: lo que se desvincula es lo que se mostró, y un corte
       [{ gastos: 0, devoluciones: 0 }, { gastos: 0, devoluciones: 1 }, `Ahora el viaje tiene 1 devolución. ${REVISA}`],
       // cambian los dos
       [{ gastos: 3, devoluciones: 2 }, { gastos: 1, devoluciones: 1 }, `Ahora el viaje tiene 1 gasto y 1 devolución. ${REVISA}`],
-      [{ gastos: 3, devoluciones: 2 }, { gastos: 0, devoluciones: 0 }, `Ahora el viaje no tiene gastos ni devoluciones vinculados. ${REVISA}`],
+      [{ gastos: 3, devoluciones: 2 }, { gastos: 0, devoluciones: 0 }, `Ahora el viaje no tiene gastos ni devoluciones. ${REVISA}`],
       // lo que sube en uno y baja en el otro (la suma no cambia) también cuenta
       [{ gastos: 2, devoluciones: 3 }, { gastos: 3, devoluciones: 2 }, `Ahora el viaje tiene 3 gastos y 2 devoluciones. ${REVISA}`],
     ] as const) {
@@ -341,7 +341,7 @@ describe('borrar un viaje: lo que se desvincula es lo que se mostró, y un corte
     expect(error).toBeInstanceOf(UserMessageError);
     const mensaje = mapDataError(error, ELIMINAR_VIAJE_CONTEXT);
     expect(mensaje.startsWith('Los 3 gastos ya quedaron sin viaje, pero el viaje no se borró. ')).toBe(true);
-    expect(mensaje).toContain(mapDataError(RED().error)); // el motivo: "No hay conexión…"
+    expect(mensaje).toContain(mapDataError(RED().error)); // el motivo: "No hay señal…"
     expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT)).toBe(true);
     expect((error as Error).cause).toBeInstanceOf(DataRequestError); // el original queda adentro, sin mostrarse
   });
@@ -376,7 +376,7 @@ describe('borrar un viaje: lo que se desvincula es lo que se mostró, y un corte
       const error = await capturar(eliminarViajeDesvinculandoGastos(VIAJE_ID, null));
       const mensaje = mapDataError(error, ELIMINAR_VIAJE_CONTEXT);
       expect(mensaje, code).toContain('Los 2 gastos ya quedaron sin viaje');
-      expect(mensaje, code).toContain('Se vinculó un gasto a este viaje mientras lo borrabas.');
+      expect(mensaje, code).toContain('Mientras lo borrabas, se le agregó un gasto a este viaje.');
       expect(mensaje, code).not.toContain('gastos_viaje_fk');
       expect(isRetryableDataError(error, ELIMINAR_VIAJE_CONTEXT), code).toBe(true);
     }

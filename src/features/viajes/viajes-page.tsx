@@ -139,7 +139,7 @@ function ViajesDelMes({ filtro, nuevoViaje }: { filtro: ViajesFiltro; nuevoViaje
         <EmptyState
           icon={Truck}
           title={`Todavía no hay viajes en ${mesLabel}`}
-          description="Carga el primero para empezar a llevar el control."
+          description="Anota el primero para empezar a llevar el control."
           action={nuevoViaje}
           actionDesktopOnly
         />
@@ -163,7 +163,7 @@ function ViajesDelMes({ filtro, nuevoViaje }: { filtro: ViajesFiltro; nuevoViaje
             <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatNumber(totales.km, { decimales: 1, fijos: false })}</dd>
           </div>
           <div>
-            <dt className="text-base text-muted-foreground">Ingresos</dt>
+            <dt className="text-base text-muted-foreground">Lo que cobraste</dt>
             <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatNumber(totales.ingreso, { decimales: 2 })}</dd>
           </div>
         </dl>

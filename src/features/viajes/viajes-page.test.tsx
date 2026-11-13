@@ -199,6 +199,7 @@ describe('lista de viajes: resumen del mes', () => {
     expect(resumen.textContent).toContain('4 viajes');
     // Km: 500 (recorridos) + 250,5 (1250,5 - 1000); el que solo tiene el inicial no suma.
     expect(resumen.querySelector('dt')!.textContent).toBe('Km totales');
+    expect([...resumen.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual(['Km totales', 'Lo que cobraste']);
     expect(resumen.textContent).toContain(nums(750.5, 1, false));
     // Ingresos: 1000,1 + 0,2 + 0 = 1000,3 (en floats daría 1000.3000000000001 o similar).
     expect(resumen.textContent).toContain(nums(1000.3, 2));
@@ -236,12 +237,12 @@ describe('lista de viajes: cada ítem', () => {
     expect(v2!.textContent).toContain(`${nums(250.5, 1, false)} km`); // la resta: 1250,5 - 1000
 
     expect(v3!.textContent).toContain('Sin entregas');
-    expect(v3!.textContent).toContain('Km final sin cargar'); // viaje en curso: solo el inicial
+    expect(v3!.textContent).toContain('Falta el km de llegada.'); // viaje en curso: solo el inicial
     expect(v3!.textContent).not.toMatch(/\d km/);
 
     expect(v4!.textContent).toContain('Sin entregas');
     expect(v4!.textContent).not.toContain(' km');
-    expect(v4!.textContent).not.toContain('Km final sin cargar'); // sin km no se muestra nada
+    expect(v4!.textContent).not.toContain('Falta el km de llegada.'); // sin km no se muestra nada
     expect(v4!.textContent).toContain(nums(0, 2)); // el ingreso 0 se muestra; sin ingreso (v3) no
     expect(v3!.textContent).not.toContain(nums(0, 2));
   });
@@ -411,11 +412,11 @@ describe('lista de viajes: estados', () => {
       return intento === 1 ? sinRed() : ok(FILAS);
     };
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(items()).toHaveLength(0);
     await click(buttonByText('Reintentar'));
     expect(items()).toHaveLength(4);
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
   });
 });
 

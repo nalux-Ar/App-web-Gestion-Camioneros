@@ -116,7 +116,7 @@ export function unwrap<T>(result: PostgrestSingleResponse<T>): T {
  *    cambio de pantalla corta el pedido de verdad.
  *  - ESCRITURAS: `.abortSignal(writeTimeoutSignal())`. Sin timeout, con señal
  *    mala el botón "Guardando…" puede quedar colgado minutos. El aborto llega
- *    a `mapDataError` como `timeout` ("Tardó demasiado en responder…"), que
+ *    a `mapDataError` como `timeout` ("La señal está lenta y no sabemos si se guardó…"), que
  *    es reintentable.
  *
  *      await supabase.from('gastos').insert(insertPayload<'gastos'>(values))

@@ -27,15 +27,15 @@ export function descripcionCamion(camion: Pick<CamionDeLista, 'marca' | 'modelo'
 }
 
 /**
- * Cómo se nombra un camión en un selector o una fila: la patente con espacios ("AB 123 CD") y, si está archivado,
- * "(archivado)". Con `conDescripcion`, también la marca, el modelo y el año. Un camión que no está en la lista (no
+ * Cómo se nombra un camión en un selector o una fila: la patente con espacios ("AB 123 CD") y, si está archivado (ya no
+ * se usa), "(ya no se usa)". Con `conDescripcion`, también la marca, el modelo y el año. Un camión que no está en la lista (no
  * debería pasar) se nombra "Camión no disponible".
  */
 export function etiquetaCamion(camion: CamionDeLista | null | undefined, { conDescripcion = false } = {}): string {
   if (!camion || camion.patente === '') return 'Camión no disponible';
   const descripcion = conDescripcion ? descripcionCamion(camion) : null;
   const base = descripcion ? `${formatearPatente(camion.patente)} · ${descripcion}` : formatearPatente(camion.patente);
-  return camion.activa ? base : `${base} (archivado)`;
+  return camion.activa ? base : `${base} (ya no se usa)`;
 }
 
 /** Por patente (orden estable): la lista se muestra y se elige siempre en el mismo orden. */

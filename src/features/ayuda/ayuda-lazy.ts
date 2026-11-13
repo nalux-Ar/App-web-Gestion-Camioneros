@@ -6,7 +6,7 @@ function sinFalla<P extends object>(cargar: () => Promise<ComponentType<P>>) {
 }
 
 /**
- * Las entradas a la ayuda, con carga DIFERIDA: el motor del recorrido y la hoja de la "i" van en chunks aparte y solo se
+ * Las entradas a la ayuda, con carga DIFERIDA: el motor del recorrido y la hoja de la «Ayuda» van en chunks aparte y solo se
  * bajan cuando se van a mostrar (la carga inicial de la app no crece). Montarlos dentro de un `<Suspense>`.
  */
 export const TourAyudaDiferido = sinFalla(() => import('./tour-ayuda').then((m) => m.TourAyuda));

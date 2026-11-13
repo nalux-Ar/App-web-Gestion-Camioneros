@@ -306,7 +306,7 @@ describe('clases: capas, toques, tope de alto y movimiento', () => {
   });
 });
 
-describe('hoja de la "i"', () => {
+describe('hoja de la «Ayuda»', () => {
   it('cambia de lugar al redimensionar o girar (de centrada a hoja abajo)', async () => {
     app.innerHTML = '<div id="montaje"></div>';
     root = createRoot(document.getElementById('montaje')!);

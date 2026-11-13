@@ -11,7 +11,7 @@ interface EmailFieldProps {
   disabled?: boolean;
 }
 
-export function EmailField({ id, label = 'Email', value, onChange, disabled }: EmailFieldProps) {
+export function EmailField({ id, label = 'Correo electrónico', value, onChange, disabled }: EmailFieldProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
 

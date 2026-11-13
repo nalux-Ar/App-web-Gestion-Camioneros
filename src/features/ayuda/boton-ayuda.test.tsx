@@ -7,11 +7,12 @@ import { AYUDA_INICIO, AYUDA_VIAJES, type AyudaPantalla } from './ayuda-pantalla
 import { BotonAyuda } from './boton-ayuda';
 import { usePedidosDeRecorrido } from './pedido-recorrido';
 
-// La "i" de cada pantalla y el encabezado que la lleva. Las pruebas están pensadas para FALLAR si se rompe cada comportamiento
-// (sin type="button", sin aria-label, sin data-ayuda, sin devolver el foco, con la "i" donde no va...).
+// El botón «Ayuda» de cada pantalla y el encabezado que lo lleva. Las pruebas están pensadas para FALLAR si se rompe cada
+// comportamiento (sin type="button", sin aria-label, sin data-ayuda, sin devolver el foco, con el botón donde no va...).
 const AYUDA_PRUEBA: AyudaPantalla = { titulo: 'Ayuda de prueba', puntos: ['Primer punto.', 'Segundo punto.'] };
 const ETIQUETA = 'Ayuda de esta pantalla';
 const RECORRIDO = 'Ver el recorrido otra vez';
+const TEXTO_VISIBLE = 'Ayuda';
 
 let app: HTMLElement;
 let root: Root;
@@ -46,14 +47,14 @@ async function abrir() {
 }
 async function cerrarCon(como: 'boton' | 'esc' | 'velo') {
   await act(async () => {
-    if (como === 'boton') boton('Cerrar')!.click();
+    if (como === 'boton') boton('Entendido')!.click();
     else if (como === 'esc') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     else document.querySelector<HTMLElement>('[data-velo]')!.click();
   });
 }
 
 describe('BotonAyuda: el botón', () => {
-  it('tiene nombre accesible, type="button" y un objetivo táctil de 48 px', async () => {
+  it('tiene nombre accesible, type="button" y un objetivo táctil de 48 px de alto', async () => {
     await render(<BotonAyuda ayuda={AYUDA_PRUEBA} />);
     const i = botonI();
     expect(i).not.toBeNull();
@@ -61,8 +62,26 @@ describe('BotonAyuda: el botón', () => {
     expect(i!.getAttribute('aria-label')).toBe(ETIQUETA);
     expect(i!.getAttribute('aria-haspopup')).toBe('dialog');
     expect(i!.className).toMatch(/\bh-12\b/);
-    expect(i!.className).toMatch(/\bw-12\b/);
     expect(i!.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('se ve como un botón: el texto «Ayuda» a la vista, el ícono «?» y borde (ya no es un ícono suelto sin texto)', async () => {
+    await render(<BotonAyuda ayuda={AYUDA_PRUEBA} />);
+    const i = botonI()!;
+    const clases = i.className.split(/\s+/);
+    expect(i.textContent!.trim()).toBe(TEXTO_VISIBLE);
+    expect(i.querySelector('svg')).not.toBeNull();
+    expect(clases).toContain('border'); // la variante con borde
+    expect(clases).toContain('text-base'); // 16 px
+    expect(clases).toContain('whitespace-nowrap'); // la palabra nunca se parte en dos renglones
+    expect(clases).toContain('shrink-0'); // a 360 px se achica el título de al lado, nunca el botón
+  });
+
+  it('su nombre accesible EMPIEZA con el texto visible (WCAG 2.5.3: quien dicta «Ayuda» lo activa)', async () => {
+    await render(<BotonAyuda ayuda={AYUDA_PRUEBA} />);
+    const nombre = botonI()!.getAttribute('aria-label')!.toLowerCase();
+    expect(nombre).toContain(TEXTO_VISIBLE.toLowerCase());
+    expect(nombre.startsWith(TEXTO_VISIBLE.toLowerCase())).toBe(true);
   });
 
   it('no envía el formulario donde esté (type="button")', async () => {
@@ -107,7 +126,7 @@ describe('BotonAyuda: la hoja', () => {
     expect(boton(RECORRIDO)).toBeUndefined();
   });
 
-  it.each(['boton', 'esc', 'velo'] as const)('al cerrar con %s: se va la hoja, la app deja de estar inerte y el foco vuelve a la "i"', async (como) => {
+  it.each(['boton', 'esc', 'velo'] as const)('al cerrar con %s: se va la hoja, la app deja de estar inerte y el foco vuelve al botón «Ayuda»', async (como) => {
     await render(<BotonAyuda ayuda={AYUDA_PRUEBA} />);
     // `click()` no enfoca en jsdom (como Safari al tocar): el foco igual tiene que volver.
     await abrir();
@@ -117,6 +136,18 @@ describe('BotonAyuda: la hoja', () => {
     expect(document.querySelector('[data-velo]')).toBeNull();
     expect(app.hasAttribute('inert')).toBe(false);
     expect(document.activeElement).toBe(botonI());
+  });
+
+  it('la hoja se cierra con «Entendido»: un botón de todo el ancho, el último de la hoja, y ya no hay un «Cerrar» arriba', async () => {
+    await render(<BotonAyuda ayuda={AYUDA_INICIO} conRecorrido />);
+    await abrir();
+    expect(boton('Cerrar')).toBeUndefined();
+    const botones = [...dialogo()!.querySelectorAll('button')];
+    expect(botones.map((b) => b.textContent!.trim())).toEqual([RECORRIDO, 'Entendido']);
+    const entendido = boton('Entendido')!;
+    expect(entendido.getAttribute('type')).toBe('button');
+    expect(entendido.className.split(/\s+/)).toContain('w-full');
+    expect(entendido.className).toMatch(/\bh-12\b/);
   });
 
   it('se puede abrir de nuevo después de cerrar', async () => {
@@ -157,7 +188,7 @@ describe('BotonAyuda en Inicio: "Ver el recorrido otra vez" dentro de la hoja', 
     expect(lista.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('al tocarlo cierra la hoja y pide el recorrido UNA vez, ya con la app libre y el foco en la "i"', async () => {
+  it('al tocarlo cierra la hoja y pide el recorrido UNA vez, ya con la app libre y el foco en el botón «Ayuda»', async () => {
     await render(
       <>
         <Espia />
@@ -178,7 +209,7 @@ describe('BotonAyuda en Inicio: "Ver el recorrido otra vez" dentro de la hoja', 
     expect(document.querySelector('[data-velo]')).toBeNull();
   });
 
-  it.each(['boton', 'esc'] as const)('después de pedir el recorrido, volver a abrir la "i" y cerrarla con %s NO lo pide otra vez', async (como) => {
+  it.each(['boton', 'esc'] as const)('después de pedir el recorrido, volver a abrir la «Ayuda» y cerrarla con %s NO lo pide otra vez', async (como) => {
     await render(
       <>
         <Espia />
@@ -214,7 +245,7 @@ describe('BotonAyuda en Inicio: "Ver el recorrido otra vez" dentro de la hoja', 
 });
 
 describe('PageHeader con y sin ayuda', () => {
-  it('sin `ayuda` no hay "i" y el encabezado queda como estaba (el h1 directo, sin envoltorio)', async () => {
+  it('sin `ayuda` no hay botón «Ayuda» y el encabezado queda como estaba (el h1 directo, sin envoltorio)', async () => {
     await render(<PageHeader title="Gastos" description="Descripción" />);
     expect(botonI()).toBeNull();
     const h1 = document.querySelector('h1')!;
@@ -222,7 +253,7 @@ describe('PageHeader con y sin ayuda', () => {
     expect(h1.parentElement!.className).toBe('min-w-0 space-y-1');
   });
 
-  it('con `ayuda` pinta la "i" junto al título, FUERA del h1 (el nombre accesible del h1 no cambia)', async () => {
+  it('con `ayuda` pinta el botón «Ayuda» junto al título, FUERA del h1 (el nombre accesible del h1 no cambia)', async () => {
     await render(<PageHeader title="Viajes" ayuda={AYUDA_VIAJES} />);
     const h1 = document.querySelector('h1')!;
     expect(h1.textContent).toBe('Viajes');
@@ -230,7 +261,7 @@ describe('PageHeader con y sin ayuda', () => {
     expect(h1.parentElement!.contains(botonI())).toBe(true);
   });
 
-  it('con `ayuda`, la "i" abre la hoja de ESA pantalla y devuelve el foco', async () => {
+  it('con `ayuda`, el botón «Ayuda» abre la hoja de ESA pantalla y devuelve el foco', async () => {
     await render(<PageHeader title="Viajes" ayuda={AYUDA_VIAJES} />);
     await abrir();
     expect(dialogo()!.querySelector('h2')!.textContent).toBe(AYUDA_VIAJES.titulo);
@@ -239,7 +270,7 @@ describe('PageHeader con y sin ayuda', () => {
     expect(document.activeElement).toBe(botonI());
   });
 
-  it('un título larguísimo y sin espacios puede partirse y encogerse (no empuja la "i" ni el layout)', async () => {
+  it('un título larguísimo y sin espacios puede partirse y encogerse (no empuja el botón «Ayuda» ni el layout)', async () => {
     const largo = 'Origen-larguísimo-sin-espacios-'.repeat(8);
     await render(<PageHeader title={largo} ayuda={AYUDA_VIAJES} action={<button type="button">Nuevo</button>} />);
     const h1 = document.querySelector('h1')!;

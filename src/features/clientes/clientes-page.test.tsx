@@ -299,7 +299,7 @@ describe('lista de Clientes: estados', () => {
     route.clientes = () => ok([]);
     await mount();
     expect(bodyText()).toContain('Todavía no tienes clientes');
-    expect(bodyText()).toContain('al cargar una entrega en un viaje');
+    expect(bodyText()).toContain('al anotar una entrega en un viaje');
     expect(buscador()).toBeNull();
     expect(filas()).toHaveLength(0);
   });
@@ -314,7 +314,7 @@ describe('lista de Clientes: estados', () => {
   it('si la lista no carga: error con "Reintentar" (nada de lista vacía engañosa), y al reintentar aparece', async () => {
     route.clientes = () => sinRed();
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(bodyText()).not.toContain('Todavía no tienes clientes');
     route.clientes = () => ok(CLIENTES);
     await click(buttonByText('Reintentar'));

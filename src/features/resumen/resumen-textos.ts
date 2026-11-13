@@ -31,22 +31,22 @@ export function etiquetaMetodoPago(metodo: MetodoPago | null): string {
 }
 
 /**
- * El camión de una fila del Resumen: "Sin camión" (sin id), la patente con espacios ("AB 123 CD") y, si está archivado,
- * "(archivado)". La patente viene de la propia función de la base (es el valor del momento de la consulta).
+ * El camión de una fila del Resumen: "Sin camión" (sin id), la patente con espacios ("AB 123 CD") y, si está archivado (ya
+ * no se usa), "(ya no se usa)". La patente viene de la propia función de la base (es el valor del momento de la consulta).
  */
 export function etiquetaCamionResumen(camion: { camionId: string | null; patente: string | null; activa: boolean | null }): string {
   if (camion.camionId === null) return SIN_CAMION;
   const patente = camion.patente ? formatearPatente(camion.patente) : 'Camión no disponible';
-  return camion.activa === false ? `${patente} (archivado)` : patente;
+  return camion.activa === false ? `${patente} (ya no se usa)` : patente;
 }
 
 /** Los motivos por los que un tramo de rendimiento no se usa (columnas `descartados_*` de `resumen_combustible`). */
 export type MotivoDescarte = 'retroceso' | 'sinAvance' | 'fueraDeRango';
 
 export const MOTIVOS_DESCARTE: Record<MotivoDescarte, string> = {
-  retroceso: 'El odómetro bajó respecto de la carga llena anterior.',
-  sinAvance: 'El odómetro no avanzó desde la carga llena anterior.',
-  fueraDeRango: 'Dio menos de 0,5 o más de 15 km por litro: casi siempre es un odómetro mal escrito.',
+  retroceso: 'Los km del tablero bajaron respecto de la carga llena anterior.',
+  sinAvance: 'Los km del tablero no avanzaron desde la carga llena anterior.',
+  fueraDeRango: 'Dio menos de 0,5 o más de 15 km por litro: casi siempre es un error al escribir los km del tablero.',
 };
 
 /** Aviso cuando la lista de viajes del período se cortó (la base devuelve como máximo 500). null si no se cortó. */

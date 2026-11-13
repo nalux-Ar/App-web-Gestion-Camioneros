@@ -90,7 +90,7 @@ export const GUARDAR_GASTO_CONTEXT: DataErrorContext = {
 
 /** Ídem al ELIMINAR. */
 export const ELIMINAR_GASTO_CONTEXT: DataErrorContext = {
-  foreignKey: 'No se puede eliminar este gasto porque está vinculado a otros datos.',
+  foreignKey: 'No se pudo eliminar. Prueba de nuevo.',
 };
 
 /** Avisos breves que la lista muestra al volver de guardar o eliminar (viajan en `location.state`). */

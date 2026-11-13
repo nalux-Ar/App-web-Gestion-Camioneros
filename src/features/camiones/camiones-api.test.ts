@@ -149,7 +149,7 @@ describe('crearCamion (RPC crear_camion)', () => {
   it('42501 (no es administrador): mensaje propio, sin reintento', async () => {
     h.state.responder = () => fail('42501', 'Solo el administrador puede crear camiones', 403);
     const error = await crearCamion({ patente: 'AB123CD', marca: null, modelo: null, anio: null }).then(() => null, (e: unknown) => e);
-    expect(mapDataError(error, GUARDAR_CAMION_CONTEXT)).toBe('Solo el administrador de la cuenta puede cargar o cambiar camiones.');
+    expect(mapDataError(error, GUARDAR_CAMION_CONTEXT)).toBe('Solo el administrador de la cuenta puede agregar o cambiar camiones.');
     expect(isRetryableDataError(error, GUARDAR_CAMION_CONTEXT)).toBe(false);
   });
 });

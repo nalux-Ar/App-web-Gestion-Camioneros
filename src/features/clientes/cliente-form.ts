@@ -92,8 +92,8 @@ export function fingerprintOf(datos: ClienteDatos): string {
 // ---------------------------------------------------------------------------
 
 export const TELEFONO_LARGO_MESSAGE = `El teléfono puede tener hasta ${MAX_TELEFONO} caracteres.`;
-export const EMAIL_LARGO_MESSAGE = `El email puede tener hasta ${MAX_EMAIL} caracteres.`;
-export const EMAIL_INVALIDO_MESSAGE = 'Escribe un email válido, como nombre@empresa.test.';
+export const EMAIL_LARGO_MESSAGE = `El correo puede tener hasta ${MAX_EMAIL} caracteres.`;
+export const EMAIL_INVALIDO_MESSAGE = 'Escribe un correo válido, como nombre@empresa.test.';
 export const DIRECCION_LARGA_MESSAGE = `La dirección puede tener hasta ${MAX_DIRECCION} caracteres.`;
 
 /**

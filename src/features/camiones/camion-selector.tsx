@@ -113,7 +113,7 @@ export function CamionSelector({ id, decision, value, onChange, error, carga, es
             <NuevoCamionInline idPrefix={`${id}-nuevo`} esElPrimero={esElPrimero} onListo={onCamionListo} />
           ) : (
             <p className="text-base text-muted-foreground">
-              Para guardar los litros hace falta un camión, y solo el administrador de la cuenta puede cargarlo.
+              Para guardar los litros hace falta un camión, y solo el administrador de la cuenta puede agregarlo.
             </p>
           )}
           <ErrorDelCamion id={id} error={error} />

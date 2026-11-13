@@ -67,14 +67,14 @@ export function LoginPage() {
     <Card>
       <CardHeader className="space-y-1.5 text-center">
         <CardTitle className="text-2xl">Ingresar</CardTitle>
-        <CardDescription>Ingresa con tu email y tu contraseña.</CardDescription>
+        <CardDescription>Ingresa con tu correo y tu contraseña.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">
           <OfflineBanner />
           <FormError message={error} />
           <EmailField value={email} onChange={setEmail} disabled={submitting} />
-          <div className="space-y-1.5">
+          <div className="space-y-4">
             <PasswordInput
               label="Contraseña"
               value={password}
@@ -82,10 +82,12 @@ export function LoginPage() {
               autoComplete="current-password"
               disabled={submitting}
             />
-            <div className="text-right">
-              <Link to="/recuperar-contrasena" className="text-base text-primary underline-offset-4 hover:underline">
-                ¿Olvidaste tu contraseña?
-              </Link>
+            {/* Un botón de 48 px, con el texto a 16 px y 16 px de aire sobre el campo (antes era un enlace de ≈20 px de alto,
+                pegado al campo). Sigue siendo un enlace (navega), con la forma de un botón. */}
+            <div className="flex justify-end">
+              <Button asChild variant="outline">
+                <Link to="/recuperar-contrasena">Olvidé mi contraseña</Link>
+              </Button>
             </div>
           </div>
           <TurnstileWidget

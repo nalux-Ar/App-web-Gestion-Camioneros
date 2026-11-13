@@ -185,7 +185,7 @@ describe('verificarPuedeArchivar (regla del front: el único activo no se archiv
       expect(mapDataError(error)).toBe(UNICO_ACTIVO_MESSAGE);
       expect(isRetryableDataError(error)).toBe(false);
     }
-    expect(UNICO_ACTIVO_MESSAGE).toBe('Es tu único camión activo: primero carga el camión que lo reemplaza.');
+    expect(UNICO_ACTIVO_MESSAGE).toBe('Es tu único camión activo. Para dejar de usarlo, primero agrega otro camión.');
   });
 
   it('si el conteo falla, el error se propaga (no se archiva a ciegas)', async () => {

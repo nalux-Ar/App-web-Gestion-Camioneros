@@ -113,7 +113,7 @@ export function ViajeDetallePage() {
   const cargarGasto = viaje ? (
     <Button asChild size="lg">
       <Link to={`/gastos/nuevo?viaje=${viaje.id}`} state={estadoDesdeViaje(viaje.id, volver, desdeCliente)}>
-        <Plus aria-hidden="true" /> Cargar gasto de este viaje
+        <Plus aria-hidden="true" /> Anotar gasto de este viaje
       </Link>
     </Button>
   ) : null;
@@ -233,9 +233,9 @@ function DatosDelViaje({ viaje, volver, desdeCliente, camiones }: DatosDelViajeP
           <dd className="text-base font-semibold">{formatDateWithYear(viaje.fecha)}</dd>
         </div>
         <div>
-          <dt className="text-base text-muted-foreground">Ingreso</dt>
+          <dt className="text-base text-muted-foreground">Lo que cobraste</dt>
           <dd className="text-base font-semibold tabular-nums [overflow-wrap:anywhere]">
-            {viaje.ingreso !== null ? formatNumber(viaje.ingreso, { decimales: 2 }) : 'Sin cargar'}
+            {viaje.ingreso !== null ? formatNumber(viaje.ingreso, { decimales: 2 }) : 'Sin anotar'}
           </dd>
         </div>
         {camiones !== undefined && camiones.length > 0 ? (
@@ -252,8 +252,8 @@ function DatosDelViaje({ viaje, volver, desdeCliente, camiones }: DatosDelViajeP
             {km.tipo === 'km'
               ? `${formatNumber(km.km, { decimales: 1, fijos: false })} km`
               : km.tipo === 'sin-final'
-                ? 'Km final sin cargar'
-                : 'Sin cargar'}
+                ? 'Falta el km de llegada.'
+                : 'Sin anotar'}
           </dd>
         </div>
         {viaje.observaciones ? (
@@ -273,7 +273,7 @@ function DatosDelViaje({ viaje, volver, desdeCliente, camiones }: DatosDelViajeP
   );
 }
 
-/** Las entregas en el orden en que se cargaron, con el nombre del cliente y sus incidencias. */
+/** Las entregas en el orden en que se anotaron, con el nombre del cliente y sus problemas o novedades. */
 function EntregasDelViaje({ viaje }: { viaje: ViajeVista }) {
   const cantidad = viaje.entregas.length;
 
@@ -283,7 +283,7 @@ function EntregasDelViaje({ viaje }: { viaje: ViajeVista }) {
         {cantidad > 0 ? `Entregas (${cantidad})` : 'Entregas'}
       </h2>
       {cantidad === 0 ? (
-        <p className="text-muted-foreground">Este viaje no tiene entregas cargadas.</p>
+        <p className="text-muted-foreground">Este viaje no tiene entregas anotadas.</p>
       ) : (
         <ul className="space-y-2">
           {viaje.entregas.map((entrega) => (
@@ -291,7 +291,7 @@ function EntregasDelViaje({ viaje }: { viaje: ViajeVista }) {
               <p className="break-words font-medium">{entrega.clientes?.nombre ?? 'Cliente'}</p>
               {entrega.incidencias ? (
                 <p className="whitespace-pre-line break-words text-base text-muted-foreground">
-                  Incidencias: {entrega.incidencias}
+                  Problemas o novedades: {entrega.incidencias}
                 </p>
               ) : null}
             </li>
@@ -311,7 +311,7 @@ interface DevolucionesDelViajeProps {
 
 /**
  * Las devoluciones del viaje (de la más nueva a la más vieja), entre las entregas y los gastos. Cada una enlaza a su
- * edición. El botón "Cargar devolución" es SECUNDARIO (la acción primaria de la pantalla sigue siendo cargar un gasto) y
+ * edición. El botón "Anotar devolución" es SECUNDARIO (la acción primaria de la pantalla sigue siendo anotar un gasto) y
  * lleva a `/viajes/<id>/devoluciones/nueva` con el mes de la lista (y el cliente, si el detalle se abrió desde uno) como
  * únicos datos en el state.
  */
@@ -371,7 +371,7 @@ function DevolucionesDelViaje({ viajeId, volver, desdeCliente, devolucionesQuery
       {contenido}
       <Button asChild variant="outline" className="w-full sm:w-auto">
         <Link to={rutaNuevaDevolucion(viajeId)} state={{ volver, ...estadoDesdeCliente(desdeCliente) }}>
-          <Plus aria-hidden="true" /> Cargar devolución
+          <Plus aria-hidden="true" /> Anotar devolución
         </Link>
       </Button>
     </section>
@@ -409,7 +409,7 @@ function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categorias
     contenido = (
       <>
         {errorLista}
-        <p className="text-muted-foreground">Todavía no hay gastos cargados en este viaje.</p>
+        <p className="text-muted-foreground">Todavía no hay gastos anotados en este viaje.</p>
       </>
     );
   } else {

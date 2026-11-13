@@ -163,10 +163,10 @@ describe('kilometraje: modo "Inicial y final"', () => {
     expect(km('0', '0')).toMatchObject({ errors: {}, km_inicial: 0, km_final: 0 });
   });
 
-  it('final SIN inicial -> "Carga el km inicial." anclado al inicial (el campo que falta)', () => {
+  it('final SIN inicial -> "Escribe también el km de salida, o borra el de llegada." anclado al inicial (el campo que falta)', () => {
     const r = km('', '1850');
     expect(r.errors).toEqual({ kmInicial: KM_INICIAL_FALTA_MESSAGE });
-    expect(KM_INICIAL_FALTA_MESSAGE).toBe('Carga el km inicial.');
+    expect(KM_INICIAL_FALTA_MESSAGE).toBe('Escribe también el km de salida, o borra el de llegada.');
     expect(r.km_final).toBeNull();
   });
 

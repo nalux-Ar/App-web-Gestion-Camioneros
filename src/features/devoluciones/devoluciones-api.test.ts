@@ -423,7 +423,7 @@ describe('errores al guardar: el 23503 se distingue por el nombre del constraint
 
   it('al eliminar hay su propio mensaje de FK', () => {
     expect(mapDataError(fk('lo_que_sea'), ELIMINAR_DEVOLUCION_CONTEXT)).toBe(
-      'No se puede eliminar esta devolución porque está vinculada a otros datos.',
+      'No se pudo eliminar. Prueba de nuevo.',
     );
   });
 });

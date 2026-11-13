@@ -53,6 +53,7 @@ import { UNICO_ACTIVO_MESSAGE } from '@/features/camiones/camion-alta';
 import { PATENTE_REPETIDA_MESSAGE, SOLO_ADMIN_CAMIONES_MESSAGE } from '@/features/camiones/constants';
 import { gastosKeys } from '@/features/gastos/gastos-keys';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
+import { NETWORK_CAMION_ESTADO_ERROR_MESSAGE, NETWORK_SAVE_ERROR_MESSAGE, TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE } from '@/lib/data-errors';
 import { queryClient } from '@/lib/query-client';
 
 // ---------------------------------------------------------------------------
@@ -204,6 +205,8 @@ const errorDe = (nombre: string) => byId(`camion-${nombre}-error`)?.textContent 
 const hintDe = (nombre: string) => byId(`camion-${nombre}-hint`)?.textContent ?? '';
 const labelDe = (nombre: string) => document.querySelector<HTMLLabelElement>(`label[for="camion-${nombre}"]`)?.textContent ?? '';
 const avisoDeLista = () => [...document.querySelectorAll('[role="status"]')].map((el) => el.textContent ?? '').join(' | ');
+/** Solo el TEXTO de los avisos de error (sin el botón «Reintentar» que algunos traen adentro). */
+const mensajesDeError = () => [...document.querySelectorAll('[role="alert"] [data-slot="alert-description"]')].map((el) => el.textContent ?? '');
 
 async function click(el: HTMLElement | null | undefined) {
   if (!el) throw new Error('no se encontró el elemento a tocar');
@@ -275,18 +278,18 @@ describe('pantalla Camiones (/camiones)', () => {
     expect(nuevos.every((a) => a.getAttribute('href') === NUEVO)).toBe(true);
   });
 
-  it('los archivados van aparte, plegados (details cerrado) y dicen "(archivado)"', async () => {
+  it('los camiones que ya no se usan van aparte, plegados (details cerrado) y dicen "(ya no se usa)"', async () => {
     await mount();
     const details = document.querySelector('details')!;
     expect(details.open).toBe(false);
-    expect(details.querySelector('summary')!.textContent).toContain('Archivados (1)');
+    expect(details.querySelector('summary')!.textContent).toContain('Camiones que ya no uso (1)');
     expect(details.textContent).toContain('XY 987 ZW');
-    expect(details.textContent).toContain('(archivado)');
+    expect(details.textContent).toContain('(ya no se usa)');
     // Los activos no están dentro de los archivados.
     expect(details.textContent).not.toContain('AB 123 CD');
   });
 
-  it('sin archivados no hay sección de archivados', async () => {
+  it('sin camiones que ya no se usan no hay esa sección', async () => {
     LISTA = [A];
     await mount();
     expect(document.querySelector('details')).toBeNull();
@@ -308,18 +311,18 @@ describe('pantalla Camiones (/camiones)', () => {
     expect(links().some((a) => a.getAttribute('href')?.startsWith('/camiones/'))).toBe(false);
   });
 
-  it('vacía: el administrador ve cómo cargar el primero; el chofer, que lo carga el administrador', async () => {
+  it('vacía: el administrador ve cómo agregar el primero; el chofer, que lo agrega el administrador', async () => {
     LISTA = [];
     await mount();
-    expect(bodyText()).toContain('Todavía no hay camiones cargados');
-    expect(bodyText()).toContain('Carga tu camión para que cada carga de combustible quede asociada a él');
+    expect(bodyText()).toContain('Todavía no hay camiones agregados');
+    expect(bodyText()).toContain('Agrega tu camión para que cada carga de combustible quede asociada a él');
     expect(linkByText('Nuevo camión')!.getAttribute('href')).toBe(NUEVO);
     await act(async () => root.unmount());
     container.remove();
     queryClient.clear();
     ROL = 'chofer';
     await mount();
-    expect(bodyText()).toContain('El administrador de la cuenta todavía no cargó camiones.');
+    expect(bodyText()).toContain('El administrador de la cuenta todavía no agregó camiones.');
     expect(linkByText('Nuevo camión')).toBeUndefined();
   });
 
@@ -338,7 +341,7 @@ describe('pantalla Camiones (/camiones)', () => {
   it('si la lista no carga: el error con "Reintentar", que la vuelve a pedir', async () => {
     route.lista = () => sinRed();
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     route.lista = () => ok(LISTA);
     await click(buttonByText('Reintentar'));
     expect(bodyText()).toContain('AB 123 CD');
@@ -368,7 +371,7 @@ describe('alta de camión: estructura y validación', () => {
     expect(campo('anio').inputMode).toBe('numeric');
     expect(campo('patente').getAttribute('autocapitalize')).toBe('characters');
     for (const nombre of ['patente', 'marca', 'modelo', 'anio'] as const) expect(campo(nombre).getAttribute('autocomplete')).toBe('off');
-    expect(buttonByText('Archivar camión')).toBeUndefined(); // solo al editar
+    expect(buttonByText('Ya no uso este camión')).toBeUndefined(); // solo al editar
   });
 
   it('al abrirse (con camiones) pide solo la lista: ni conteos ni escrituras', async () => {
@@ -457,7 +460,7 @@ describe('alta de camión: guardado con crear_camion', () => {
     LISTA = [];
     await mount(NUEVO);
     expect(avisoDeLista()).toContain(
-      'Es tu primer camión: 6 viajes y 2 cargas de combustible que cargaste sin camión van a quedar asignados a él.',
+      'Es tu primer camión: 6 viajes y 2 cargas de combustible que anotaste sin camión van a quedar asignados a él.',
     );
     const viajes = callsTo('viajes')[0]!;
     const gastos = callsTo('gastos')[0]!;
@@ -521,7 +524,7 @@ describe('alta de camión: guardado con crear_camion', () => {
     await mount(NUEVO);
     await tipear(campo('patente'), 'AB123CD');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     await click(buttonByText('Reintentar'));
     expect(h1()).toBe('Camiones');
     expect(invalido(viajesKeys.lists(T))).toBe(true);
@@ -538,7 +541,8 @@ describe('alta de camión: guardado con crear_camion', () => {
     await tipear(campo('patente'), 'AA111AA');
     await tipear(campo('modelo'), 'R450');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    // Guardar el formulario de un camión SIGUE con el texto de guardar (con su «Reintentar» de la barra de envío).
+    expect(bodyText()).toContain(NETWORK_SAVE_ERROR_MESSAGE);
     // Lo tipeado no se borra.
     expect(campo('patente').value).toBe('AA111AA');
     await click(buttonByText('Reintentar'));
@@ -560,7 +564,7 @@ describe('alta de camión: guardado con crear_camion', () => {
     await tipear(campo('patente'), 'AA111AA');
     await tipear(campo('modelo'), 'R450');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     await tipear(campo('modelo'), 'R500'); // la persona corrige el modelo antes de reintentar
     await click(buttonByText('Reintentar'));
     expect(rpcs()).toHaveLength(2);
@@ -591,7 +595,7 @@ describe('alta de camión: guardado con crear_camion', () => {
     await mount(NUEVO);
     await tipear(campo('patente'), 'XY987ZW');
     await guardar();
-    expect(bodyText()).toContain('Ya tienes un camión con esa patente (XY 987 ZW), pero está archivado.');
+    expect(bodyText()).toContain('Ya tienes un camión con esa patente (XY 987 ZW), pero ya no lo usas.');
     await click(buttonByText('Reactivarlo'));
     expect(payloadUpdate()).toEqual({ activa: true });
     expect(updates()[0]!.ops.find((o) => o.m === 'eq')!.args).toEqual(['id', C_X]);
@@ -714,45 +718,45 @@ describe('edición de camión', () => {
 });
 
 describe('archivar y reactivar', () => {
-  it('con otro activo: "Archivar camión" pide confirmar (foco en Cancelar); "Sí, archivar" cuenta fresco y archiva', async () => {
+  it('con otro activo: "Ya no uso este camión" pide confirmar (foco en Cancelar); "Sí, ya no lo uso" cuenta fresco y archiva', async () => {
     await mount(editar(C_A));
-    await click(buttonByText('Archivar camión'));
-    expect(bodyText()).toContain('Un camión archivado ya no se puede elegir en viajes ni cargas nuevas.');
+    await click(buttonByText('Ya no uso este camión'));
+    expect(bodyText()).toContain('Si ya no lo usas, no podrás elegirlo en viajes ni gastos nuevos. Lo que ya anotaste no se borra y lo puedes reactivar cuando quieras.');
     expect(document.activeElement?.textContent).toBe('Cancelar');
     expect(updates()).toHaveLength(0);
-    await click(buttonByText('Sí, archivar'));
+    await click(buttonByText('Sí, ya no lo uso'));
     expect(conteosActivos()).toHaveLength(1);
     expect(conteosActivos()[0]!.ops.find((o) => o.m === 'select')!.args).toEqual(['id', { count: 'exact', head: true }]);
     expect(payloadUpdate()).toEqual({ activa: false });
     expect(updates()[0]!.ops.find((o) => o.m === 'eq')!.args).toEqual(['id', C_A]);
-    expect(avisoDeLista()).toContain('Camión archivado.');
+    expect(avisoDeLista()).toContain('Listo: ya no usas este camión.');
     expect(invalido(camionesKeys.list(T))).toBe(true);
   });
 
   it('"Cancelar" vuelve atrás sin escribir', async () => {
     await mount(editar(C_A));
-    await click(buttonByText('Archivar camión'));
+    await click(buttonByText('Ya no uso este camión'));
     await click(buttonByText('Cancelar'));
-    expect(buttonByText('Archivar camión')).toBeDefined();
+    expect(buttonByText('Ya no uso este camión')).toBeDefined();
     expect(updates()).toHaveLength(0);
     expect(conteosActivos()).toHaveLength(0);
   });
 
-  it('el ÚNICO activo no ofrece archivar: explica que primero se carga el que lo reemplaza', async () => {
+  it('el ÚNICO activo no ofrece "Ya no uso este camión": explica que primero se agrega otro', async () => {
     LISTA = [A, X];
     await mount(editar(C_A));
     expect(bodyText()).toContain(UNICO_ACTIVO_MESSAGE);
-    expect(buttonByText('Archivar camión')).toBeUndefined();
+    expect(buttonByText('Ya no uso este camión')).toBeUndefined();
   });
 
   it('la lista decía 2 activos pero el conteo FRESCO dice 1: no se archiva, mensaje sin "Reintentar"', async () => {
     route.activos = () => conteo(1);
     await mount(editar(C_A));
-    await click(buttonByText('Archivar camión'));
-    await click(buttonByText('Sí, archivar'));
+    await click(buttonByText('Ya no uso este camión'));
+    await click(buttonByText('Sí, ya no lo uso'));
     expect(updates()).toHaveLength(0);
     expect(bodyText()).toContain(UNICO_ACTIVO_MESSAGE);
-    expect(buttonByText('Sí, archivar')).toBeUndefined();
+    expect(buttonByText('Sí, ya no lo uso')).toBeUndefined();
     expect(buttonByText('Reintentar')).toBeUndefined();
     expect(h1()).toBe('Editar camión');
   });
@@ -760,19 +764,80 @@ describe('archivar y reactivar', () => {
   it('si el conteo falla por red: no se archiva a ciegas; "Reintentar" lo vuelve a contar', async () => {
     route.activos = () => sinRed();
     await mount(editar(C_A));
-    await click(buttonByText('Archivar camión'));
-    await click(buttonByText('Sí, archivar'));
+    await click(buttonByText('Ya no uso este camión'));
+    await click(buttonByText('Sí, ya no lo uso'));
     expect(updates()).toHaveLength(0);
-    expect(bodyText()).toContain('No hay conexión');
+    // Cambiar el estado de un camión no es guardar un formulario: el texto no habla de «lo escrito» ni nombra ningún botón…
+    expect(mensajesDeError()).toEqual([NETWORK_CAMION_ESTADO_ERROR_MESSAGE]);
+    expect(mensajesDeError()[0]).not.toMatch(/Reintentar|lo escrito/i);
+    // …aunque el botón de confirmar SÍ pasa a decir «Reintentar» (así se vuelve a contar).
     route.activos = () => conteo(2);
     await click(buttonByText('Reintentar'));
     expect(payloadUpdate()).toEqual({ activa: false });
   });
 
+  it('al archivar, si la escritura tarda demasiado: «La señal está lenta y no sabemos si se guardó. Inténtalo de nuevo.» (sin nombrar un botón) y volver a tocar lo completa', async () => {
+    let intento = 0;
+    route.actualizar = (call) => {
+      intento += 1;
+      return intento === 1 ? fail('', 'TimeoutError: signal timed out', 0) : ok([{ id: eqDe(call)[0]?.[1] }]);
+    };
+    await mount(editar(C_A));
+    await click(buttonByText('Ya no uso este camión'));
+    await click(buttonByText('Sí, ya no lo uso'));
+    expect(mensajesDeError()).toEqual([TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE]);
+    expect(mensajesDeError()[0]).not.toMatch(/Reintentar|lo escrito|no se duplica/i);
+    await click(buttonByText('Reintentar'));
+    expect(payloadUpdate(1)).toEqual({ activa: false });
+    expect(avisoDeLista()).toContain('Listo: ya no usas este camión.');
+  });
+
+  it('al reactivar un camión que ya no se usa, sin señal: el texto de «cambiar el estado de un camión», con el «Reintentar» del aviso, que lo repite', async () => {
+    let intento = 0;
+    route.actualizar = (call) => {
+      intento += 1;
+      return intento === 1 ? sinRed() : ok([{ id: eqDe(call)[0]?.[1] }]);
+    };
+    await mount(editar(C_X));
+    await click(buttonByText('Reactivar camión'));
+    expect(mensajesDeError()).toEqual([NETWORK_CAMION_ESTADO_ERROR_MESSAGE]);
+    expect(mensajesDeError()[0]).not.toMatch(/Reintentar|lo escrito/i);
+    expect(buttonByText('Reintentar')).toBeDefined(); // el aviso trae su propio botón
+    await click(buttonByText('Reintentar'));
+    expect(payloadUpdate(1)).toEqual({ activa: true });
+    expect(avisoDeLista()).toContain('Camión reactivado.');
+  });
+
+  it.each([
+    ['sin señal', () => sinRed(), NETWORK_CAMION_ESTADO_ERROR_MESSAGE],
+    ['con timeout', () => fail('', 'TimeoutError: signal timed out', 0), TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE],
+  ] as Array<[string, () => Resp, string]>)(
+    '«Reactivarlo» del aviso de patente repetida, %s: el texto NO manda a tocar «Reintentar» (ahí no hay ese botón) y volver a tocar «Reactivarlo» lo completa',
+    async (_nombre, falla, esperado) => {
+      route.crear = () => resultadoRpc({ camion_id: C_X, creado: false, activa: false });
+      let intento = 0;
+      route.actualizar = (call) => {
+        intento += 1;
+        return intento === 1 ? falla() : ok([{ id: eqDe(call)[0]?.[1] }]);
+      };
+      await mount(NUEVO);
+      await tipear(campo('patente'), 'XY987ZW');
+      await guardar();
+      await click(buttonByText('Reactivarlo'));
+      expect(mensajesDeError()).toContain(esperado);
+      expect(mensajesDeError().join(' ')).not.toMatch(/Reintentar|lo escrito|no se duplica/i);
+      expect(buttonByText('Reintentar')).toBeUndefined(); // en ese aviso no existe
+      expect(buttonByText('Reactivarlo')).toBeDefined(); // es lo que se vuelve a tocar
+      await click(buttonByText('Reactivarlo'));
+      expect(payloadUpdate(1)).toEqual({ activa: true });
+      expect(avisoDeLista()).toContain('Camión reactivado.');
+    },
+  );
+
   it('un camión archivado: "Reactivar camión" (sin contar) y vuelve con "Camión reactivado."', async () => {
     await mount(editar(C_X));
-    expect(bodyText()).toContain('Este camión está archivado');
-    expect(buttonByText('Archivar camión')).toBeUndefined();
+    expect(bodyText()).toContain('Ya no usas este camión');
+    expect(buttonByText('Ya no uso este camión')).toBeUndefined();
     await click(buttonByText('Reactivar camión'));
     expect(payloadUpdate()).toEqual({ activa: true });
     expect(conteosActivos()).toHaveLength(0);
@@ -783,35 +848,35 @@ describe('archivar y reactivar', () => {
 // ---------------------------------------------------------------------------
 // Tarjetas
 // ---------------------------------------------------------------------------
-describe('tarjeta "Carga tu camión" en Inicio', () => {
+describe('tarjeta "Agrega tu camión" en Inicio', () => {
   it('administrador sin ningún camión: aparece, con el enlace al alta', async () => {
     LISTA = [];
     await mount('/');
-    expect(bodyText()).toContain('Carga tu camión');
-    expect(linkByText('Cargar camión')!.getAttribute('href')).toBe(NUEVO);
+    expect(bodyText()).toContain('Agrega tu camión');
+    expect(linkByText('Agregar camión')!.getAttribute('href')).toBe(NUEVO);
   });
 
   it('con algún camión (aunque sea archivado) no aparece', async () => {
     LISTA = [X];
     await mount('/');
-    expect(bodyText()).not.toContain('Carga tu camión');
+    expect(bodyText()).not.toContain('Agrega tu camión');
   });
 
   it('chofer: no aparece (aunque la lista, que ahora también lee la tarjeta del camión activo, venga vacía)', async () => {
     // Etapa 5c: la tarjeta del camión activo de Inicio lee la lista de camiones para cualquier miembro (sin ramas por rol:
     // una cuenta = una persona), así que ya no se puede exigir que Inicio no pida la lista con un chofer. Lo que sigue
-    // valiendo es que "Carga tu camión" no se le muestra.
+    // valiendo es que "Agrega tu camión" no se le muestra.
     ROL = 'chofer';
     LISTA = [];
     await mount('/');
     expect(callsTo('camiones').length).toBeGreaterThan(0);
-    expect(bodyText()).not.toContain('Carga tu camión');
+    expect(bodyText()).not.toContain('Agrega tu camión');
   });
 
   it('si la lista no carga, no aparece (no se adivina)', async () => {
     route.lista = () => sinRed();
     await mount('/');
-    expect(bodyText()).not.toContain('Carga tu camión');
+    expect(bodyText()).not.toContain('Agrega tu camión');
     expect(bodyText()).toContain('¿Qué quieres hacer hoy?');
   });
 });

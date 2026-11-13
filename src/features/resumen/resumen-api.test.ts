@@ -183,7 +183,7 @@ describe('errores de la base y respuestas fuera de contrato', () => {
   it('sin red: el mensaje de siempre, con "Reintentar"', async () => {
     h.state.responder = () => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
     const error = await err(fetchResumenCombustible(OCT, null, signal()));
-    expect(mensajeErrorResumen(error)).toBe('No hay conexión. Revisa la señal y prueba de nuevo.');
+    expect(mensajeErrorResumen(error)).toBe('No hay señal. Revisa la conexión y prueba de nuevo.');
   });
 
   it('la función no existe todavía (PGRST202, front antes que la 014): error genérico', async () => {

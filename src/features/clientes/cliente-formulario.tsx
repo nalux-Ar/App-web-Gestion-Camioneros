@@ -246,7 +246,7 @@ export function ClienteFormulario({ cliente, clientes, volver }: ClienteFormular
 
         <CampoCliente
           id={FIELD_DOM_IDS.email}
-          label="Email"
+          label="Correo electrónico"
           optional
           type="email"
           inputMode="email"

@@ -18,8 +18,8 @@ export function InicioPage() {
   return (
     <div className="space-y-6">
       <div>
-        {/* La "i" de Inicio es el último paso del recorrido (`data-ayuda`); ahí también se repite el recorrido. */}
-        <div className="flex items-center gap-1">
+        {/* El botón «Ayuda» de Inicio es el último paso del recorrido (`data-ayuda`); ahí también se repite el recorrido. */}
+        <div className="flex items-center gap-3">
           <h1 className="min-w-0 break-words text-2xl font-semibold">
             Hola{member?.transportistaNombre ? `, ${member.transportistaNombre}` : ''}
           </h1>

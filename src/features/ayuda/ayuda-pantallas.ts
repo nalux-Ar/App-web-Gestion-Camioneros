@@ -1,7 +1,7 @@
 import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
 
 /**
- * La ayuda de cada pantalla (la que abre la "i"). Español neutro, de "tú", textos planos (nunca HTML), 3 a 5 puntos cortos.
+ * La ayuda de cada pantalla (la que abre el botón «Ayuda»). Español neutro, de "tú", textos planos (nunca HTML), 3 a 5 puntos cortos.
  * Son datos fijos: no llevan nada de la persona ni de su negocio.
  */
 export interface AyudaPantalla {
@@ -23,7 +23,7 @@ export function ayudaInicio(reportarVisible: boolean): AyudaPantalla {
   return {
     titulo: 'Ayuda de Inicio',
     puntos: [
-      'Desde aquí vas a Viajes, Gastos, Clientes y Resumen con un toque.',
+      'Desde aquí vas a Viajes, Gastos, Clientes y Resumen con solo tocarlos.',
       'Arriba está el camión con el que trabajas. Si tienes varios, aquí eliges cuál.',
       'En Configuración cambias tu nombre, tus camiones y cómo se ve la app.',
       ...(reportarVisible ? [PUNTO_REPORTAR] : []),
@@ -38,7 +38,7 @@ export const AYUDA_VIAJES: AyudaPantalla = {
   puntos: [
     'Aquí ves los viajes del mes, con cuántos fueron, los kilómetros y lo que cobraste.',
     'Cambia de mes con las flechas de arriba.',
-    'Con «Nuevo viaje» cargas uno: de dónde a dónde, la fecha y lo que cobraste.',
+    'Con «Nuevo viaje» anotas uno: de dónde a dónde, la fecha y lo que cobraste.',
     'Toca un viaje para ver sus entregas, sus gastos y sus devoluciones.',
     'En la pestaña Devoluciones ves las del mes.',
   ],
@@ -49,17 +49,17 @@ export const AYUDA_VIAJE_DETALLE: AyudaPantalla = {
   puntos: [
     'Aquí ves el viaje completo: el recorrido, la fecha, los kilómetros y lo que cobraste.',
     'En Entregas están los clientes a los que entregaste.',
-    'Puedes cargar una devolución o un gasto de este viaje.',
+    'Puedes anotar una devolución o un gasto de este viaje.',
     '«Editar viaje» cambia sus datos o lo elimina.',
   ],
 };
 
 export const AYUDA_VIAJE_FORM: AyudaPantalla = {
-  titulo: 'Ayuda para cargar un viaje',
+  titulo: 'Ayuda para anotar un viaje',
   puntos: [
     'Completa la fecha, el origen y el destino. Lo demás es opcional.',
     'Los kilómetros puedes anotarlos de dos formas: el inicial y el final del tablero, o los recorridos.',
-    'En Ingreso va lo que cobraste por el viaje.',
+    'En «Lo que cobraste» pones el monto que te pagaron por el viaje.',
     'Agrega las entregas y elige el cliente de cada una.',
   ],
 };
@@ -69,17 +69,17 @@ export const AYUDA_GASTOS: AyudaPantalla = {
   puntos: [
     'Aquí ves lo que gastaste en el mes y puedes filtrar por categoría.',
     'Cambia de mes con las flechas de arriba.',
-    'Con «Nuevo gasto» cargas combustible, peajes, urea u otros gastos.',
+    'Con «Nuevo gasto» anotas combustible, peajes, urea u otros gastos.',
     'Toca un gasto para editarlo o eliminarlo.',
   ],
 };
 
 export const AYUDA_GASTO_FORM: AyudaPantalla = {
-  titulo: 'Ayuda para cargar un gasto',
+  titulo: 'Ayuda para anotar un gasto',
   puntos: [
     'Elige la categoría, anota el monto y la fecha.',
     'Elige siempre cómo pagaste: efectivo, tarjeta o transferencia.',
-    'En el combustible suma los litros y el odómetro (los kilómetros del tablero): así calculamos cuánto rinde tu camión.',
+    'En el combustible suma los litros y los kilómetros que marca el tablero: así calculamos cuánto rinde tu camión.',
     'Si el gasto fue de un viaje, puedes unirlo a ese viaje.',
     'En «Gastos varios» cuéntanos en qué fue.',
   ],
@@ -98,14 +98,14 @@ export const AYUDA_CLIENTES: AyudaPantalla = {
 export const AYUDA_CLIENTE_DETALLE: AyudaPantalla = {
   titulo: 'Ayuda del cliente',
   puntos: [
-    'Aquí ves los datos del cliente. Si cargaste su teléfono o su correo, los tocas para llamar o escribir.',
+    'Aquí ves los datos del cliente. Si anotaste su teléfono o su correo, los tocas para llamar o escribir.',
     'Más abajo están sus viajes y sus devoluciones.',
     '«Editar cliente» cambia sus datos o lo elimina.',
   ],
 };
 
 export const AYUDA_CLIENTE_FORM: AyudaPantalla = {
-  titulo: 'Ayuda para cargar un cliente',
+  titulo: 'Ayuda para agregar un cliente',
   puntos: [
     'El nombre es lo único obligatorio.',
     'El teléfono, el correo y la dirección ayudan a encontrarlo y contactarlo después.',
@@ -119,7 +119,7 @@ export const AYUDA_RESUMEN: AyudaPantalla = {
     'Aquí ves cuánto gastaste, en qué y cuánto te quedó según lo que cobraste por los viajes.',
     'Cambia entre Mes y Año con las pestañas de arriba.',
     'También ves cuánto rinde el combustible de tu camión.',
-    'Los números salen de los viajes y gastos que cargaste: cuanto más completos, más útil el resumen.',
+    'Los números salen de los viajes y gastos que anotaste: cuanto más completos, más útil el resumen.',
   ],
 };
 
@@ -128,25 +128,25 @@ export const AYUDA_CAMIONES: AyudaPantalla = {
   puntos: [
     'Aquí están tus camiones. El camión activo es el que se usa en los viajes y las cargas de combustible nuevos.',
     'Con «Nuevo camión» agregas otro. La patente es lo único obligatorio.',
-    'Toca un camión para editarlo o archivarlo. Archivar no borra sus viajes ni sus gastos.',
+    'Toca un camión para editarlo o marcarlo con «Ya no uso este camión». Eso no borra sus viajes ni sus gastos.',
   ],
 };
 
 export const AYUDA_CAMION_FORM: AyudaPantalla = {
-  titulo: 'Ayuda para cargar un camión',
+  titulo: 'Ayuda para agregar un camión',
   puntos: [
     'La patente es lo único obligatorio. Escríbela como quieras: se guarda sin espacios ni guiones.',
     'La marca, el modelo y el año son opcionales.',
-    'Al editar, también puedes archivar el camión si ya no lo usas.',
+    'Al editar, también puedes tocar «Ya no uso este camión» si ya no lo usas.',
   ],
 };
 
 export const AYUDA_DEVOLUCION_FORM: AyudaPantalla = {
-  titulo: 'Ayuda para cargar una devolución',
+  titulo: 'Ayuda para anotar una devolución',
   puntos: [
     'Elige el cliente y el motivo de la devolución.',
     'Cuéntanos qué pasó en la descripción. Es obligatoria si el motivo es «Otro».',
-    'La devolución queda unida al viaje desde el que la cargaste.',
+    'La devolución queda unida al viaje desde el que la anotaste.',
   ],
 };
 

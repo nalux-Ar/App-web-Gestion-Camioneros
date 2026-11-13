@@ -266,7 +266,7 @@ export const LITROS_AMBIGUOUS_MESSAGE =
   'Escribe los litros con coma para los decimales (ej. 40,5) o sin separador de miles (ej. 1200).';
 
 /** Ayuda sugerida para un campo de litros (la usa `NumberField` si no se le pasa otra). */
-export const LITROS_HINT = 'Usa coma para los decimales (ej. 40,5). Sin separador de miles.';
+export const LITROS_HINT = 'Ej.: 40,5. No uses puntos.';
 
 function decimalsLabel(scale: number): string {
   return scale === 1 ? '1 decimal' : `${scale} decimales`;

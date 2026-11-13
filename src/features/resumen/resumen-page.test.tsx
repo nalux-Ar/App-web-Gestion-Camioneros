@@ -475,21 +475,21 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     expect(comparacion()).toBe('Sin gastos en julio para comparar');
   });
 
-  it('el mes sin gastos (en curso): "Todavía no cargaste gastos este mes", sin comparación ni desgloses', async () => {
+  it('el mes sin gastos (en curso): "Todavía no anotaste gastos este mes", sin comparación ni desgloses', async () => {
     route.gastos = () => ok([total(0, 0)]);
     await mount();
-    expect(textoDe('resumen-gastos')).toBe('Gastos del mesTodavía no cargaste gastos este mes');
+    expect(textoDe('resumen-gastos')).toBe('Gastos del mesTodavía no anotaste gastos este mes');
     expect(document.querySelector('[data-comparacion]')).toBeNull();
     expect(byId('resumen-por-categoria')).toBeNull();
     expect(byId('resumen-por-metodo')).toBeNull();
     expect(byId('resumen-por-camion')).toBeNull();
   });
 
-  it('un mes cerrado sin gastos lo nombra: "No cargaste gastos en agosto 2026"', async () => {
+  it('un mes cerrado sin gastos lo nombra: "No anotaste gastos en agosto 2026"', async () => {
     MES_DESDE = '2026-08-01';
     route.gastos = () => ok([total(0, 0)]);
     await mount('/resumen?mes=2026-08');
-    expect(textoDe('resumen-gastos')).toContain('No cargaste gastos en agosto 2026');
+    expect(textoDe('resumen-gastos')).toContain('No anotaste gastos en agosto 2026');
   });
 
   it('mientras carga: filas grises y `aria-busy`, sin desgloses', async () => {
@@ -727,10 +727,10 @@ describe('pantalla Resumen: desgloses con barras', () => {
     ]);
   });
 
-  it('un camión archivado dice "(archivado)"', async () => {
+  it('un camión archivado dice "(ya no se usa)"', async () => {
     gastosDelMes([total(1000, 2), cat(CAT_A, 'Peajes', 1000, 2), met('efectivo', 1000, 2), cam('c1000000-0000-4000-8000-000000000002', 'CD456EF', false, 1000, 2)]);
     await mount();
-    expect(barras('resumen-por-camion')).toEqual([['CD 456 EF (archivado)', '1.000,00', '2 gastos · 100 % del total']]);
+    expect(barras('resumen-por-camion')).toEqual([['CD 456 EF (ya no se usa)', '1.000,00', '2 gastos · 100 % del total']]);
   });
 
   it('sin ningún gasto con camión (solo "Sin camión"), el desglose por camión NO aparece', async () => {
@@ -766,7 +766,7 @@ describe('pantalla Resumen: ingresos y resultado', () => {
   it('ganancia: "Ganancia" con el monto, los ingresos y los gastos del mes, y qué es el resultado', async () => {
     await mount();
     expect(resultado()).toBe('Ganancia15.000,00');
-    expect(datos()).toEqual(['Ingresos de viajes25.000,003 viajes con ingreso', 'Gastos del mes10.000,00']);
+    expect(datos()).toEqual(['Lo que cobraste25.000,003 viajes con cobro anotado', 'Gastos del mes10.000,00']);
     expect(textoDe('resumen-resultado')).toContain('lo que cobraste por los viajes del mes menos todos los gastos del mes');
     expect(textoDe('resumen-resultado')).not.toContain('incompleto');
     expect(byId('resumen-resultado')!.querySelector('.text-destructive-text')).toBeNull();
@@ -788,31 +788,31 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     expect(resultado()).toBe('Resultado0,00');
   });
 
-  it('resultado null (ningún viaje con ingreso): NO hay resultado; invita a cargar el ingreso, con enlace a los viajes del mes', async () => {
+  it('resultado null (ningún viaje con cobro anotado): NO hay resultado; invita a anotar lo que cobraste, con enlace a los viajes del mes', async () => {
     mensualCon({ viajes_con_ingreso: 0, viajes_sin_ingreso: 3, viajes_ingreso: 0, resultado: null });
     await mount();
     expect(byId('resumen-resultado')!.querySelector('[data-resultado]')).toBeNull();
     const texto = textoDe('resumen-resultado');
-    expect(texto).toContain('Ninguno de tus 3 viajes del mes tiene el ingreso cargado. Cárgalo para ver si el mes dio ganancia o pérdida.');
+    expect(texto).toContain('Ninguno de tus 3 viajes del mes tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
     expect(texto).not.toMatch(/Ganancia|Pérdida|Resultado/);
-    expect(texto).not.toContain('lo que cobraste');
+    expect(texto).not.toContain('El resultado es lo que cobraste'); // la explicación de cómo se calcula no va sin resultado
     const enlace = byId('resumen-resultado')!.querySelector<HTMLAnchorElement>('a')!;
     expect(enlace.textContent).toBe('Ver los viajes del mes');
     expect(enlace.getAttribute('href')).toBe('/viajes');
-    expect(datos()).toEqual(['Ingresos de viajes0,000 de 3 viajes con ingreso', 'Gastos del mes10.000,00']);
+    expect(datos()).toEqual(['Lo que cobraste0,000 de 3 viajes con cobro anotado', 'Gastos del mes10.000,00']);
   });
 
   it('resultado null con un solo viaje y sin viajes: el texto que corresponde', async () => {
     mensualCon({ viajes_cantidad: 1, viajes_con_ingreso: 0, viajes_sin_ingreso: 1, viajes_ingreso: 0, resultado: null });
     await mount();
-    expect(textoDe('resumen-resultado')).toContain('Tu viaje del mes no tiene el ingreso cargado.');
+    expect(textoDe('resumen-resultado')).toContain('Tu viaje del mes no tiene anotado lo que cobraste.');
     await act(async () => root.unmount());
     container.remove();
     queryClient.clear();
     mensualCon({ viajes_cantidad: 0, viajes_km: 0, viajes_con_ingreso: 0, viajes_sin_ingreso: 0, viajes_ingreso: 0, resultado: null });
     await mount();
-    expect(textoDe('resumen-resultado')).toContain('No hay viajes en el mes. Carga tus viajes con su ingreso para ver si el mes dio ganancia o pérdida.');
-    expect(datos()[0]).toBe('Ingresos de viajes0,00');
+    expect(textoDe('resumen-resultado')).toContain('No hay viajes en el mes. Anota tus viajes con lo que cobraste para ver si el mes dio ganancia o pérdida.');
+    expect(datos()[0]).toBe('Lo que cobraste0,00');
   });
 
   it('en un mes cerrado, el enlace lleva a los viajes de ESE mes', async () => {
@@ -825,14 +825,14 @@ describe('pantalla Resumen: ingresos y resultado', () => {
   it('con viajes sin ingreso, el resultado se muestra CON el aviso de que puede estar incompleto', async () => {
     mensualCon({ viajes_con_ingreso: 1, viajes_sin_ingreso: 2, viajes_ingreso: 12000, resultado: 2000 });
     await mount();
-    expect(resultado()).toBe('Ganancia2.000,002 viajes sin ingreso cargado: el resultado puede estar incompleto.');
-    expect(datos()[0]).toBe('Ingresos de viajes12.000,001 de 3 viajes con ingreso');
+    expect(resultado()).toBe('Ganancia2.000,002 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    expect(datos()[0]).toBe('Lo que cobraste12.000,001 de 3 viajes con cobro anotado');
     await act(async () => root.unmount());
     container.remove();
     queryClient.clear();
     mensualCon({ viajes_con_ingreso: 2, viajes_sin_ingreso: 1, viajes_ingreso: 8000, resultado: -2000 });
     await mount();
-    expect(resultado()).toBe('Pérdida-2.000,001 viaje sin ingreso cargado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Pérdida-2.000,001 viaje sin cobro anotado: el resultado puede estar incompleto.');
   });
 
   it('pide la fila de ESE mes (un mes) y la valida: un mes que no es el pedido es un error, con "Reintentar"', async () => {
@@ -893,7 +893,7 @@ describe('pantalla Resumen: combustible por camión', () => {
     expect(rpcs('resumen_combustible').map(argsDe)).toEqual([{ p_desde: '2026-10-01', p_hasta: '2026-10-31' }]);
   });
 
-  it('con tramos válidos: cargas, litros, gasto y precio promedio; km/L, L/100 km y costo por km; UNA línea de tramos', async () => {
+  it('con tramos válidos: cargas, litros, gasto y precio promedio; «Rinde», «Gasta» y «Cada km te cuesta»; UNA línea de tramos', async () => {
     await mount();
     const [camion] = camiones();
     expect(camiones()).toHaveLength(1);
@@ -904,31 +904,31 @@ describe('pantalla Resumen: combustible por camión', () => {
       'Gasto: 7.000,00',
       'Precio promedio: 23,29 por litro',
     ]);
-    expect(pares(camion!.querySelector('dl[data-rendimiento]'))).toEqual(['Rendimiento: 3,0 km/L', 'Consumo: 33,3 L/100 km', 'Costo por km: 7,67']);
+    expect(pares(camion!.querySelector('dl[data-rendimiento]'))).toEqual(['Rinde: 3,0 km por litro', 'Gasta: 33,3 litros cada 100 km', 'Cada km te cuesta: 7,67']);
     expect(camion!.querySelectorAll('[data-tramos]')).toHaveLength(1);
     expect(plano(camion!.querySelector('[data-tramos]')!.textContent)).toBe('2 tramos usados (900 km, 300,0 L), ninguno descartado.');
     expect(camion!.querySelector('[data-sin-rendimiento]')).toBeNull();
   });
 
-  it('decimales: km/L con hasta 2, litros con hasta 3', async () => {
+  it('decimales: km por litro con hasta 2, litros con hasta 3', async () => {
     combustibleDa({ km_por_litro: 2.849, litros: 40.125, tramos_litros: 315.25, litros_100km: 35.1 });
     await mount();
     const [camion] = camiones();
-    expect(pares(camion!.querySelector('dl[data-rendimiento]'))[0]).toBe('Rendimiento: 2,85 km/L');
+    expect(pares(camion!.querySelector('dl[data-rendimiento]'))[0]).toBe('Rinde: 2,85 km por litro');
     expect(pares(camion!.querySelector('dl:not([data-rendimiento])'))[1]).toBe('Litros: 40,125 L');
     expect(plano(camion!.querySelector('[data-tramos]')!.textContent)).toBe('2 tramos usados (900 km, 315,25 L), ninguno descartado.');
   });
 
-  it('sin tramos: "Todavía no hay rendimiento…", sin km/L ni línea de tramos (no hubo descartes)', async () => {
+  it('sin tramos: "Todavía no podemos calcular cuánto rinde…", sin km por litro ni línea de tramos (no hubo descartes)', async () => {
     combustibleDa({ ...SIN_TRAMOS, llenas_con_odometro: 1 });
     await mount();
     const [camion] = camiones();
     expect(plano(camion!.querySelector('[data-sin-rendimiento]')!.textContent)).toBe(
-      'Todavía no hay rendimiento para este camión: carga el odómetro en cargas con tanque lleno',
+      'Todavía no podemos calcular cuánto rinde. Al cargar combustible, llena el tanque y anota los km del tablero.',
     );
     expect(camion!.querySelector('[data-rendimiento]')).toBeNull();
     expect(camion!.querySelector('[data-tramos]')).toBeNull();
-    expect(plano(camion!.textContent)).not.toContain('km/L');
+    expect(plano(camion!.textContent)).not.toContain('km por litro');
   });
 
   it('sin tramos pero con descartes: el aviso Y la línea que dice por qué se descartaron (cuántos por motivo)', async () => {
@@ -937,7 +937,7 @@ describe('pantalla Resumen: combustible por camión', () => {
     const [camion] = camiones();
     expect(camion!.querySelector('[data-sin-rendimiento]')).not.toBeNull();
     expect(plano(camion!.querySelector('[data-tramos]')!.textContent)).toBe(
-      'Ningún tramo usado, 3 descartados: el odómetro bajó respecto de la carga llena anterior (2); dio menos de 0,5 o más de 15 km por litro: casi siempre es un odómetro mal escrito (1).',
+      'Ningún tramo usado, 3 descartados: los km del tablero bajaron respecto de la carga llena anterior (2); dio menos de 0,5 o más de 15 km por litro: casi siempre es un error al escribir los km del tablero (1).',
     );
   });
 
@@ -945,14 +945,14 @@ describe('pantalla Resumen: combustible por camión', () => {
     combustibleDa({ descartados_sin_avance: 1 });
     await mount();
     expect(plano(camiones()[0]!.querySelector('[data-tramos]')!.textContent)).toBe(
-      '2 tramos usados (900 km, 300,0 L), 1 descartado: el odómetro no avanzó desde la carga llena anterior.',
+      '2 tramos usados (900 km, 300,0 L), 1 descartado: los km del tablero no avanzaron desde la carga llena anterior.',
     );
   });
 
   it('varios camiones, en el orden recibido, cada uno con su h3 (archivado incluido)', async () => {
     combustibleDa({}, { camion_id: 'c1000000-0000-4000-8000-000000000002', patente: 'CD456EF', activa: false, ...SIN_TRAMOS });
     await mount();
-    expect(camiones().map((a) => a.querySelector('h3')!.textContent)).toEqual(['AB 123 CD', 'CD 456 EF (archivado)']);
+    expect(camiones().map((a) => a.querySelector('h3')!.textContent)).toEqual(['AB 123 CD', 'CD 456 EF (ya no se usa)']);
     for (const article of camiones()) {
       expect(byId(article.getAttribute('aria-labelledby')!)!.tagName).toBe('H3');
     }
@@ -984,10 +984,10 @@ describe('pantalla Resumen: combustible por camión', () => {
     expect(details.querySelector('summary')!.textContent).toBe('¿Cómo se calcula?');
     const texto = plano(details.textContent);
     expect(texto).toContain('tanque lleno a tanque lleno');
-    expect(texto).toContain('Solo una carga con tanque lleno Y odómetro cierra un tramo');
+    expect(texto).toContain('Solo una carga con tanque lleno Y con los km del tablero cierra un tramo');
     expect(texto).toContain('Las cargas parciales del medio suman sus litros');
     expect(texto).toContain('Cada tramo cuenta en el mes en que se cierra');
-    expect(texto).toContain('el odómetro bajó o no avanzó');
+    expect(texto).toContain('los km del tablero bajaron o no avanzaron');
     expect(texto).toContain('menos de 0,5 o más de 15 km por litro');
     expect(texto).toContain('ponderado: todos los km de los tramos divididos por todos sus litros');
     expect(details.querySelectorAll('li')).toHaveLength(5);
@@ -1058,12 +1058,12 @@ describe('pantalla Resumen: viajes del mes', () => {
 
   it('una fila con todo: recorrido, ganancia, fecha · camión · km, e ingreso · gastos del viaje', async () => {
     await mount();
-    expect(fila(filasDeViajes()[0]!)).toEqual(['Rosario → a Córdoba', 'Ganancia 12.000,00', '12 oct · AB 123 CD · 400 km', 'Ingreso 15.000,00 · 2 gastos: 3.000,00']);
+    expect(fila(filasDeViajes()[0]!)).toEqual(['Rosario → a Córdoba', 'Ganancia 12.000,00', '12 oct · AB 123 CD · 400 km', 'Cobraste 15.000,00 · 2 gastos: 3.000,00']);
   });
 
-  it('sin ingreso: "Sin ingreso" en vez de ganancia; sin camión ni km, no se inventan; sin gastos lo dice', async () => {
+  it('sin ingreso: "Sin cobro anotado" en vez de ganancia; sin camión ni km, no se inventan; sin gastos lo dice', async () => {
     await mount();
-    expect(fila(filasDeViajes()[1]!)).toEqual(['Salta → a Jujuy', 'Sin ingreso', '3 oct', 'Sin gastos']);
+    expect(fila(filasDeViajes()[1]!)).toEqual(['Salta → a Jujuy', 'Sin cobro anotado', '3 oct', 'Sin gastos']);
     expect(plano(filasDeViajes()[1]!.textContent)).not.toMatch(/Ganancia|Pérdida/);
   });
 
@@ -1074,7 +1074,7 @@ describe('pantalla Resumen: viajes del mes', () => {
     expect(fila(filasDeViajes()[0]!)[1]).toBe('Pérdida -2.000,00');
     // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
     expect(filasDeViajes()[0]!.querySelector('[data-ganancia] .text-destructive-text')!.textContent).toBe('\u22122.000,00');
-    expect(fila(filasDeViajes()[1]!)).toEqual(['Rosario → a Córdoba', 'Pérdida -500,00', '12 oct · AB 123 CD · 400 km', 'Ingreso 0,00 · 1 gasto: 500,00']);
+    expect(fila(filasDeViajes()[1]!)).toEqual(['Rosario → a Córdoba', 'Pérdida -500,00', '12 oct · AB 123 CD · 400 km', 'Cobraste 0,00 · 1 gasto: 500,00']);
     expect(filasDeViajes()[0]!.textContent).not.toContain('-2.000');
   });
 
@@ -1167,7 +1167,7 @@ describe('pantalla Resumen: viajes del mes', () => {
 describe('pantalla Resumen: todos los bloques', () => {
   it('el orden de los bloques y la jerarquía de títulos (h1 → h2 → h3)', async () => {
     await mount();
-    expect(h2s()).toEqual(['Gastos del mes', 'Por categoría', 'Por método de pago', 'Por camión', 'Ingresos y resultado', 'Combustible por camión', 'Viajes del mes']);
+    expect(h2s()).toEqual(['Gastos del mes', 'Por categoría', 'Por método de pago', 'Por camión', '¿Cuánto te quedó?', 'Combustible por camión', 'Viajes del mes']);
     const titulos = [...document.querySelectorAll('h1, h2, h3')].map((t) => t.tagName);
     expect(titulos[0]).toBe('H1');
     // Ningún salto de nivel: después de un h1 viene un h2, y un h3 solo después de un h2 o de otro h3.

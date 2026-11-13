@@ -31,7 +31,7 @@ const h = vi.hoisted(() => {
 
 vi.mock('@/lib/supabase', () => ({ supabase: { from: h.from } }));
 
-import { NETWORK_ERROR_MESSAGE } from '@/features/auth/auth-errors';
+import { NETWORK_SAVE_ERROR_MESSAGE } from '@/lib/data-errors';
 import { erroresRecientes, limpiarErroresRecientes, registrarErrorDeDatos } from '@/lib/errores-recientes';
 import { queryClient } from '@/lib/query-client';
 import { ReportarPage } from './reportar-page';
@@ -235,7 +235,7 @@ describe('Reportar un problema: el envío', () => {
   it('el aviso de qué se envía es fiel: el nombre de la pantalla sin los datos, y que queda asociado a la cuenta', async () => {
     await mount();
     expect(textoPagina()).toContain(
-      'Con tu mensaje enviamos el nombre de la pantalla en la que estabas (sin los datos que tenías cargados), qué versión de la app usas, tu navegador y los últimos errores técnicos que vio la app. El reporte queda asociado a tu cuenta.',
+      'Con tu mensaje enviamos el nombre de la pantalla en la que estabas (sin los datos que tenías anotados), qué versión de la app usas, tu navegador y los últimos errores técnicos que vio la app. El reporte queda asociado a tu cuenta.',
     );
   });
 
@@ -280,7 +280,7 @@ describe('Reportar un problema: errores y reintento', () => {
     await mount();
     await escribir('Se cuelga al guardar');
     await click(enviarBoton());
-    expect(textoPagina()).toContain(NETWORK_ERROR_MESSAGE);
+    expect(textoPagina()).toContain(NETWORK_SAVE_ERROR_MESSAGE);
     expect(campo().value).toBe('Se cuelga al guardar');
     expect(reintentar()).toBeDefined();
     h.estado.responder = ok;
@@ -358,7 +358,7 @@ describe('Reportar un problema: errores y reintento', () => {
     await act(async () => {
       window.dispatchEvent(new Event('offline'));
     });
-    expect(textoPagina()).toContain('No hay conexión');
+    expect(textoPagina()).toContain('Sin señal');
     await escribir('sin señal');
     await click(enviarBoton());
     await settle(10);

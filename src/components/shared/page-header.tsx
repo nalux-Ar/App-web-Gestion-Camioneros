@@ -22,7 +22,7 @@ interface PageHeaderProps {
    * `FixedActionBar` fijo abajo (así no hay dos botones iguales a la vista).
    */
   actionDesktopOnly?: boolean;
-  /** La ayuda de la pantalla: pinta la "i" junto al título. Sin esto, no hay "i". */
+  /** La ayuda de la pantalla: pinta el botón «Ayuda» junto al título. Sin esto, no hay botón. */
   ayuda?: AyudaPantalla;
 }
 
@@ -33,7 +33,7 @@ export function PageHeader({ title, description, action, actionDesktopOnly = fal
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 space-y-1">
         {ayuda ? (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-3">
             {h1}
             <BotonAyuda ayuda={ayuda} />
           </div>

@@ -6,6 +6,7 @@ import {
   AYUDA_SUGERIR_ACTIVO,
   CAMION_CREAR_MESSAGE,
   CAMION_FALTA_MESSAGE,
+  CAMIONES_SIN_CARGAR_MESSAGE,
   camionDelViajeArchivadoMessage,
   camionElegido,
   combinarCamiones,
@@ -343,7 +344,7 @@ describe('resolverCamion (lo que se manda a la base)', () => {
     const r = resolverCamion({ tipo: 'del-viaje', camionId: 'x', camion: X, archivadoNuevo: true }, '');
     expect(r).toEqual({ ok: false, message: camionDelViajeArchivadoMessage(X) });
     expect(camionDelViajeArchivadoMessage(X)).toBe(
-      'El camión de este viaje (XX 999 XX) está archivado: reactívalo desde Camiones o carga el gasto sin viaje.',
+      'El camión de este viaje (XX 999 XX) ya no se usa: reactívalo desde Camiones o anota el gasto sin viaje.',
     );
   });
 
@@ -352,8 +353,13 @@ describe('resolverCamion (lo que se manda a la base)', () => {
     expect(resolverCamion({ tipo: 'crear' }, 'a')).toEqual({ ok: false, message: CAMION_CREAR_MESSAGE });
   });
 
+  it('los mensajes al guardar: el camión se «agrega» (no se «carga») y la lista sin traer dice qué tocar', () => {
+    expect(CAMION_CREAR_MESSAGE).toBe('Para guardar los litros hace falta un camión: agrégalo aquí abajo.');
+    expect(CAMIONES_SIN_CARGAR_MESSAGE).toBe('Todavía no se pudo traer la lista de camiones. Espera un momento o toca Reintentar en Camión.');
+  });
+
   it('los textos de ayuda', () => {
-    expect(AYUDA_ES_EL_ACTIVO).toBe('Es tu camión activo. Si lo cambias aquí, solo cambia en este registro.');
+    expect(AYUDA_ES_EL_ACTIVO).toBe('Es tu camión activo. Si eliges otro aquí, tu camión activo no cambia.');
     expect(AYUDA_SUGERIR_ACTIVO).toBe('Puedes dejar un camión activo en Inicio para no elegirlo cada vez.');
   });
 });

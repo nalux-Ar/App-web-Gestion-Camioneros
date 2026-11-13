@@ -435,8 +435,8 @@ describe('formulario de devolución: el selector de cliente', () => {
   it('sin clientes: lo explica y no se puede guardar (no se manda nada)', async () => {
     route.clientes = () => ok([]);
     await mount();
-    expect(bodyText()).toContain('Todavía no tienes clientes: créalos en la sección Clientes o al cargar una entrega en un viaje.');
-    expect(ayudaDe('devolucion-cliente')).toBe('Todavía no tienes clientes: créalos en la sección Clientes o al cargar una entrega en un viaje.');
+    expect(bodyText()).toContain('Todavía no tienes clientes: créalos en la sección Clientes o al anotar una entrega en un viaje.');
+    expect(ayudaDe('devolucion-cliente')).toBe('Todavía no tienes clientes: créalos en la sección Clientes o al anotar una entrega en un viaje.');
     expect(selectCliente().options).toHaveLength(1); // solo el placeholder
     const boton = buttonByText('Guardar devolución')!;
     expect(boton.disabled).toBe(true);
@@ -704,7 +704,7 @@ describe('formulario de devolución (alta): guardar', () => {
     await guardar();
 
     expect(byId('detalle-del-viaje')).toBeNull();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(buttonByText('Reintentar')).toBeTruthy();
     expect(radioElegido()).toBe('Rotura o daño');
     expect(selectCliente().value).toBe(C_ALMACEN);
@@ -730,7 +730,7 @@ describe('formulario de devolución (alta): guardar', () => {
     await mount();
     await llenarLoMinimo();
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     await click(buttonByText('Reintentar'));
     await settle(4);
 
@@ -752,7 +752,7 @@ describe('formulario de devolución (alta): guardar', () => {
     await llenarLoMinimo('Vencimiento', C_COOP);
     await typeText(textarea(), 'Primera versión');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
 
     // Cambia de idea: otro motivo, otro cliente, otra descripción.
     await click(radio('Rotura o daño'));
@@ -982,11 +982,11 @@ describe('formulario de devolución: errores de carga', () => {
     };
     await mount();
     expect(bodyText()).toContain('No pudimos cargar los clientes.');
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(buttonByText('Guardar devolución')).toBeUndefined();
     await click(buttonByText('Reintentar'));
     expect(buttonByText('Guardar devolución')).toBeTruthy();
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
   });
 
   it('si falla el viaje: error con "Reintentar"; al reintentar aparece el formulario', async () => {
@@ -996,7 +996,7 @@ describe('formulario de devolución: errores de carga', () => {
       return intento === 1 ? sinRed() : ok(vista());
     };
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(bodyText()).not.toContain('Viaje no encontrado');
     expect(buttonByText('Guardar devolución')).toBeUndefined();
     await click(buttonByText('Reintentar'));
@@ -1022,7 +1022,7 @@ describe('formulario de devolución: errores de carga', () => {
     expect(radioElegido()).toBe('Rotura o daño');
     expect(selectCliente().value).toBe(C_ALMACEN);
     expect(textarea().value).toBe('Texto a conservar');
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
   });
 });
 
@@ -1143,7 +1143,7 @@ describe('formulario de devolución: editar', () => {
     await mount(EDITAR);
     await typeText(textarea(), 'Editado');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(textarea().value).toBe('Editado');
     await click(buttonByText('Reintentar'));
     await settle(4);
@@ -1158,7 +1158,7 @@ describe('formulario de devolución: editar', () => {
     const claveDetalle = devolucionesKeys.detail('tenant-a', DEV_ID, VIAJE);
     await typeText(textarea(), 'Editado');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(detalleCalls()).toHaveLength(1); // no se volvió a pedir
     expect(queryClient.getQueryState(claveDetalle)?.isInvalidated).toBe(false); // ni se marcó vieja
     const query = queryClient.getQueryCache().find({ queryKey: claveDetalle })!;
@@ -1181,7 +1181,7 @@ describe('formulario de devolución: editar', () => {
     const claveMes = devolucionesKeys.delMes('tenant-a', '2025-06-01', '2025-07-01');
     queryClient.setQueryData(claveMes, { items: [], truncado: false });
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(queryClient.getQueryState(claveMes)?.isInvalidated).toBe(true);
   });
 
@@ -1195,7 +1195,7 @@ describe('formulario de devolución: editar', () => {
     await settle(4);
     expect(detalleCalls()).toHaveLength(2);
     expect(textarea().value).toBe('Lo que escribí');
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
   });
 
   it('si falla la carga de la devolución: error con "Reintentar" que vuelve a pedirla', async () => {
@@ -1205,7 +1205,7 @@ describe('formulario de devolución: editar', () => {
       return intento === 1 ? sinRed() : detalleDeLaDevolucion(call);
     };
     await mount(EDITAR);
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(bodyText()).not.toContain('Devolución no encontrada');
     expect(buttonByText('Guardar devolución')).toBeUndefined();
     await click(buttonByText('Reintentar'));
@@ -1342,7 +1342,7 @@ describe('formulario de devolución: eliminar', () => {
     await click(buttonByText('Eliminar devolución'));
     await click(buttonByText('Sí, eliminar'));
     await settle(4);
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(byId('detalle-del-viaje')).toBeNull();
     await click(buttonByText('Reintentar'));
     await settle(4);
@@ -1509,7 +1509,7 @@ describe('edición abierta desde la lista de Devoluciones (marca de origen en el
     await mount({ pathname: EDITAR, state: DESDE_LISTA });
     await typeText(textarea(), 'Cambiada');
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(byId('lista-de-viajes')).toBeNull();
     expect(textarea().value).toBe('Cambiada');
     await click(buttonByText('Reintentar'));

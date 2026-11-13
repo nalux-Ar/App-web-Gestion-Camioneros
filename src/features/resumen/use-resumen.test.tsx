@@ -224,7 +224,7 @@ describe('vista Mes: cada bloque, su llamada', () => {
     await mount(<ProbeMes mes={{ year: 2026, month: 10 }} hoy="2026-10-13" />);
     const r = probe.mes!;
     expect(r.combustible.isError).toBe(true);
-    expect(mensajeErrorResumen(r.combustible.error)).toBe('No hay conexión. Revisa la señal y prueba de nuevo.');
+    expect(mensajeErrorResumen(r.combustible.error)).toBe('No hay señal. Revisa la conexión y prueba de nuevo.');
     expect(r.gastos.isSuccess && r.comparacion.isSuccess && r.mensual.isSuccess && r.viajes.isSuccess).toBe(true);
     // Sin reintento automático de un error de red: un solo pedido.
     expect(rpcs('resumen_combustible')).toHaveLength(1);

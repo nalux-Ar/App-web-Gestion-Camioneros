@@ -429,10 +429,11 @@ describe('router: las rutas de Camiones (fuera de la barra de abajo)', () => {
     expect(enlace.closest('nav')).toBeNull();
   });
 
-  it('Inicio, sin ningún camión (administrador): la tarjeta "Carga tu camión" lleva al alta', async () => {
+  it('Inicio, sin ningún camión (administrador): la tarjeta "Agrega tu camión" lleva al alta', async () => {
     await mount('/');
     await until(() => document.querySelector('a[href="/camiones/nuevo"]') !== null);
-    expect(document.body.textContent).toContain('Carga tu camión');
+    expect(document.body.textContent).toContain('Agrega tu camión');
+    expect(document.querySelector('a[href="/camiones/nuevo"]')!.textContent).toContain('Agregar camión');
   });
 
   it('están detrás de la sesión: sin sesión no se pide NADA', async () => {

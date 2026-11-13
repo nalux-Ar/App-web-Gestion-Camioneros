@@ -110,12 +110,12 @@ export function RegisterPage() {
           <MailCheck className="size-10 text-primary" aria-hidden="true" />
           <CardTitle className="text-2xl">Revisa tu correo</CardTitle>
           <CardDescription>
-            Si el email es nuevo, te enviamos un correo para confirmar la cuenta. Ábrelo y toca el enlace (fíjate
-            también en correo no deseado).
+            Si el correo es nuevo, te enviamos un mensaje para confirmar la cuenta. Ábrelo y toca el enlace. Búscalo en
+            Recibidos, Spam o Correo no deseado.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-2 text-center text-base">
-          <p className="text-muted-foreground">¿Ya tenías cuenta con ese email?</p>
+          <p className="text-muted-foreground">¿Ya tenías cuenta con ese correo?</p>
           <Link to="/ingresar" className="text-primary underline-offset-4 hover:underline">
             Ingresar
           </Link>
@@ -131,7 +131,7 @@ export function RegisterPage() {
     <Card>
       <CardHeader className="space-y-1.5 text-center">
         <CardTitle className="text-2xl">Crear cuenta</CardTitle>
-        <CardDescription>Con tu email y una contraseña alcanza para arrancar.</CardDescription>
+        <CardDescription>Con tu correo y una contraseña alcanza para arrancar.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">

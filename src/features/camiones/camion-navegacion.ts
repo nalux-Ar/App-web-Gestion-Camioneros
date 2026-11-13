@@ -68,20 +68,20 @@ export function textoAsignados(viajes: number, gastos: number): string {
   return '';
 }
 
-/** El aviso antes de cargar el PRIMER camión, según el estado del conteo fresco de lo que se le va a asignar. */
+/** El aviso antes de agregar el PRIMER camión, según el estado del conteo fresco de lo que se le va a asignar. */
 export function textoPrimerCamion(
   estado: { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'listo'; viajes: number; gastos: number },
 ): string {
   if (estado.tipo === 'cargando') return 'Es tu primer camión. Revisando tus viajes y cargas de combustible sin camión…';
   if (estado.tipo === 'error') {
-    return 'Es tu primer camión: los viajes y las cargas de combustible que cargaste sin camión van a quedar asignados a él.';
+    return 'Es tu primer camión: los viajes y las cargas de combustible que anotaste sin camión van a quedar asignados a él.';
   }
   const asignados = textoAsignados(estado.viajes, estado.gastos);
-  return asignados ? `Es tu primer camión: ${asignados} que cargaste sin camión van a quedar asignados a él.` : 'Es tu primer camión.';
+  return asignados ? `Es tu primer camión: ${asignados} que anotaste sin camión van a quedar asignados a él.` : 'Es tu primer camión.';
 }
 
 export function textoAvisoCamiones(aviso: AvisoCamiones): string {
-  if (aviso.tipo === 'camion-archivado') return 'Camión archivado.';
+  if (aviso.tipo === 'camion-archivado') return 'Listo: ya no usas este camión.';
   if (aviso.tipo === 'camion-reactivado') return 'Camión reactivado.';
   const asignados = textoAsignados(aviso.viajesAsignados, aviso.gastosAsignados);
   return asignados ? `Camión guardado. Se le asignaron ${asignados} que estaban sin camión.` : 'Camión guardado.';

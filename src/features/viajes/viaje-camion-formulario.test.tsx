@@ -380,7 +380,7 @@ describe('viaje nuevo: el camión según los camiones de la cuenta', () => {
     await llenarLoMinimo();
     await click(radioDe('ABC 123'));
     await guardar();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     await typeById('viaje-destino', 'Mendoza'); // cambia algo entre intentos
     await guardar();
     expect(crearCalls()).toHaveLength(2);
@@ -459,13 +459,13 @@ describe('editar un viaje: el camión que tenía', () => {
     expect(rpcArgs(actualizarCalls()[0]!).p_camion_id).toBe(B.id);
   });
 
-  it('su camión está ARCHIVADO: se conserva (la línea dice "(archivado)"); "Cambiar" lo muestra primero y marcado', async () => {
+  it('su camión está ARCHIVADO: se conserva (la línea dice "(ya no se usa)"); "Cambiar" lo muestra primero y marcado', async () => {
     route.camiones = () => ok([A, X]);
     route.detalle = () => ok(detalleViaje({ camion_id: X.id }));
     await mount(EDITAR);
-    expect(lineaCamion()).toBe('Camión: XY 987 ZW (archivado)');
+    expect(lineaCamion()).toBe('Camión: XY 987 ZW (ya no se usa)');
     await abrirCambiar();
-    expect(radios().map((r) => r.closest('label')!.textContent)).toEqual(['XY 987 ZW (archivado)', 'AB 123 CD']);
+    expect(radios().map((r) => r.closest('label')!.textContent)).toEqual(['XY 987 ZW (ya no se usa)', 'AB 123 CD']);
     expect(radioDe('XY 987 ZW')!.checked).toBe(true);
     await guardar();
     expect(rpcArgs(actualizarCalls()[0]!).p_camion_id).toBe(X.id);
@@ -475,7 +475,7 @@ describe('editar un viaje: el camión que tenía', () => {
     route.camiones = () => ok([X]);
     route.detalle = () => ok(detalleViaje({ camion_id: X.id }));
     await mount(EDITAR);
-    expect(lineaCamion()).toBe('Camión: XY 987 ZW (archivado)');
+    expect(lineaCamion()).toBe('Camión: XY 987 ZW (ya no se usa)');
     expect(botonCambiar()).toBeNull();
     await guardar();
     expect(rpcArgs(actualizarCalls()[0]!).p_camion_id).toBe(X.id);
@@ -628,7 +628,7 @@ describe('viaje nuevo: el camión activo (Etapa 5c)', () => {
     const cambiar = botonCambiar()!;
     expect(cambiar.getAttribute('aria-expanded')).toBe('false');
     expect(cambiar.getAttribute('aria-label')).toBe('Cambiar el camión');
-    expect(ayudaCamion()).toBe('Es tu camión activo. Si lo cambias aquí, solo cambia en este registro.');
+    expect(ayudaCamion()).toBe('Es tu camión activo. Si eliges otro aquí, tu camión activo no cambia.');
     expect(cambiar.getAttribute('aria-describedby')).toBe('viaje-camion-ayuda');
     // La línea va entre Destino y Kilometraje, como el selector.
     expect(byId('viaje-destino')!.compareDocumentPosition(byId('viaje-camion-linea')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -725,7 +725,7 @@ describe('viaje nuevo: el camión activo (Etapa 5c)', () => {
     await click([...document.querySelectorAll('a')].find((a) => a.textContent === 'Otro viaje'));
     await settle(4);
     expect(lineaCamion()).toBe('Camión: ABC 123');
-    expect(ayudaCamion()).toBe('Es tu camión activo. Si lo cambias aquí, solo cambia en este registro.');
+    expect(ayudaCamion()).toBe('Es tu camión activo. Si eliges otro aquí, tu camión activo no cambia.');
   });
 
   it('el mousedown sobre una opción (el foco se va al documento) NO pliega: el clic elige', async () => {

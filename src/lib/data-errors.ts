@@ -44,6 +44,17 @@ export interface DataErrorContext {
   /** Violación de FK (23503). Al ELIMINAR: "No se puede eliminar porque tiene gastos asociados." */
   foreignKey?: string;
   /**
+   * Sin señal (la red no respondió). Por defecto vale `NETWORK_ERROR_MESSAGE` (leer, ingresar). `useSubmitFeedback` pone el de
+   * GUARDAR un formulario (`NETWORK_SAVE_ERROR_MESSAGE`, que manda a tocar «Reintentar»); una acción que NO es eso (eliminar,
+   * cambiar el estado de un camión) pone el suyo, que no nombra ningún botón.
+   */
+  network?: string;
+  /**
+   * Escritura cortada por tiempo (`writeTimeoutSignal`). Por defecto vale `TIMEOUT_ERROR_MESSAGE` (el de GUARDAR un
+   * formulario); igual que `network`, una acción que no es un formulario pone el suyo.
+   */
+  timeout?: string;
+  /**
    * La MISMA clase 23503 puede venir de constraints distintos (en un gasto: la FK del viaje, o el trigger de la
    * categoría, que no nombra ningún constraint). Mapa `nombre del constraint → mensaje`: si el `message` o los
    * `details` del error nombran ese constraint, gana este mensaje; si no, vale `foreignKey`. El nombre del
@@ -286,9 +297,40 @@ export function isRetryableDataError(error: unknown, context: DataErrorContext =
   return kind === 'network' || kind === 'timeout' || kind === 'server' || kind === 'unknown';
 }
 
+/**
+ * Sin señal AL GUARDAR UN FORMULARIO (lo que pone `useSubmitFeedback` por defecto): dice que todavía NO se guardó, que lo
+ * escrito sigue en pantalla y qué tocar («Reintentar», de la barra de envío o del aviso). Al LEER (listas, Resumen) y en Auth
+ * vale `NETWORK_ERROR_MESSAGE`, que no habla de guardar: «Todavía NO se guardó» no tiene sentido en una lista que no cargó ni
+ * en un ingreso. Las acciones que no son un formulario (eliminar, cambiar el estado de un camión) usan los de más abajo.
+ */
+export const NETWORK_SAVE_ERROR_MESSAGE = 'No hay señal. Todavía NO se guardó, pero lo escrito sigue aquí. Cuando vuelva, toca Reintentar.';
+
+/**
+ * La escritura de un formulario se cortó por tiempo (`writeTimeoutSignal`, solo las escrituras tienen timeout): pudo haber
+ * llegado al servidor. «No se duplica» vale porque las altas llevan clave de idempotencia (`client_ref`) o revisan antes de
+ * repetir.
+ */
+export const TIMEOUT_ERROR_MESSAGE = 'La señal está lenta y no sabemos si se guardó. Toca Reintentar: no se duplica.';
+
+/**
+ * ELIMINAR (`ConfirmDelete`): no hay nada «escrito» que se conserve, y el botón que repite la acción no siempre se llama
+ * «Reintentar» (en un borrado que destruye datos conserva su rótulo, p. ej. «Borrar el viaje y sus devoluciones»). Por eso
+ * estos dos textos no nombran ningún botón ni hablan de guardar.
+ */
+export const NETWORK_DELETE_ERROR_MESSAGE = 'No hay señal. Todavía NO se eliminó. Cuando tengas señal, inténtalo de nuevo.';
+export const TIMEOUT_DELETE_ERROR_MESSAGE = 'La señal está lenta y no sabemos si se eliminó. Inténtalo de nuevo.';
+
+/**
+ * CAMBIAR EL ESTADO DE UN CAMIÓN (archivar o reactivar): tampoco nombran ningún botón. En el paso de confirmar de
+ * «Ya no uso este camión» el botón pasa a decir «Reintentar», pero «Reactivarlo» (aviso de patente repetida) se vuelve a
+ * tocar tal cual, y no hay nada «escrito» que se conserve.
+ */
+export const NETWORK_CAMION_ESTADO_ERROR_MESSAGE = 'No hay señal. Todavía NO se guardó. Cuando tengas señal, inténtalo de nuevo.';
+export const TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE = 'La señal está lenta y no sabemos si se guardó. Inténtalo de nuevo.';
+
 const DEFAULT_MESSAGES: Record<DataErrorKind, string> = {
   network: NETWORK_ERROR_MESSAGE,
-  timeout: 'Tardó demasiado en responder. Revisa tu conexión e inténtalo de nuevo.',
+  timeout: TIMEOUT_ERROR_MESSAGE,
   session: SESSION_EXPIRED_MESSAGE,
   'invalid-data': INVALID_DATA_MESSAGE,
   'foreign-key': 'No se puede completar la acción porque este registro está relacionado con otros datos.',
@@ -306,6 +348,10 @@ export function mapDataError(error: unknown, context: DataErrorContext = {}): st
   if (porConstraint !== undefined) return porConstraint;
   const kind = kindInContext(error, context);
   switch (kind) {
+    case 'network':
+      return context.network ?? DEFAULT_MESSAGES[kind];
+    case 'timeout':
+      return context.timeout ?? DEFAULT_MESSAGES[kind];
     case 'foreign-key': {
       const porConstraint = Object.entries(context.foreignKeyByConstraint ?? {}).find(([constraint]) =>
         mentionsConstraint(error, constraint),

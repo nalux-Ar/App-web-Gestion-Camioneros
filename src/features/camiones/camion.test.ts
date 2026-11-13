@@ -33,9 +33,9 @@ describe('etiquetaCamion', () => {
     expect(etiquetaCamion(camion({ marca: 'Scania' }))).toBe('AB 123 CD'); // sin descripción por defecto
   });
 
-  it('archivado: lo dice', () => {
-    expect(etiquetaCamion(camion({ activa: false }))).toBe('AB 123 CD (archivado)');
-    expect(etiquetaCamion(camion({ activa: false, marca: 'Fiat' }), { conDescripcion: true })).toBe('AB 123 CD · Fiat (archivado)');
+  it('archivado (ya no se usa): lo dice', () => {
+    expect(etiquetaCamion(camion({ activa: false }))).toBe('AB 123 CD (ya no se usa)');
+    expect(etiquetaCamion(camion({ activa: false, marca: 'Fiat' }), { conDescripcion: true })).toBe('AB 123 CD · Fiat (ya no se usa)');
   });
 
   it('un camión que no está (o sin patente): "Camión no disponible"', () => {

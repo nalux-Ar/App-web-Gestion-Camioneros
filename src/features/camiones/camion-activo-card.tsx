@@ -21,7 +21,7 @@ const GUARDANDO = 'Guardando…';
 
 /**
  * Tarjeta del camión activo en Inicio (Etapa 5c): AHÍ se elige el camión con el que trabaja la persona, el que precompleta
- * los viajes y las cargas de combustible NUEVOS (ver `decidirCamion`). Convive con "Carga tu camión" (`CargarCamionCard`),
+ * los viajes y las cargas de combustible NUEVOS (ver `decidirCamion`). Convive con "Agrega tu camión" (`CargarCamionCard`),
  * que sale solo con 0 camiones: son excluyentes.
  *
  *  - Lista de camiones cargando o con error: no se muestra nada (no se adivina).
@@ -66,7 +66,7 @@ export function CamionActivoCard() {
     setGuardando(null);
     if (result.ok) {
       const guardado = camiones ? buscarCamion(camiones, result.data) : null;
-      setAnuncio(guardado ? `Camión activo: ${formatearPatente(guardado.patente)}.` : '');
+      setAnuncio(guardado ? `Listo: trabajas con ${formatearPatente(guardado.patente)}.` : '');
     }
   }
 
@@ -80,14 +80,14 @@ export function CamionActivoCard() {
     <Card role="region" aria-labelledby={tituloId} data-ayuda="camion" className={cn(sinActivo && 'border-primary/50')}>
       <CardHeader>
         <CardTitle id={tituloId}>Camión activo</CardTitle>
-        <CardDescription>Se usa en tus viajes y cargas de combustible nuevos. En cada registro puedes elegir otro.</CardDescription>
+        <CardDescription>Se usa en tus viajes y cargas de combustible nuevos. En cada viaje o gasto puedes elegir otro.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {sinActivo ? <p className="text-base font-medium">Elige el camión con el que vas a trabajar.</p> : null}
+        {sinActivo ? <p className="text-base font-medium">Todavía no elegiste uno.</p> : null}
         {control === 'botones' ? (
           <ChoiceGroup
             id="camion-activo"
-            legend="Elige el camión"
+            legend="¿Con qué camión trabajas hoy?"
             value={activo?.id ?? ''}
             onChange={(camionId) => void elegir(camionId)}
             options={opciones}
@@ -97,8 +97,8 @@ export function CamionActivoCard() {
         ) : (
           <SelectField
             id="camion-activo"
-            label="Elige el camión"
-            placeholder="Elige el camión"
+            label="¿Con qué camión trabajas hoy?"
+            placeholder="Elige una opción"
             value={activo?.id ?? ''}
             onChange={(camionId) => void elegir(camionId)}
             options={opciones}

@@ -11,9 +11,9 @@ interface DialogoAyudaProps {
   antetitulo?: string;
   /** El cuerpo: textos planos. */
   children: ReactNode;
-  /** El botón de la esquina, siempre visible ("Saltar" o "Cerrar"). */
-  esquina: ReactNode;
-  /** Los botones de abajo (Atrás / Siguiente). */
+  /** El botón de la esquina, siempre visible ("Saltar" en el recorrido). La hoja de la "Ayuda" no lleva: cierra con "Entendido" abajo. */
+  esquina?: ReactNode;
+  /** Los botones de abajo (Atrás / Siguiente en el recorrido; "Entendido" a todo el ancho en la hoja de la "Ayuda"). */
   acciones?: ReactNode;
   posicion: Posicion;
   onEscape: () => void;
@@ -24,7 +24,7 @@ interface DialogoAyudaProps {
 }
 
 /**
- * El diálogo de la ayuda (el del recorrido y el de la "i"): `role="dialog"` con `aria-modal`, en un portal FUERA de la app,
+ * El diálogo de la ayuda (el del recorrido y el de la hoja de «Ayuda»): `role="dialog"` con `aria-modal`, en un portal FUERA de la app,
  * que queda `inert` mientras está abierto. Foco al título, Tab atrapado adentro, Esc cierra y el foco vuelve a donde
  * estaba. Por encima del header y la barra de abajo (z-40) y de la barra fija de acciones (z-30). Solo colores del tema.
  *
@@ -78,7 +78,7 @@ export function DialogoAyuda({ titulo, antetitulo, children, esquina, acciones, 
             {titulo}
           </h2>
         </div>
-        <div className="-mr-2 -mt-1 shrink-0">{esquina}</div>
+        {esquina ? <div className="-mr-2 -mt-1 shrink-0">{esquina}</div> : null}
       </div>
       <div id={textoId} className="text-base">
         {children}

@@ -287,6 +287,8 @@ describe('detalle de un viaje: los datos', () => {
     const datos = section('Datos del viaje');
     expect(datos.textContent).toContain('15 jun 2025');
     expect(datos.textContent).toContain(`${nums(650.5, 1, false)} km`); // 1850,5 - 1200
+    expect(datos.textContent).toContain('Lo que cobraste');
+    expect(datos.textContent).not.toMatch(/Ingreso/);
     expect(datos.textContent).toContain(nums(15000.5, 2));
     expect(datos.textContent).toContain('Todo bien');
     expect(datos.textContent).toContain('Segunda línea');
@@ -298,23 +300,23 @@ describe('detalle de un viaje: los datos', () => {
     expect(section('Datos del viaje').textContent).toContain(`${nums(480, 1, false)} km`);
   });
 
-  it('viaje en curso (solo el km inicial): "Km final sin cargar"', async () => {
+  it('viaje en curso (solo el km inicial): "Falta el km de llegada."', async () => {
     route.viaje = () => ok(vista({ km_final: null }));
     await mount();
-    expect(section('Datos del viaje').textContent).toContain('Km final sin cargar');
+    expect(section('Datos del viaje').textContent).toContain('Falta el km de llegada.');
     expect(section('Datos del viaje').textContent).not.toMatch(/\d km/);
   });
 
-  it('sin km ni ingreso ni observaciones: "Sin cargar" y no aparece el bloque de observaciones', async () => {
+  it('sin km ni ingreso ni observaciones: "Sin anotar" y no aparece el bloque de observaciones', async () => {
     route.viaje = () => ok(vista({ km_inicial: null, km_final: null, km_recorridos: null, ingreso: null, observaciones: null }));
     await mount();
     const datos = section('Datos del viaje');
-    expect(datos.textContent).toContain('Sin cargar');
+    expect(datos.textContent).toContain('Sin anotar');
     expect(datos.textContent).not.toContain('Observaciones');
     expect(datos.textContent).not.toContain(nums(0, 2));
   });
 
-  it('un ingreso de 0 se muestra como 0 (no como "Sin cargar")', async () => {
+  it('un ingreso de 0 se muestra como 0 (no como "Sin anotar")', async () => {
     route.viaje = () => ok(vista({ ingreso: 0 }));
     await mount();
     expect(section('Datos del viaje').textContent).toContain(nums(0, 2));
@@ -355,17 +357,17 @@ describe('detalle de un viaje: las entregas', () => {
     const filas = [...entregas.querySelectorAll('li')];
     expect(filas).toHaveLength(3);
     expect(filas[0]!.textContent).toContain('Almacén Central');
-    expect(filas[0]!.textContent).toContain('Incidencias: Golpe en un pallet');
+    expect(filas[0]!.textContent).toContain('Problemas o novedades: Golpe en un pallet');
     expect(filas[1]!.textContent).toContain('Frigorífico Sur');
-    expect(filas[1]!.textContent).not.toContain('Incidencias');
+    expect(filas[1]!.textContent).not.toContain('Problemas o novedades');
     expect(filas[2]!.textContent).toContain('Distribuidora Norte');
-    expect(filas[2]!.textContent).toContain('Incidencias: Llegó tarde');
+    expect(filas[2]!.textContent).toContain('Problemas o novedades: Llegó tarde');
   });
 
   it('sin entregas: lo dice', async () => {
     route.viaje = () => ok(vista({ entregas: [] }));
     await mount();
-    expect(section('Entregas').textContent).toContain('Este viaje no tiene entregas cargadas.');
+    expect(section('Entregas').textContent).toContain('Este viaje no tiene entregas anotadas.');
     expect(section('Entregas').querySelector('ul')).toBeNull();
   });
 
@@ -529,15 +531,15 @@ describe('detalle de un viaje: las devoluciones', () => {
     expect(section('Datos del viaje').textContent).toContain('15 jun 2025');
     expect(gastoItems()).toHaveLength(3); // los gastos y las entregas no se enteran
     const devoluciones = section('Devoluciones');
-    expect(devoluciones.textContent).toContain('No hay conexión');
+    expect(devoluciones.textContent).toContain('No hay señal');
     expect(devoluciones.textContent).not.toContain('Este viaje no tiene devoluciones.'); // un error NO es "vacío"
     expect(devolucionItems()).toHaveLength(0);
     await click([...devoluciones.querySelectorAll('button')].find((b) => b.textContent?.includes('Reintentar')));
     expect(devolucionItems()).toHaveLength(3);
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
   });
 
-  it('con el error, el botón "Cargar devolución" sigue disponible', async () => {
+  it('con el error, el botón "Anotar devolución" sigue disponible', async () => {
     route.devoluciones = () => sinRed();
     await mount();
     expect(linkTo(`/viajes/${VIAJE_ID}/devoluciones/nueva`)).toHaveLength(1);
@@ -557,7 +559,7 @@ describe('detalle de un viaje: las devoluciones', () => {
     expect(cargas).toBe(2);
     expect(devolucionItems()).toHaveLength(3); // la lista sigue a la vista
     const devoluciones = section('Devoluciones');
-    expect(devoluciones.textContent).toContain('No hay conexión');
+    expect(devoluciones.textContent).toContain('No hay señal');
     expect([...devoluciones.querySelectorAll('button')].some((b) => b.textContent?.includes('Reintentar'))).toBe(true);
   });
 
@@ -582,12 +584,12 @@ describe('detalle de un viaje: las devoluciones', () => {
   });
 });
 
-describe('detalle de un viaje: "Cargar devolución" (acción secundaria)', () => {
+describe('detalle de un viaje: "Anotar devolución" (acción secundaria)', () => {
   it('lleva a /viajes/<id>/devoluciones/nueva con el mes como único dato en el state', async () => {
     await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?mes=2025-06' } });
     const cargar = linkTo(`/viajes/${VIAJE_ID}/devoluciones/nueva`);
     expect(cargar).toHaveLength(1);
-    expect(cargar[0]!.textContent).toContain('Cargar devolución');
+    expect(cargar[0]!.textContent).toContain('Anotar devolución');
     await click(cargar[0]!);
     const destino = byId('destino-nueva-devolucion')!;
     expect(destino).not.toBeNull();
@@ -610,7 +612,7 @@ describe('detalle de un viaje: "Cargar devolución" (acción secundaria)', () =>
     expect(stateOf(byId('destino-nueva-devolucion')!)).toEqual({ volver: '' });
   });
 
-  it('la acción PRIMARIA sigue siendo "Cargar gasto de este viaje": única en el encabezado (desde md) y fija abajo en el celular; la devolución no la reemplaza', async () => {
+  it('la acción PRIMARIA sigue siendo "Anotar gasto de este viaje": única en el encabezado (desde md) y fija abajo en el celular; la devolución no la reemplaza', async () => {
     await mount();
     const raiz = container.querySelector('div.space-y-5')!;
     const ocultosEnCelular = [...raiz.querySelectorAll('.max-md\\:hidden')];
@@ -621,7 +623,7 @@ describe('detalle de un viaje: "Cargar devolución" (acción secundaria)', () =>
     expect(ultimo.className).toContain('md:hidden');
     expect(ultimo.querySelector(`a[href="/gastos/nuevo?viaje=${VIAJE_ID}"]`)).not.toBeNull();
     expect(ultimo.querySelector(`a[href="/viajes/${VIAJE_ID}/devoluciones/nueva"]`)).toBeNull();
-    expect(ultimo.textContent).not.toContain('Cargar devolución');
+    expect(ultimo.textContent).not.toContain('Anotar devolución');
     // El primario conserva su tamaño (56 px) y su color.
     expect(ocultosEnCelular[0]!.querySelector('a')!.className).toContain('h-14');
     expect(ocultosEnCelular[0]!.querySelector('a')!.className).toContain('bg-primary');
@@ -630,7 +632,7 @@ describe('detalle de un viaje: "Cargar devolución" (acción secundaria)', () =>
   it('sin viaje (no encontrado) no hay botón de devoluciones', async () => {
     route.viaje = () => ok(null);
     await mount();
-    expect(bodyText()).not.toContain('Cargar devolución');
+    expect(bodyText()).not.toContain('Anotar devolución');
     expect(bodyText()).not.toContain('Devoluciones');
   });
 });
@@ -697,7 +699,7 @@ describe('detalle de un viaje: los gastos', () => {
   it('sin gastos: lo dice, sin total', async () => {
     route.gastos = () => ok([]);
     await mount();
-    expect(section('Gastos del viaje').textContent).toContain('Todavía no hay gastos cargados en este viaje.');
+    expect(section('Gastos del viaje').textContent).toContain('Todavía no hay gastos anotados en este viaje.');
     expect(bodyText()).not.toContain('Total de gastos del viaje');
   });
 
@@ -735,11 +737,11 @@ describe('detalle de un viaje: los gastos', () => {
     };
     await mount();
     expect(section('Datos del viaje').textContent).toContain('15 jun 2025');
-    expect(section('Gastos del viaje').textContent).toContain('No hay conexión');
+    expect(section('Gastos del viaje').textContent).toContain('No hay señal');
     expect(gastoItems()).toHaveLength(0);
     await click(buttonByText('Reintentar'));
     expect(gastoItems()).toHaveLength(3);
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
   });
 
   it('si fallan las categorias: los gastos se ven con nombre generico y un aviso con "Reintentar"', async () => {
@@ -774,11 +776,11 @@ describe('detalle de un viaje: los gastos', () => {
 // Acciones
 // ---------------------------------------------------------------------------
 describe('detalle de un viaje: las acciones', () => {
-  it('"Cargar gasto de este viaje" lleva a /gastos/nuevo?viaje=<id> con el viaje como DATO en el state (no una ruta) y el mes', async () => {
+  it('"Anotar gasto de este viaje" lleva a /gastos/nuevo?viaje=<id> con el viaje como DATO en el state (no una ruta) y el mes', async () => {
     await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?mes=2025-06' } });
     const cargar = linkTo(`/gastos/nuevo?viaje=${VIAJE_ID}`);
     expect(cargar.length).toBeGreaterThan(0);
-    expect(cargar[0]!.textContent).toContain('Cargar gasto de este viaje');
+    expect(cargar[0]!.textContent).toContain('Anotar gasto de este viaje');
     await click(cargar[0]!);
     const destino = byId('destino-nuevo-gasto')!;
     expect(destino.dataset.search).toBe(`?viaje=${VIAJE_ID}`);
@@ -859,7 +861,7 @@ describe('detalle de un viaje: estados', () => {
     route.viaje = () => ok(null);
     await mount();
     expect(bodyText()).toContain('Viaje no encontrado');
-    expect(bodyText()).not.toContain('Cargar gasto de este viaje');
+    expect(bodyText()).not.toContain('Anotar gasto de este viaje');
     expect(bodyText()).not.toContain('Editar viaje');
     expect(container.querySelector('div.space-y-5')!.querySelector('.md\\:hidden')).toBeNull(); // sin barra fija
   });
@@ -877,13 +879,13 @@ describe('detalle de un viaje: estados', () => {
       return intento === 1 ? sinRed() : ok(vista());
     };
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(bodyText()).not.toContain('Viaje no encontrado');
-    expect(bodyText()).not.toContain('Cargar gasto de este viaje');
+    expect(bodyText()).not.toContain('Anotar gasto de este viaje');
     await click(buttonByText('Reintentar'));
     await settle(4);
     expect(section('Datos del viaje').textContent).toContain('15 jun 2025');
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
   });
 
   it('un refresco fallido con el viaje YA a la vista no lo reemplaza por el error ("Reintentar" solo si no hay datos)', async () => {
@@ -899,7 +901,7 @@ describe('detalle de un viaje: estados', () => {
     await settle(4);
     expect(cargas).toBe(2);
     expect(section('Datos del viaje').textContent).toContain('15 jun 2025');
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
     expect(buttonByText('Reintentar')).toBeUndefined();
   });
 
@@ -929,7 +931,7 @@ describe('detalle de un viaje: estados', () => {
     await mount();
     expect(document.querySelector('h1')!.textContent).toBe('Viaje');
     expect(document.querySelector('[aria-busy="true"]')).not.toBeNull();
-    expect(bodyText()).not.toContain('Cargar gasto de este viaje');
+    expect(bodyText()).not.toContain('Anotar gasto de este viaje');
   });
 });
 

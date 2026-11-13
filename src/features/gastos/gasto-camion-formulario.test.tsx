@@ -55,6 +55,7 @@ import {
   CAMION_FALTA_MESSAGE,
 } from '@/features/camiones/camion-seleccion';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
+import { formatNumber } from '@/lib/numbers';
 import { queryClient } from '@/lib/query-client';
 
 type Resp = { data: unknown; count?: unknown; error: { message: string; code: string; details?: string; hint?: string } | null; status: number };
@@ -420,16 +421,16 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     expect(inserts()).toHaveLength(0);
   });
 
-  it('PRIMER camión: avisa lo que se le asigna; al cargarlo lo dice y la carga va con él; se invalida lo asignado', async () => {
+  it('PRIMER camión: avisa lo que se le asigna; al agregarlo lo dice y la carga va con él; se invalida lo asignado', async () => {
     route.camiones = () => ok([]);
     route.crearCamion = () => ok([{ camion_id: NUEVO, creado: true, viajes_asignados: 6, gastos_asignados: 2, activa: true }]);
     await mount();
     await llenarCombustible();
-    expect(bodyText()).toContain('Es tu primer camión: 6 viajes y 2 cargas de combustible que cargaste sin camión van a quedar asignados a él.');
+    expect(bodyText()).toContain('Es tu primer camión: 6 viajes y 2 cargas de combustible que anotaste sin camión van a quedar asignados a él.');
     await typeText(inputPatente(), 'ab 123 cd');
-    await click(buttonByText('Cargar camión'));
+    await click(buttonByText('Agregar camión'));
     expect(rpcsCamion()[0]!.ops.find((o) => o.m === 'rpc')!.args[0]).toEqual({ p_patente: 'AB123CD' });
-    expect(bodyText()).toContain('Camión AB 123 CD cargado. Se le asignaron 6 viajes y 2 cargas de combustible que estaban sin camión.');
+    expect(bodyText()).toContain('Camión AB 123 CD agregado. Se le asignaron 6 viajes y 2 cargas de combustible que estaban sin camión.');
     expect(inputPatente()).toBeNull(); // ya hay un camión: el bloque de alta se va
     expect(invalido(viajesKeys.lists(T))).toBe(true);
     expect(invalido(gastosKeys.all(T))).toBe(true);
@@ -454,7 +455,7 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     route.camiones = () => ok([]);
     await mount();
     await llenarCombustible();
-    await click(buttonByText('Cargar camión'));
+    await click(buttonByText('Agregar camión'));
     expect(bodyText()).toContain('Escribe la patente.');
     expect(rpcsCamion()).toHaveLength(0);
   });
@@ -474,7 +475,7 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     await mount();
     await llenarCombustible();
     await typeText(inputPatente(), 'AB123CD');
-    await click(buttonByText('Cargar camión'));
+    await click(buttonByText('Agregar camión'));
     expect(bodyText()).toContain('Ya tenías el camión AB 123 CD: se usa ese.');
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(A.id);
@@ -486,8 +487,8 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     await mount();
     await llenarCombustible();
     await typeText(inputPatente(), 'XY987ZW');
-    await click(buttonByText('Cargar camión'));
-    expect(bodyText()).toContain('Ya tienes un camión con esa patente (XY 987 ZW), pero está archivado.');
+    await click(buttonByText('Agregar camión'));
+    expect(bodyText()).toContain('Ya tienes un camión con esa patente (XY 987 ZW), pero ya no lo usas.');
     await click(buttonByText('Reactivarlo y usarlo'));
     const update = callsTo('camiones').find((c) => c.ops.some((o) => o.m === 'update'))!;
     expect(update.ops.find((o) => o.m === 'update')!.args[0]).toEqual({ activa: true });
@@ -502,7 +503,7 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     await mount();
     await llenarCombustible();
     await typeText(inputPatente(), 'XY987ZW');
-    await click(buttonByText('Cargar camión'));
+    await click(buttonByText('Agregar camión'));
     await click(buttonByText('Reactivarlo y usarlo'));
     expect(inputPatente()).toBeNull();
     // Alguien lo volvió a archivar desde otro dispositivo: la lista nueva lo trae archivado.
@@ -517,7 +518,7 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     expect(inserts()).toHaveLength(0);
   });
 
-  it('error de red al cargarlo: "Reintentar" en el bloque, lo tipeado sigue', async () => {
+  it('error de red al agregarlo: "Reintentar" en el bloque, lo tipeado sigue', async () => {
     route.camiones = () => ok([]);
     let intento = 0;
     route.crearCamion = () => {
@@ -527,12 +528,12 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     await mount();
     await llenarCombustible();
     await typeText(inputPatente(), 'AB123CD');
-    await click(buttonByText('Cargar camión'));
-    expect(bodyText()).toContain('No hay conexión');
+    await click(buttonByText('Agregar camión'));
+    expect(bodyText()).toContain('No hay señal');
     expect(inputPatente()!.value).toBe('AB123CD');
     await click(buttonByText('Reintentar'));
     expect(rpcsCamion()).toHaveLength(2);
-    expect(bodyText()).toContain('Camión AB 123 CD cargado.');
+    expect(bodyText()).toContain('Camión AB 123 CD agregado.');
   });
 
   it('CHOFER: no puede cargar un camión; se le explica y la carga con litros no se guarda', async () => {
@@ -541,7 +542,7 @@ describe('sin camiones activos: "+ Nuevo camión" en línea (solo el administrad
     await mount();
     await llenarCombustible();
     expect(inputPatente()).toBeNull();
-    expect(bodyText()).toContain('solo el administrador de la cuenta puede cargarlo');
+    expect(bodyText()).toContain('solo el administrador de la cuenta puede agregarlo');
     await guardar();
     expect(errorCamion()).toBe(CAMION_CREAR_MESSAGE);
     expect(inserts()).toHaveLength(0);
@@ -607,9 +608,9 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
     await mount();
     await llenarCombustible();
     await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_X.id);
-    expect(bodyText()).toContain('Camión del viaje: XY 987 ZW (archivado)');
+    expect(bodyText()).toContain('Camión del viaje: XY 987 ZW (ya no se usa)');
     await guardar();
-    expect(errorCamion()).toBe('El camión de este viaje (XY 987 ZW) está archivado: reactívalo desde Camiones o carga el gasto sin viaje.');
+    expect(errorCamion()).toBe('El camión de este viaje (XY 987 ZW) ya no se usa: reactívalo desde Camiones o anota el gasto sin viaje.');
     expect(document.activeElement).toBe(byId('gasto-camion-bloque'));
     expect(inserts()).toHaveLength(0);
   });
@@ -650,13 +651,13 @@ describe('editar una carga de combustible', () => {
     expect(payloadOf(updatesGasto()[0]!, 'update')).toMatchObject({ camion_id: B.id });
   });
 
-  it('su camión ARCHIVADO (sin viaje): se conserva entre las opciones, "(archivado)"', async () => {
+  it('su camión ARCHIVADO (sin viaje): se conserva entre las opciones, "(ya no se usa)"', async () => {
     route.camiones = () => ok([A, B, X]);
     route.detalle = () => ok(gastoDetalle({ camion_id: X.id }));
     await mount(EDITAR);
-    expect(lineaCamion()).toBe('Camión: XY 987 ZW (archivado)');
+    expect(lineaCamion()).toBe('Camión: XY 987 ZW (ya no se usa)');
     await abrirCambiar();
-    expect(radiosCamion().map((r) => r.closest('label')!.textContent)).toEqual(['XY 987 ZW (archivado)', 'AB 123 CD', 'ABC 123']);
+    expect(radiosCamion().map((r) => r.closest('label')!.textContent)).toEqual(['XY 987 ZW (ya no se usa)', 'AB 123 CD', 'ABC 123']);
     expect(radioCamion('XY 987 ZW')!.checked).toBe(true);
     await guardar();
     expect(payloadOf(updatesGasto()[0]!, 'update').camion_id).toBe(X.id);
@@ -666,7 +667,7 @@ describe('editar una carga de combustible', () => {
     route.camiones = () => ok([A, X]);
     route.detalle = () => ok(gastoDetalle({ camion_id: X.id, viaje_id: V_X.id, viajes: V_X }));
     await mount(EDITAR);
-    expect(bodyText()).toContain('Camión del viaje: XY 987 ZW (archivado)');
+    expect(bodyText()).toContain('Camión del viaje: XY 987 ZW (ya no se usa)');
     await guardar();
     expect(payloadOf(updatesGasto()[0]!, 'update')).toMatchObject({ camion_id: X.id, viaje_id: V_X.id });
   });
@@ -763,7 +764,7 @@ describe('carga de combustible nueva: el camión activo (Etapa 5c)', () => {
     expect(lineaCamion()).toBe('Camión: ABC 123');
     expect(radiosCamion()).toHaveLength(0);
     expect(botonCambiar()!.getAttribute('aria-expanded')).toBe('false');
-    expect(ayudaCamion()).toBe('Es tu camión activo. Si lo cambias aquí, solo cambia en este registro.');
+    expect(ayudaCamion()).toBe('Es tu camión activo. Si eliges otro aquí, tu camión activo no cambia.');
     // Dentro del bloque Combustible, antes de los litros.
     expect(byId('gasto-camion-linea')!.compareDocumentPosition(byId('gasto-litros')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await guardar();
@@ -921,7 +922,7 @@ describe('carga de combustible nueva: el camión activo (Etapa 5c)', () => {
     await mount();
     await llenarCombustible();
     await typeText(inputPatente(), 'AB123CD');
-    await click(buttonByText('Cargar camión'));
+    await click(buttonByText('Agregar camión'));
     expect(lineaCamion()).toBe('Camión: AB 123 CD');
     expect(botonCambiar()).toBeNull();
   });
@@ -945,5 +946,52 @@ describe('combustible: el método de pago es obligatorio', () => {
     await guardar();
     expect(inserts()).toHaveLength(1);
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ metodo_pago: 'tarjeta_credito', litros: 40 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Textos de los campos de combustible (usabilidad: palabras del oficio, sin «odómetro»)
+// ---------------------------------------------------------------------------
+describe('carga de combustible: los textos de los campos', () => {
+  const tanques = () => [...document.querySelectorAll<HTMLInputElement>('input[type="radio"][id^="gasto-tanque-"]')].map((r) => r.closest('label')!.textContent);
+
+  it('«Kilómetros del camión», con su ayuda en palabras del tablero: ya no «Km del odómetro»', async () => {
+    route.camiones = () => ok([A, X]);
+    await mount();
+    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    expect(document.querySelector('label[for="gasto-km"]')!.textContent).toContain('Kilómetros del camión');
+    expect(bodyText()).toContain('Los km totales que marca el tablero. Sirven para saber cuánto rinde.');
+    expect(bodyText()).not.toMatch(/odómetro/i);
+  });
+
+  it('«¿Llenaste el tanque?»: Sí / No / No sé (ya no «Sin indicar»)', async () => {
+    route.camiones = () => ok([A, X]);
+    await mount();
+    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    expect(tanques()).toEqual(['Sí', 'No', 'No sé']);
+    expect(bodyText()).not.toContain('Sin indicar');
+  });
+
+  it('el precio del litro: «Sale a … el litro» SOLO con monto y litros; sin datos no se muestra nada (ni «—» ni «÷»)', async () => {
+    route.camiones = () => ok([A, X]);
+    await mount();
+    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    expect(bodyText()).not.toContain('Sale a');
+    expect(bodyText()).not.toMatch(/Precio por litro|Se calcula solo|÷/);
+    await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
+    expect(bodyText()).not.toContain('Sale a'); // falta los litros
+    await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
+    expect(bodyText()).toContain(`Sale a ${formatNumber(1000, { decimales: 2 })} el litro`);
+    expect(bodyText()).not.toContain('$'); // los montos van sin símbolo de moneda
+    await typeText(byId<HTMLInputElement>('gasto-litros'), '');
+    expect(bodyText()).not.toContain('Sale a');
+  });
+
+  it('los litros se piden como «Ej.: 40,5. No uses puntos.» y el aviso para lectores de pantalla nombra los kilómetros del camión', async () => {
+    route.camiones = () => ok([A, X]);
+    await mount();
+    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    expect(bodyText()).toContain('Ej.: 40,5. No uses puntos.');
+    expect(bodyText()).toContain('Se agregaron los campos de combustible: litros, kilómetros del camión y tanque lleno.');
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { BOTON_CERRAR } from './ayuda-textos';
+import { BOTON_ENTENDIDO } from './ayuda-textos';
 import { DialogoAyuda } from './dialogo-ayuda';
 import { calcularPosicion } from './posicion';
 import { leerViewport } from './use-dialogo-ayuda';
@@ -17,8 +17,9 @@ export interface HojaAyudaProps {
 }
 
 /**
- * La ayuda de una pantalla (la que abre la "i"): el mismo diálogo que el recorrido, sin objetivo. En el celular, hoja
- * abajo; en escritorio, centrada. "Cerrar", Esc o tocar el velo la cierran, y el foco vuelve a la "i".
+ * La ayuda de una pantalla (la que abre el botón «Ayuda»): el mismo diálogo que el recorrido, sin objetivo. En el celular,
+ * hoja abajo; en escritorio, centrada. Se cierra con «Entendido» (un botón de todo el ancho, abajo, del tamaño del botón
+ * principal de siempre), con Esc o tocando el velo, y el foco vuelve al botón «Ayuda».
  */
 export function HojaAyuda({ titulo, puntos, onCerrar, accion }: HojaAyudaProps) {
   const [viewport, setViewport] = useState(leerViewport);
@@ -35,9 +36,9 @@ export function HojaAyuda({ titulo, puntos, onCerrar, accion }: HojaAyudaProps) 
         titulo={titulo}
         posicion={calcularPosicion(null, { ancho: 0, alto: 0 }, viewport)}
         onEscape={onCerrar}
-        esquina={
-          <Button type="button" variant="ghost" onClick={onCerrar}>
-            {BOTON_CERRAR}
+        acciones={
+          <Button type="button" className="w-full" onClick={onCerrar}>
+            {BOTON_ENTENDIDO}
           </Button>
         }
       >

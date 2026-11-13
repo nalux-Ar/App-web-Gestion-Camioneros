@@ -169,16 +169,17 @@ export function combinarCamiones(cargados: readonly CamionDeLista[], creados: re
 }
 
 export const CAMION_FALTA_MESSAGE = 'Elige el camión.';
-export const CAMION_CREAR_MESSAGE = 'Para guardar los litros hace falta un camión: cárgalo aquí abajo.';
-export const CAMIONES_SIN_CARGAR_MESSAGE = 'Falta cargar tus camiones. Revisa la sección del camión.';
+export const CAMION_CREAR_MESSAGE = 'Para guardar los litros hace falta un camión: agrégalo aquí abajo.';
+/** Se muestra al guardar con la lista de camiones sin traer (todavía cargando, o fallada con su "Reintentar"). */
+export const CAMIONES_SIN_CARGAR_MESSAGE = 'Todavía no se pudo traer la lista de camiones. Espera un momento o toca Reintentar en Camión.';
 /** Ayuda de un registro nuevo precompletado con el camión activo. */
-export const AYUDA_ES_EL_ACTIVO = 'Es tu camión activo. Si lo cambias aquí, solo cambia en este registro.';
+export const AYUDA_ES_EL_ACTIVO = 'Es tu camión activo. Si eliges otro aquí, tu camión activo no cambia.';
 /** Ayuda de un registro nuevo con 2 o más camiones activos y sin un camión activo válido. */
 export const AYUDA_SUGERIR_ACTIVO = 'Puedes dejar un camión activo en Inicio para no elegirlo cada vez.';
 
-/** "El camión de este viaje (AB 123 CD) está archivado…": el camión del viaje no se puede usar en una carga nueva. */
+/** "El camión de este viaje (AB 123 CD) ya no se usa…": el camión del viaje no se puede usar en una carga nueva. */
 export function camionDelViajeArchivadoMessage(camion: CamionDeLista | null): string {
-  return `El camión de este viaje (${etiquetaCamion(camion && { ...camion, activa: true })}) está archivado: reactívalo desde Camiones o carga el gasto sin viaje.`;
+  return `El camión de este viaje (${etiquetaCamion(camion && { ...camion, activa: true })}) ya no se usa: reactívalo desde Camiones o anota el gasto sin viaje.`;
 }
 
 export type ResolucionCamion = { ok: true; camionId: string | null } | { ok: false; message: string };

@@ -56,7 +56,7 @@ describe('aviso de la lista (lista blanca)', () => {
     expect(textoAvisoCamiones({ tipo: 'camion-guardado', viajesAsignados: 6, gastosAsignados: 1 })).toBe(
       'Camión guardado. Se le asignaron 6 viajes y 1 carga de combustible que estaban sin camión.',
     );
-    expect(textoAvisoCamiones({ tipo: 'camion-archivado', viajesAsignados: 3, gastosAsignados: 0 })).toBe('Camión archivado.');
+    expect(textoAvisoCamiones({ tipo: 'camion-archivado', viajesAsignados: 3, gastosAsignados: 0 })).toBe('Listo: ya no usas este camión.');
     expect(textoAvisoCamiones({ tipo: 'camion-reactivado', viajesAsignados: 0, gastosAsignados: 0 })).toBe('Camión reactivado.');
   });
 });
@@ -76,7 +76,7 @@ describe('textoAsignados y textoPrimerCamion', () => {
   it('el aviso antes del primer camión según el conteo', () => {
     expect(textoPrimerCamion({ tipo: 'cargando' })).toBe('Es tu primer camión. Revisando tus viajes y cargas de combustible sin camión…');
     expect(textoPrimerCamion({ tipo: 'listo', viajes: 6, gastos: 2 })).toBe(
-      'Es tu primer camión: 6 viajes y 2 cargas de combustible que cargaste sin camión van a quedar asignados a él.',
+      'Es tu primer camión: 6 viajes y 2 cargas de combustible que anotaste sin camión van a quedar asignados a él.',
     );
     expect(textoPrimerCamion({ tipo: 'listo', viajes: 0, gastos: 0 })).toBe('Es tu primer camión.');
     expect(textoPrimerCamion({ tipo: 'error' })).toContain('van a quedar asignados a él');

@@ -1,7 +1,7 @@
 /**
  * Interruptor de "Reportar un problema" (la pantalla donde la persona le cuenta al equipo qué falló).
  *
- * Con `false`, la función queda OCULTA: no se dibuja el atajo del header ni la tarjeta de Configuración, las ayudas «i»
+ * Con `false`, la función queda OCULTA: no se dibuja el atajo del header ni la tarjeta de Configuración, las ayudas «Ayuda»
  * de Inicio y de Configuración no la nombran, el recorrido de bienvenida no tiene su paso y la ruta `/reportar` lleva a
  * Inicio. Está en `false` A PROPÓSITO: la función se oculta, no se elimina. El código de `src/features/reportar`, la tabla
  * `reportes` y sus datos siguen intactos, y lo que la app junta en memoria para el reporte (los errores recientes y la

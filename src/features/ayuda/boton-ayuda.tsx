@@ -1,10 +1,11 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { Compass, Info } from 'lucide-react';
+import { CircleQuestionMark, Compass } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { HojaAyudaDiferida } from './ayuda-lazy';
 import { TEXTO_VER_RECORRIDO, type AyudaPantalla } from './ayuda-pantallas';
+import { ETIQUETA_BOTON_AYUDA, TEXTO_BOTON_AYUDA } from './ayuda-textos';
 import { pedirRecorrido } from './pedido-recorrido';
 
 interface BotonAyudaProps {
@@ -17,8 +18,11 @@ interface BotonAyudaProps {
 }
 
 /**
- * La "i" permanente de cada pantalla: abre la ayuda de ESA pantalla. La hoja va diferida (el chunk se baja recién al
- * tocar) y, al cerrarla, el foco vuelve a este botón. Táctil de 48 px (el piso del proyecto).
+ * El botón «Ayuda» de cada pantalla (ícono «?» + la palabra, con borde): abre la ayuda de ESA pantalla. Lleva el texto a la
+ * vista porque un ícono suelto, gris y sin texto no se reconoce como botón. La hoja va diferida (el chunk se baja recién al
+ * tocar) y, al cerrarla, el foco vuelve a este botón. Táctil de 48 px (el piso del proyecto). Su nombre accesible EMPIEZA con
+ * el texto visible («Ayuda de esta pantalla»). `shrink-0` y `whitespace-nowrap` (el de `Button`): a 360 px el que se achica y
+ * se parte en líneas es el título de al lado, nunca este botón.
  */
 export function BotonAyuda({ ayuda, dataAyuda, conRecorrido = false, className }: BotonAyudaProps) {
   const [abierta, setAbierta] = useState(false);
@@ -35,9 +39,8 @@ export function BotonAyuda({ ayuda, dataAyuda, conRecorrido = false, className }
     <>
       <Button
         type="button"
-        variant="ghost"
-        size="icon"
-        aria-label="Ayuda de esta pantalla"
+        variant="outline"
+        aria-label={ETIQUETA_BOTON_AYUDA}
         aria-haspopup="dialog"
         data-ayuda={dataAyuda}
         onClick={(evento) => {
@@ -45,9 +48,10 @@ export function BotonAyuda({ ayuda, dataAyuda, conRecorrido = false, className }
           evento.currentTarget.focus({ preventScroll: true });
           setAbierta(true);
         }}
-        className={cn('shrink-0 text-muted-foreground hover:text-foreground [&_svg]:size-6', className)}
+        className={cn('shrink-0 [&_svg]:size-5', className)}
       >
-        <Info aria-hidden="true" />
+        <CircleQuestionMark aria-hidden="true" />
+        {TEXTO_BOTON_AYUDA}
       </Button>
       {abierta ? (
         <Suspense fallback={null}>

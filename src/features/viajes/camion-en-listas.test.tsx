@@ -220,11 +220,11 @@ describe('detalle del viaje: fila "Camión"', () => {
     expect(datoDe('Camión')).toBe('Sin asignar');
   });
 
-  it('su camión archivado: "(archivado)"', async () => {
+  it('su camión archivado: "(ya no se usa)"', async () => {
     camiones = () => ok([A, X]);
     viaje = () => ok(vista(X.id));
     await mount(`/viajes/${VIAJE_ID}`);
-    expect(datoDe('Camión')).toBe('XY 987 ZW (archivado)');
+    expect(datoDe('Camión')).toBe('XY 987 ZW (ya no se usa)');
   });
 
   it('0 camiones en la cuenta: no hay fila (como hoy)', async () => {

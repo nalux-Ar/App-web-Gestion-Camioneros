@@ -94,9 +94,9 @@ export function NuevoCamionInline({ idPrefix, esElPrimero, onListo }: NuevoCamio
     const nombre = formatearPatente(columns.patente);
     if (alta.tipo === 'creado') {
       const asignados = textoAsignados(alta.viajesAsignados, alta.gastosAsignados);
-      onListo(camion, asignados ? `Camión ${nombre} cargado. Se le asignaron ${asignados} que estaban sin camión.` : `Camión ${nombre} cargado.`);
+      onListo(camion, asignados ? `Camión ${nombre} agregado. Se le asignaron ${asignados} que estaban sin camión.` : `Camión ${nombre} agregado.`);
     } else if (alta.tipo === 'ya-guardado') {
-      onListo(camion, `Camión ${nombre} cargado.`);
+      onListo(camion, `Camión ${nombre} agregado.`);
     } else {
       // Ya existía y está activo (la lista de la pantalla estaba vieja): es el camión de la persona, se usa ese.
       onListo(camion, `Ya tenías el camión ${nombre}: se usa ese.`);
@@ -158,7 +158,7 @@ export function NuevoCamionInline({ idPrefix, esElPrimero, onListo }: NuevoCamio
       {archivado ? (
         <div className="space-y-2" role="alert">
           <p className="text-base font-medium">
-            Ya tienes un camión con esa patente ({formatearPatente(archivado.patente)}), pero está archivado.
+            Ya tienes un camión con esa patente ({formatearPatente(archivado.patente)}), pero ya no lo usas.
           </p>
           <Button ref={reactivarRef} type="button" variant="outline" disabled={pending} aria-busy={pending} onClick={() => void reactivar()}>
             {pending ? 'Reactivando…' : 'Reactivarlo y usarlo'}
@@ -175,7 +175,7 @@ export function NuevoCamionInline({ idPrefix, esElPrimero, onListo }: NuevoCamio
               <Spinner /> Cargando…
             </>
           ) : (
-            'Cargar camión'
+            'Agregar camión'
           )}
         </Button>
       ) : null}

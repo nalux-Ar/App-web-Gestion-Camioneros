@@ -31,8 +31,10 @@ export interface TextosDeBorrado {
 export const ETIQUETA_BORRAR = 'Sí, eliminar';
 export const PREGUNTA_SIN_NADA = '¿Seguro? Esto no se puede deshacer.';
 export const PREGUNTA_REVISANDO = 'Revisando si el viaje tiene gastos o devoluciones…';
+/** El botón que confirma cuando el viaje tiene gastos (no se borran: quedan sin viaje). */
+export const ETIQUETA_BORRAR_VIAJE = 'Sí, eliminar el viaje';
 export const PREGUNTA_GENERICA =
-  '¿Seguro? Si tiene gastos vinculados, se conservan pero quedan sin viaje; si tiene devoluciones, se borran con el viaje. Esto no se puede deshacer.';
+  '¿Seguro? Si tiene gastos, no se borran: quedan sin viaje. Si tiene devoluciones, se borran con el viaje. Esto no se puede deshacer.';
 
 /** Un conteo no negativo y entero: lo que no lo sea cuenta como 0 (no se inventa un texto con cantidades raras). */
 function cantidadValida(valor: number): number {
@@ -56,7 +58,7 @@ export function textoConteoCambiado({ gastos, devoluciones }: ConteosDelViaje): 
   const g = cantidadValida(gastos);
   const d = cantidadValida(devoluciones);
   const revisa = 'Revisa y vuelve a confirmar.';
-  if (g === 0 && d === 0) return `Ahora el viaje no tiene gastos ni devoluciones vinculados. ${revisa}`;
+  if (g === 0 && d === 0) return `Ahora el viaje no tiene gastos ni devoluciones. ${revisa}`;
   if (d === 0) return `Ahora el viaje tiene ${gastosEn(g)}. ${revisa}`;
   if (g === 0) return `Ahora el viaje tiene ${devolucionesEn(d)}. ${revisa}`;
   return `Ahora el viaje tiene ${gastosEn(g)} y ${devolucionesEn(d)}. ${revisa}`;
@@ -90,19 +92,16 @@ export function textosDeBorrado(estado: EstadoConteos): TextosDeBorrado {
     return { prompt: PREGUNTA_SIN_NADA, confirmLabel: ETIQUETA_BORRAR, puedeConfirmar: true };
   }
 
-  // Solo gastos: se conservan (quedan sin viaje).
+  // Solo gastos: no se borran (quedan sin viaje).
   if (d === 0) {
-    return g === 1
-      ? {
-          prompt: '¿Seguro? Este viaje tiene 1 gasto. Se conserva, pero queda sin viaje. Esto no se puede deshacer.',
-          confirmLabel: 'Desvincular el gasto y borrar el viaje',
-          puedeConfirmar: true,
-        }
-      : {
-          prompt: `¿Seguro? Este viaje tiene ${g} gastos. Se conservan, pero quedan sin viaje. Esto no se puede deshacer.`,
-          confirmLabel: 'Desvincular los gastos y borrar el viaje',
-          puedeConfirmar: true,
-        };
+    return {
+      prompt:
+        g === 1
+          ? '¿Seguro? Este viaje tiene 1 gasto. No se borra: queda sin viaje. Esto no se puede deshacer.'
+          : `¿Seguro? Este viaje tiene ${g} gastos. No se borran: quedan sin viaje. Esto no se puede deshacer.`,
+      confirmLabel: ETIQUETA_BORRAR_VIAJE,
+      puedeConfirmar: true,
+    };
   }
 
   const confirmLabel = d === 1 ? 'Borrar el viaje y su devolución' : 'Borrar el viaje y sus devoluciones';
@@ -120,7 +119,7 @@ export function textosDeBorrado(estado: EstadoConteos): TextosDeBorrado {
   }
 
   // Las dos cosas: los gastos se conservan, las devoluciones se borran.
-  const queGastos = g === 1 ? 'El gasto se conserva, pero queda sin viaje' : 'Los gastos se conservan, pero quedan sin viaje';
+  const queGastos = g === 1 ? 'El gasto no se borra: queda sin viaje' : 'Los gastos no se borran: quedan sin viaje';
   const queDevoluciones = d === 1 ? 'la devolución se borra con el viaje' : 'las devoluciones se borran con el viaje';
   return {
     prompt: `¿Seguro? Este viaje tiene ${gastosEn(g)} y ${devolucionesEn(d)}. ${queGastos}; ${queDevoluciones}. Esto no se puede deshacer.`,

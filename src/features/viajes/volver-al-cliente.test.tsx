@@ -337,7 +337,7 @@ describe('lo que se abre desde ese detalle devuelve el cliente al volver', () =>
 
   it('cargar una devolución desde ese detalle: guardar vuelve al detalle con el cliente', async () => {
     await mount(DETALLE_DESDE_CLIENTE);
-    await click(linkConTexto('Cargar devolución'));
+    await click(linkConTexto('Anotar devolución'));
     expect(document.querySelector('h1')!.textContent).toBe('Nueva devolución');
     await click(document.querySelector<HTMLInputElement>('input[type="radio"][value="vencimiento"]'));
     const select = document.getElementById('devolucion-cliente') as HTMLSelectElement;

@@ -356,7 +356,7 @@ describe('pestaña Devoluciones: sin "Nuevo viaje"', () => {
 
     lista = () => sinRed();
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(bodyText()).not.toContain('Nuevo viaje');
     expect(links().some((a) => a.getAttribute('href') === '/viajes/nuevo')).toBe(false);
   });
@@ -370,11 +370,11 @@ describe('pestaña Devoluciones: sin "Nuevo viaje"', () => {
 });
 
 describe('pestaña Devoluciones: estados', () => {
-  it('sin devoluciones: "No hay devoluciones en <mes>", explica dónde se cargan y ofrece ir a la pestaña Viajes del mismo mes; sin resumen', async () => {
+  it('sin devoluciones: "No hay devoluciones en <mes>", explica dónde se anotan y ofrece ir a la pestaña Viajes del mismo mes; sin resumen', async () => {
     lista = () => ok([]);
     await mount('/viajes?vista=devoluciones&mes=2025-08');
     expect(bodyText()).toContain('No hay devoluciones en agosto 2025');
-    expect(bodyText()).toContain('Las devoluciones se cargan desde el detalle de un viaje.');
+    expect(bodyText()).toContain('Las devoluciones se anotan desde el detalle de un viaje.');
     expect(resumen()).toBeNull();
     const vacio = document.querySelector('.border-dashed')!;
     const ir = [...vacio.querySelectorAll('a')].find((a) => a.textContent === 'Ir a Viajes')!;
@@ -418,11 +418,11 @@ describe('pestaña Devoluciones: estados', () => {
       return intento === 1 ? sinRed() : ok(FILAS);
     };
     await mount();
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(filas()).toHaveLength(0);
     await click(buttonByText('Reintentar'));
     expect(filas()).toHaveLength(3);
-    expect(bodyText()).not.toContain('No hay conexión');
+    expect(bodyText()).not.toContain('No hay señal');
     expect(devolucionesCalls()).toHaveLength(2);
   });
 
@@ -434,7 +434,7 @@ describe('pestaña Devoluciones: estados', () => {
       await queryClient.invalidateQueries({ queryKey: devolucionesKeys.delosMeses('tenant-a') });
     });
     await settle(4);
-    expect(bodyText()).toContain('No hay conexión');
+    expect(bodyText()).toContain('No hay señal');
     expect(buttonByText('Reintentar')).toBeTruthy();
     expect(filas()).toHaveLength(3);
     expect(resumen()).not.toBeNull();

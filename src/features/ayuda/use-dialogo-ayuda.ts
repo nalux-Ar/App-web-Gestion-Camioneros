@@ -3,7 +3,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 import type { Rect, Viewport } from './posicion';
 
 /**
- * Comportamiento compartido de los diálogos de ayuda (el recorrido y la hoja de la "i"). Solo tocan el DOM: nada de esto
+ * Comportamiento compartido de los diálogos de ayuda (el recorrido y la hoja de la «Ayuda»). Solo tocan el DOM: nada de esto
  * provoca renders.
  */
 

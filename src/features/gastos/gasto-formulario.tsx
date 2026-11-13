@@ -58,6 +58,7 @@ import {
   type TanqueLlenoChoice,
 } from './gasto-form';
 import { GastoNoEncontrado } from './gasto-no-encontrado';
+import { textoPreguntaEliminar } from './gasto-textos';
 import type { GastoDetalle } from './gastos-api';
 import { searchDelMesDeFecha } from './gastos-filters';
 import { useActualizarGasto, useCrearGasto, useEliminarGasto } from './use-gasto-mutations';
@@ -84,7 +85,7 @@ const METODO_PAGO_OPTIONS = METODO_PAGO_ORDER.map((value) => ({ value, label: ME
 const TANQUE_OPTIONS: ReadonlyArray<{ value: TanqueLlenoChoice; label: string }> = [
   { value: 'si', label: 'Sí' },
   { value: 'no', label: 'No' },
-  { value: '', label: 'Sin indicar' },
+  { value: '', label: 'No sé' },
 ];
 
 type ResultadoGuardado = 'listo' | 'no-encontrado';
@@ -406,21 +407,20 @@ export function GastoFormulario({
               onChange={(value) => setField('litros', value)}
               error={errors.litros}
             />
-            <div className="space-y-1.5">
-              <p className="text-base font-medium leading-none">Precio por litro</p>
-              <p className="text-base font-semibold tabular-nums">
-                {precioPorLitro !== null ? formatNumber(precioPorLitro, { decimales: 2 }) : '—'}
+            {/* Solo con datos (monto y litros válidos): sin ellos no se muestra nada, en vez de un "—" con una explicación. */}
+            {precioPorLitro !== null ? (
+              <p className="text-base">
+                Sale a <span className="font-semibold tabular-nums">{formatNumber(precioPorLitro, { decimales: 2 })}</span> el litro
               </p>
-              <p className="text-base text-muted-foreground">Se calcula solo: monto ÷ litros.</p>
-            </div>
+            ) : null}
             <NumberField
               id="gasto-km"
-              label="Km del odómetro"
+              label="Kilómetros del camión"
               kind="km"
               allowZero
               optional
               unit="km"
-              hint="La lectura del odómetro al cargar. Sirve para calcular el rendimiento."
+              hint="Los km totales que marca el tablero. Sirven para saber cuánto rinde."
               value={values.kmOdometro}
               onChange={(value) => setField('kmOdometro', value)}
               error={errors.kmOdometro}
@@ -489,7 +489,7 @@ export function GastoFormulario({
 
         {/* Avisa a lectores de pantalla que aparecieron los campos de combustible. */}
         <p role="status" className="sr-only">
-          {fuel ? 'Se agregaron los campos de combustible: litros, km del odómetro y tanque lleno.' : ''}
+          {fuel ? 'Se agregaron los campos de combustible: litros, kilómetros del camión y tanque lleno.' : ''}
         </p>
 
         <SubmitBar pending={pending} error={error} retryable={retryable} label="Guardar gasto" />
@@ -500,6 +500,7 @@ export function GastoFormulario({
           <ConfirmDelete
             label="Eliminar gasto"
             context={ELIMINAR_GASTO_CONTEXT}
+            prompt={textoPreguntaEliminar(gasto, categorias)}
             onConfirm={async () => {
               // 0 filas borradas = ya no estaba: para un borrado es lo mismo que éxito.
               await eliminar.mutateAsync({ tenantId, id: gasto.id });

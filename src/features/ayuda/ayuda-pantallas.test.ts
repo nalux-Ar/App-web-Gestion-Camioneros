@@ -57,6 +57,24 @@ describe('textos de ayuda por pantalla', () => {
     }
   });
 
+  it('sin las palabras viejas: «cargar» un dato, «odómetro», «Ingreso», «Incidencias», «archivar»', () => {
+    const viejas = palabras('cargar|carga|cargas|cargaste|cargado|cargada|cargados|cargadas|odómetro|ingreso|ingresos|incidencias?|archivar|archivado|archivados');
+    for (const { nombre, texto } of TEXTOS) {
+      // «carga(s) de combustible» (la del tanque) es palabra del oficio y se queda.
+      expect(texto.replace(/cargas? de combustible/gi, ''), nombre).not.toMatch(viejas);
+    }
+  });
+
+  it('ninguna ayuda manda a tocar la «i»: el botón se llama «Ayuda»', () => {
+    for (const { nombre, texto } of TEXTOS) expect(texto, nombre).not.toMatch(/«i»|"i"|“i”|\bla i\b/);
+  });
+
+  it('las ayudas nombran los botones con el texto nuevo: «Ya no uso este camión», «Lo que cobraste»', () => {
+    expect(pantallas.AYUDA_CAMIONES.puntos.join(' ')).toContain('«Ya no uso este camión»');
+    expect(pantallas.AYUDA_CAMION_FORM.puntos.join(' ')).toContain('«Ya no uso este camión»');
+    expect(pantallas.AYUDA_VIAJE_FORM.puntos.join(' ')).toContain('«Lo que cobraste»');
+  });
+
   it('el texto del botón del recorrido es el de siempre', () => {
     expect(pantallas.TEXTO_VER_RECORRIDO).toBe('Ver el recorrido otra vez');
   });

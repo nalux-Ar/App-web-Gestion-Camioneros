@@ -43,6 +43,7 @@ import { InicioPage } from '@/features/home/inicio-page';
 import { CamionesPage } from '@/features/camiones/camiones-page';
 import { camionesKeys } from '@/features/camiones/camiones-keys';
 import { CAMION_ARCHIVADO_MESSAGE, CAMION_ELEGIDO_NO_EXISTE_MESSAGE } from '@/features/camiones/constants';
+import { NETWORK_SAVE_ERROR_MESSAGE } from '@/lib/data-errors';
 import { queryClient } from '@/lib/query-client';
 
 const ok = (data: unknown): Resp => ({ data, error: null, status: 200 });
@@ -158,7 +159,9 @@ const select = () => document.querySelector<HTMLSelectElement>('select#camion-ac
 const estado = () => tarjeta()?.querySelector('[role="status"]')?.textContent ?? null;
 const updates = () => h.calls.filter((c) => c.table === 'miembros' && c.ops.some((o) => o.m === 'update'));
 const buttonByText = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(text));
-const PIDE_ELEGIR = 'Elige el camión con el que vas a trabajar.';
+const PIDE_ELEGIR = 'Todavía no elegiste uno.';
+/** La pregunta de la tarjeta: es la leyenda de los botones y la etiqueta de la lista (antes era «Elige el camión», 3 veces). */
+const PREGUNTA = '¿Con qué camión trabajas hoy?';
 
 async function click(el: HTMLElement | null | undefined) {
   if (!el) throw new Error('no se encontró el elemento a tocar');
@@ -229,19 +232,19 @@ describe('tarjeta del camión activo en Inicio: cuándo aparece', () => {
     expect(bodyText()).toContain('¿Qué quieres hacer hoy?');
   });
 
-  it('0 camiones: nada (sale "Carga tu camión", que es la excluyente)', async () => {
+  it('0 camiones: nada (sale "Agrega tu camión", que es la excluyente)', async () => {
     LISTA = [];
     await mount();
     expect(tarjeta()).toBeNull();
-    expect(bodyText()).toContain('Carga tu camión');
+    expect(bodyText()).toContain('Agrega tu camión');
   });
 
-  it('solo camiones archivados (0 activos): nada, y tampoco "Carga tu camión"', async () => {
+  it('solo camiones archivados (0 activos): nada, y tampoco "Agrega tu camión"', async () => {
     LISTA = [X];
     CAMION_ACTIVO = X.id;
     await mount();
     expect(tarjeta()).toBeNull();
-    expect(bodyText()).not.toContain('Carga tu camión');
+    expect(bodyText()).not.toContain('Agrega tu camión');
   });
 });
 
@@ -281,7 +284,7 @@ describe('tarjeta del camión activo: 2 o más camiones activos', () => {
     await mount();
     const region = tarjeta()!;
     expect(tituloDe(region)).toBe('Camión activo');
-    expect(region.textContent).toContain('Se usa en tus viajes y cargas de combustible nuevos. En cada registro puedes elegir otro.');
+    expect(region.textContent).toContain('Se usa en tus viajes y cargas de combustible nuevos. En cada viaje o gasto puedes elegir otro.');
     expect(etiquetas()).toEqual(['AB 123 CD', 'ABC 123']); // ordenados, sin el archivado
     expect(marcado()).toBe('ABC 123');
     expect(region.textContent).not.toContain(PIDE_ELEGIR);
@@ -303,7 +306,7 @@ describe('tarjeta del camión activo: 2 o más camiones activos', () => {
     expect(tarjeta()!.className).toContain('border-primary');
     expect(tarjeta()!.textContent).toContain(PIDE_ELEGIR);
     expect(marcado()).toBeNull();
-    expect(etiquetas()).not.toContain('XY 987 ZW (archivado)');
+    expect(etiquetas()).not.toContain('XY 987 ZW (ya no se usa)');
     expect(etiquetas()).toHaveLength(2);
   });
 
@@ -323,14 +326,29 @@ describe('tarjeta del camión activo: 2 o más camiones activos', () => {
     expect(radios()).toHaveLength(0);
     expect(sel.value).toBe(E.id);
     expect([...sel.options].map((o) => o.textContent)).toContain('EE 555 EE · Iveco');
-    expect(document.querySelector('label[for="camion-activo"]')!.textContent).toBe('Elige el camión');
+    expect(document.querySelector('label[for="camion-activo"]')!.textContent).toBe(PREGUNTA);
   });
 
-  it('5 o más sin activo válido: la lista sin elegir ("Elige el camión") y la tarjeta lo pide', async () => {
+  it('5 o más sin activo válido: la lista sin elegir ("Elige una opción") y la tarjeta lo pide', async () => {
     LISTA = [A, B, C, D, E];
     await mount();
     expect(select()!.value).toBe('');
+    expect(select()!.options[0]!.textContent).toBe('Elige una opción');
     expect(tarjeta()!.textContent).toContain(PIDE_ELEGIR);
+  });
+
+  it('la pregunta aparece UNA sola vez («Elige el camión» ya no se repite) y la tarjeta no usa la palabra «registro»', async () => {
+    for (const lista of [[A, B], [A, B, C, D, E]]) {
+      LISTA = lista;
+      await mount();
+      const region = tarjeta()!;
+      expect(region.textContent!.split(PREGUNTA).length - 1, `${lista.length} camiones`).toBe(1);
+      expect(region.textContent).not.toContain('Elige el camión');
+      expect(region.textContent).not.toMatch(/registro/i);
+      await act(async () => root.unmount());
+      container.remove();
+      queryClient.clear();
+    }
   });
 
   it('accesibilidad: región con nombre (el título), grupo con su leyenda y una región de estado siempre presente', async () => {
@@ -339,7 +357,7 @@ describe('tarjeta del camión activo: 2 o más camiones activos', () => {
     const region = tarjeta()!;
     expect(region.getAttribute('role')).toBe('region');
     expect(tituloDe(region)).toBe('Camión activo');
-    expect(region.querySelector('fieldset legend')!.textContent).toBe('Elige el camión');
+    expect(region.querySelector('fieldset legend')!.textContent).toBe(PREGUNTA);
     const status = region.querySelector('[role="status"]')!;
     expect(status.getAttribute('aria-live')).toBe('polite');
     expect(status.textContent).toBe('');
@@ -371,7 +389,7 @@ describe('tarjeta del camión activo: elegir', () => {
     expect(marcado()).toBe('ABC 123');
     expect(etiquetas()).toEqual(['AB 123 CD', 'ABC 123']);
     expect(tarjeta()!.querySelector('fieldset')!.disabled).toBe(false);
-    expect(estado()).toBe('Camión activo: ABC 123.');
+    expect(estado()).toBe('Listo: trabajas con ABC 123.');
   });
 
   it('sin activo válido: al elegir deja de pedirlo y de destacarse', async () => {
@@ -389,7 +407,7 @@ describe('tarjeta del camión activo: elegir', () => {
     await selectValue(select(), D.id);
     expect(updates()[0]!.ops.find((o) => o.m === 'update')!.args[0]).toEqual({ camion_activo_id: D.id });
     expect(select()!.value).toBe(D.id);
-    expect(estado()).toBe('Camión activo: DD 444 DD.');
+    expect(estado()).toBe('Listo: trabajas con DD 444 DD.');
   });
 
   it('error de la base (55000, se archivó mientras tanto): mensaje propio, sin "Reintentar", queda el de antes y se refresca la lista', async () => {
@@ -422,7 +440,8 @@ describe('tarjeta del camión activo: elegir', () => {
     await mount();
     onUpdate = () => sinRed();
     await click(radioDe('ABC 123'));
-    expect(tarjeta()!.querySelector('[role="alert"]')!.textContent).toContain('No hay conexión');
+    // Elegir un camión es un guardado: dice que todavía NO se guardó y qué tocar.
+    expect(tarjeta()!.querySelector('[role="alert"]')!.textContent).toContain(NETWORK_SAVE_ERROR_MESSAGE);
     expect(marcado()).toBe('AB 123 CD');
     onUpdate = guardar;
     await click(buttonByText('Reintentar'));
@@ -493,7 +512,7 @@ describe('Inicio: lo que usa el recorrido de bienvenida', () => {
   const objetivos = () => [...document.querySelectorAll<HTMLElement>('[data-ayuda="camion"]')];
 
   it.each([
-    ['0 camiones ("Carga tu camión")', [] as Fila[], 'Carga tu camión'],
+    ['0 camiones ("Agrega tu camión")', [] as Fila[], 'Agrega tu camión'],
     ['1 camión activo ("Tu camión")', [A], 'Tu camión'],
     ['2 o más ("Camión activo")', [A, B], 'Camión activo'],
   ])('la tarjeta del camión es el objetivo "camion" con %s, y es UNA sola', async (_caso, lista, titulo) => {

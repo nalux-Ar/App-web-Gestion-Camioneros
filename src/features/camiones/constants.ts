@@ -1,4 +1,4 @@
-import type { DataErrorContext } from '@/lib/data-errors';
+import { NETWORK_CAMION_ESTADO_ERROR_MESSAGE, TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE, type DataErrorContext } from '@/lib/data-errors';
 
 /**
  * Constantes de Camiones: límites de la tabla, nombres de constraints que el front reconoce SOLO para elegir un mensaje
@@ -44,9 +44,9 @@ export const VIAJES_CAMION_FK = 'viajes_camion_fk';
  */
 export const MIEMBROS_CAMION_ACTIVO_FK = 'miembros_camion_activo_fk';
 
-export const SOLO_ADMIN_CAMIONES_MESSAGE = 'Solo el administrador de la cuenta puede cargar o cambiar camiones.';
+export const SOLO_ADMIN_CAMIONES_MESSAGE = 'Solo el administrador de la cuenta puede agregar o cambiar camiones.';
 export const PATENTE_REPETIDA_MESSAGE = 'Ya tienes un camión con esa patente.';
-export const CAMION_ARCHIVADO_MESSAGE = 'Ese camión está archivado. Elige otro camión o reactívalo desde Camiones.';
+export const CAMION_ARCHIVADO_MESSAGE = 'Ese camión ya no se usa. Elige otro camión o reactívalo desde Camiones.';
 export const LITROS_SIN_CAMION_MESSAGE = 'La carga de combustible necesita un camión. Elige el camión y guarda de nuevo.';
 
 /** Errores al GUARDAR un camión (alta por `crear_camion` o edición por UPDATE). */
@@ -63,9 +63,25 @@ export const GUARDAR_CAMION_CONTEXT: DataErrorContext = {
   notFound: 'No encontramos ese camión. Vuelve a la lista de camiones.',
 };
 
-/** Errores al ARCHIVAR o REACTIVAR un camión. */
+/**
+ * Errores al ARCHIVAR o REACTIVAR un camión (`ArchivarCamion`). Sin señal o con timeout, los textos de «cambiar el estado de un
+ * camión»: no nombran ningún botón ni hablan de «lo escrito» (no hay nada escrito).
+ */
 export const ARCHIVAR_CAMION_CONTEXT: DataErrorContext = {
   notFound: 'No pudimos cambiar ese camión: puede que ya no exista o que no tengas permiso.',
+  network: NETWORK_CAMION_ESTADO_ERROR_MESSAGE,
+  timeout: TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE,
+};
+
+/**
+ * Errores al REACTIVAR desde el aviso de patente repetida del formulario (botón «Reactivarlo», `CamionFormulario`): los mismos
+ * mensajes que al guardar un camión (permiso, no encontrado) con los textos de red y de timeout de «cambiar el estado de un
+ * camión», porque ese aviso no tiene un botón «Reintentar» (se vuelve a tocar «Reactivarlo»).
+ */
+export const REACTIVAR_CAMION_REPETIDO_CONTEXT: DataErrorContext = {
+  ...GUARDAR_CAMION_CONTEXT,
+  network: NETWORK_CAMION_ESTADO_ERROR_MESSAGE,
+  timeout: TIMEOUT_CAMION_ESTADO_ERROR_MESSAGE,
 };
 
 export const CAMION_ELEGIDO_NO_EXISTE_MESSAGE = 'El camión elegido ya no existe. Elige otro.';

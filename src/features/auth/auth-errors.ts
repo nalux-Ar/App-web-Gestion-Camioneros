@@ -24,13 +24,19 @@ export function isNetworkError(error: unknown): boolean {
   return false;
 }
 
-export const NETWORK_ERROR_MESSAGE = 'No hay conexión. Revisa la señal y prueba de nuevo.';
+export const NETWORK_ERROR_MESSAGE = 'No hay señal. Revisa la conexión y prueba de nuevo.';
 export const GENERIC_ERROR_MESSAGE = 'Ocurrió un problema. Prueba de nuevo en un momento.';
-export const SESSION_EXPIRED_MESSAGE = 'Tu sesión venció. Vuelve a ingresar.';
+export const SESSION_EXPIRED_MESSAGE = 'Por seguridad, ingresa de nuevo.';
 export const INVALID_DATA_MESSAGE = 'Revisa los datos que ingresaste.';
 export const SERVER_ERROR_MESSAGE = 'El servicio no está disponible en este momento. Prueba de nuevo en un rato.';
 
 export const CAPTCHA_ERROR_MESSAGE = 'No pudimos verificar que no eres un robot. Prueba de nuevo.';
+
+/**
+ * Credenciales que no sirven (`invalid_credentials`) o cuenta que no existe (`user_not_found`): el MISMO texto para las dos,
+ * a propósito (no revela si un correo tiene cuenta). Dice qué hacer a continuación; no nombra a nadie que haya dado la cuenta.
+ */
+export const CREDENCIALES_MESSAGE = 'El correo o la contraseña no coinciden. Revísalos o toca «Olvidé mi contraseña».';
 
 /** Supabase Auth rechazó el token de Turnstile (código `captcha_failed`:
  *  token vencido, ya usado o inválido). */
@@ -60,11 +66,11 @@ export function mapAuthError(error: unknown): string {
     case 'captcha_failed':
       return CAPTCHA_ERROR_MESSAGE;
     case 'invalid_credentials':
-      return 'El email o la contraseña no son correctos.';
+      return CREDENCIALES_MESSAGE;
     case 'email_not_confirmed':
-      return 'Todavía no confirmaste tu cuenta. Revisa tu correo (y la carpeta de spam).';
+      return 'Todavía no confirmaste tu cuenta. Busca el correo de confirmación en Recibidos, Spam o Correo no deseado.';
     case 'user_not_found':
-      return 'El email o la contraseña no son correctos.';
+      return CREDENCIALES_MESSAGE;
     case 'over_request_rate_limit':
     case 'over_email_send_rate_limit':
     case 'over_sms_send_rate_limit':

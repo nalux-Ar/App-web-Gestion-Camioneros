@@ -246,12 +246,13 @@ export const DESTINO_VACIO_MESSAGE = 'Escribe el destino del viaje.';
 export const origenLargoMessage = () => `El origen puede tener hasta ${MAX_TEXTO} caracteres.`;
 export const destinoLargoMessage = () => `El destino puede tener hasta ${MAX_TEXTO} caracteres.`;
 export const OBSERVACIONES_LARGO_MESSAGE = `Las observaciones pueden tener hasta ${MAX_OBSERVACIONES} caracteres.`;
-export const INCIDENCIAS_LARGO_MESSAGE = `Las incidencias pueden tener hasta ${MAX_INCIDENCIAS} caracteres.`;
-export const KM_INICIAL_FALTA_MESSAGE = 'Carga el km inicial.';
+export const INCIDENCIAS_LARGO_MESSAGE = `Los problemas o novedades pueden tener hasta ${MAX_INCIDENCIAS} caracteres.`;
+export const KM_INICIAL_FALTA_MESSAGE = 'Escribe también el km de salida, o borra el de llegada.';
 export const KM_FINAL_MENOR_MESSAGE = 'El km final no puede ser menor que el inicial.';
 export const CLIENTE_FALTA_MESSAGE = 'Elige un cliente.';
 export const ENTREGAS_DEMASIADAS_MESSAGE = `Un viaje admite hasta ${MAX_ENTREGAS} entregas.`;
-export const CLIENTES_SIN_CARGAR_MESSAGE = 'Falta cargar la lista de clientes. Revisa la sección Entregas.';
+/** Se muestra al guardar con entregas y la lista de clientes sin traer (todavía cargando, o fallada con su "Reintentar"). */
+export const CLIENTES_SIN_CARGAR_MESSAGE = 'Todavía no se pudo traer la lista de clientes. Espera un momento o toca Reintentar en Entregas.';
 
 type TextoValidation = { ok: true; value: string } | { ok: false; message: string };
 

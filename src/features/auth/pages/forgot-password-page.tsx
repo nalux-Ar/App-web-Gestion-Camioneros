@@ -14,7 +14,7 @@ import { FormError } from '../components/form-error';
 import { isCaptchaError, isNetworkError, mapAuthError } from '../auth-errors';
 
 const GENERIC_SENT_MESSAGE =
-  'Si ese email tiene una cuenta en Elan, te enviamos un enlace para que elijas una contraseña nueva. Revisa tu correo (y la carpeta de spam).';
+  'Si ese correo tiene una cuenta en Elan, te enviamos un enlace para que elijas una contraseña nueva. Búscalo en Recibidos, Spam o Correo no deseado.';
 
 /**
  * Por diseño, este formulario muestra SIEMPRE el mismo resultado exista o
@@ -92,7 +92,7 @@ export function ForgotPasswordPage() {
     <Card>
       <CardHeader className="space-y-1.5 text-center">
         <CardTitle className="text-2xl">¿Olvidaste tu contraseña?</CardTitle>
-        <CardDescription>Escribe tu email y te enviamos un enlace para elegir una nueva.</CardDescription>
+        <CardDescription>Escribe tu correo y te enviamos un enlace para elegir una nueva.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit} noValidate>
         <CardContent className="space-y-4">

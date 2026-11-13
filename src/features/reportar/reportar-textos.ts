@@ -10,7 +10,7 @@ export const ETIQUETA_MENSAJE = '¿Qué pasó?';
 export const AYUDA_MENSAJE = 'No escribas contraseñas ni datos de otras personas.';
 /** Qué se manda solo, además del mensaje (ver `contexto.ts` y `ultima-pantalla.ts`). */
 export const QUE_SE_ENVIA =
-  'Con tu mensaje enviamos el nombre de la pantalla en la que estabas (sin los datos que tenías cargados), qué versión de la app usas, tu navegador y los últimos errores técnicos que vio la app. El reporte queda asociado a tu cuenta.';
+  'Con tu mensaje enviamos el nombre de la pantalla en la que estabas (sin los datos que tenías anotados), qué versión de la app usas, tu navegador y los últimos errores técnicos que vio la app. El reporte queda asociado a tu cuenta.';
 
 export const BOTON_ENVIAR = 'Enviar reporte';
 export const ENVIANDO = 'Enviando…';

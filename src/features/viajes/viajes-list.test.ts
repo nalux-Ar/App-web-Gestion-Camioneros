@@ -48,7 +48,7 @@ describe('kmDelViaje / kmEnDecimas', () => {
     expect(kmDelViaje(viaje({ km_inicial: 1200, km_final: 1200 }))).toEqual({ tipo: 'km', km: 0 });
   });
 
-  it('solo el inicial (viaje en curso) -> "Km final sin cargar"', () => {
+  it('solo el inicial (viaje en curso) -> "Falta el km de llegada."', () => {
     expect(kmDelViaje(viaje({ km_inicial: 300 }))).toEqual({ tipo: 'sin-final' });
     expect(kmDelViaje(viaje({ km_inicial: 0 }))).toEqual({ tipo: 'sin-final' }); // 0 es un valor cargado
   });
