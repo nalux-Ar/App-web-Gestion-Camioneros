@@ -1,5 +1,5 @@
 // Generado con el MCP de Supabase (generate_typescript_types) sobre el
-// proyecto de Supabase del repo, después de las migraciones 001–014.
+// proyecto de Supabase del repo, después de las migraciones 001–019.
 // No editar a mano: regenerar cuando cambie el esquema.
 
 export type Json =
@@ -14,7 +14,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -669,6 +669,13 @@ export type Database = {
           patente: string
           total_viajes: number
           viaje_id: string
+        }[]
+      }
+      vincular_gastos_a_viaje: {
+        Args: { p_gasto_ids: string[]; p_viaje_id: string }
+        Returns: {
+          gasto_id: string
+          resultado: string
         }[]
       }
     }

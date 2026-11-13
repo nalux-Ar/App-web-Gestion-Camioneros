@@ -5,7 +5,7 @@
 -- tenant, y verifica —simulando cada usuario con set local role +
 -- request.jwt.claims— que el aislamiento entre tenants, el anti
 -- auto-promoción de rol y las FK anti-referencia-cruzada funcionan. Las
--- secciones 11 a 26 cubren además las migraciones 005 a 018, el vínculo
+-- secciones 11 a 27 cubren además las migraciones 005 a 019, el vínculo
 -- gasto <-> viaje de la Etapa 3 (que no tiene migración propia), las
 -- devoluciones de la Etapa 4 (la 008 agrega su client_ref), los clientes
 -- de la Etapa 5a (la 009 agrega su client_ref) y los camiones de la Etapa 5b
@@ -13,8 +13,9 @@
 -- la 012: el camión activo de cada usuario), el endurecimiento de la 013 (el
 -- id de una fila existente no se puede cambiar), las funciones del Resumen
 -- (la 014, con el arreglo de fechas infinitas de la 015), los reportes de
--- problemas (la 016), el recorrido de bienvenida (la 017) y el detalle de
--- "Gastos varios" del Resumen (la 018).
+-- problemas (la 016), el recorrido de bienvenida (la 017), el detalle de
+-- "Gastos varios" del Resumen (la 018) y la función que suma varios gastos a un
+-- viaje (la 019).
 --
 -- Cómo correrlo: pegar el archivo ENTERO en el SQL Editor de Supabase
 -- (conectado como el rol `postgres`) y ejecutarlo de una sola vez,
@@ -25,11 +26,13 @@
 -- 011_litros_exigen_camion.sql, 012_camion_activo.sql,
 -- 013_bloquear_cambio_de_id.sql, 014_resumen.sql,
 -- 015_resumen_mensual_fechas_finitas.sql, 016_reportes.sql,
--- 017_tour_version_vista.sql y 018_resumen_gastos_varios.sql
--- (las secciones 11 a 26 usan sus columnas y funciones; la sección 23 requiere
+-- 017_tour_version_vista.sql, 018_resumen_gastos_varios.sql y
+-- 019_vincular_gastos_a_viaje.sql
+-- (las secciones 11 a 27 usan sus columnas y funciones; la sección 23 requiere
 -- 014 y 015, la 24 requiere 016 (y 014/015 para su caso 24.16), la 25
--- requiere 017 y la 26 requiere 018; la 16 no necesita ninguna migración
--- propia; la 004 no hace falta para este test).
+-- requiere 017, la 26 requiere 018 y la 27 requiere 019 (y 014/015 para su caso
+-- 27.21); la 16 no necesita ninguna migración propia; la 004 no hace falta para
+-- este test).
 -- NO agregar BEGIN/COMMIT: el SQL Editor ya manda todo
 -- el script como una única simple-query, que Postgres envuelve
 -- automáticamente en una transacción implícita. El bloque final SIEMPRE
@@ -53,7 +56,7 @@
 -- en cada bloque, así que un fallo esperado (o inesperado) en un caso
 -- no aborta el resto del script.
 --
--- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 26 y el resumen): intenta
+-- OJO — sección 10 (la única que toca la sesión; le siguen las secciones 11 a 27 y el resumen): intenta
 -- simular de verdad cómo se conecta PostgREST (rol 'authenticator', con
 -- SET ROLE por request) usando SET SESSION AUTHORIZATION, pero SOLO si
 -- el rol con el que está conectado el SQL Editor es superuser. En
@@ -10502,6 +10505,1005 @@ begin
   select count(*) into v_cats from public.categorias_gasto where transportista_id is null and nombre = 'Gastos varios';
   perform public._test_chk(c_caso, v_huella = public._test_get('s26_huella') and v_cats = 1,
     format('huella igual=%s | categoría global con su nombre=%s', v_huella = public._test_get('s26_huella'), v_cats));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+-- ---------------------------------------------------------------------
+-- 27) Gastos: sumar varios gastos a un viaje, vincular_gastos_a_viaje (migración 019)
+-- ---------------------------------------------------------------------
+-- Requiere 019_vincular_gastos_a_viaje.sql aplicada. Prueba la función
+-- vincular_gastos_a_viaje(p_viaje_id, p_gasto_ids): los cinco resultados
+-- (vinculado, ya_estaba, en_otro_viaje, camion_distinto y no_encontrado), un lote
+-- mixto, la normalización de la lista (ids repetidos y NULL, en el orden
+-- recibido), el tope de 100, los rechazos (sin cuenta 42501; viaje nulo, lista
+-- nula, vacía o de más de 100 en 22023; viaje inexistente o ajeno en P0002, con
+-- la misma respuesta), que un gasto de otra cuenta responde igual que uno
+-- inexistente, que NO mueve un gasto de otro viaje, la regla de camión de la 010
+-- en todos sus bordes (gasto o viaje sin camión, camión archivado), la
+-- idempotencia, que escribe solo viaje_id, anon sin EXECUTE, la atomicidad (un
+-- trigger de prueba que levanta PT402 en el UPDATE de un gasto aborta TODA la
+-- llamada sin cambios parciales: es lo que haría un futuro trigger de cobro), las
+-- cuentas aisladas aun con RLS salteada, los locks tomados, el efecto en las
+-- funciones del Resumen (cambian la ganancia del viaje y el grupo por camión;
+-- ningún total por fecha) y las dos consultas comunes de la pantalla (candidatos y
+-- «quitar del viaje») con los permisos y la RLS que ya hay. Casos 27.0 a 27.24.
+--
+-- Datos propios con uuid fijos (27000000-0000-4000-8000-...) y fechas de 2020
+-- (lejos de current_date): cuatro cuentas con su usuario admin y un usuario sin
+-- cuenta (e1). La parte final de cada id es la etiqueta que muestran los casos
+-- (p. ej. f301). Todo el resto de la base se ignora: ningún caso supone tablas
+-- vacías ni totales, así que se puede repetir en la base real.
+--   A (a0, usuario a1): camiones X ca01, W ca02 e Y ca03 (se archiva al final del
+--     setup); viajes V1 da01 (camión X, ingreso 10000), V2 da02 (W), V3 da03
+--     (sin camión), V4 da04 (X), V5 da05 (Y, archivado), V6 da06 (sin camión),
+--     V7 da07 (X), V8 da08 (X) y V10 da0a (X); 230 gastos: 224 sueltos y 6 en
+--     viaje (f401 en V1; f501, f502, f905 y ab01 en V2; f904 en V8). Entre
+--     ellos, los de cada caso (f301 a f303, f601, f602, f701 a f704, f901 a f906,
+--     a101 a a103, 1901 a 1903, 2001 a 2003, ab01 y ab02), 100 sueltos para el
+--     tope (ids 03e9 a 044c) y 101 sueltos para el rechazo (04b1 a 0515).
+--   B (b0, usuario b1): camión cb01, viaje db01 y dos gastos: fb01 (suelto) y
+--     fb02 (en db01).
+--   R (c0, usuario c1): para el efecto en el Resumen. Camión cc01 y el viaje
+--     dc01 (10/5, camión cc01, ingreso 10000), con los gastos e001 a e004.
+--   D (d0, usuario d1): para los candidatos y «quitar del viaje». Camión cd01,
+--     viajes dd01 (15/7) y dd02 (16/7), y los gastos d001 a d008.
+-- Todos los gastos del setup tienen created_at y updated_at del 1/2/2020: así se
+-- ve qué filas tocó la función (los triggers ponen updated_at = now()). Los
+-- helpers _test_s27_* de abajo se caen con el ROLLBACK final. El caso 27.18 crea
+-- un trigger de prueba en gastos (trg_90_s27_cobro) y lo borra él mismo; el 27.24
+-- comprueba que no quede. Sin la 019, 22 casos fallan solos sin cortar el script
+-- (27.0, 27.22 y 27.24 pasan igual: no usan la función).
+-- La carrera real entre dos transacciones (esperas de FOR SHARE y FOR UPDATE) no
+-- se puede reproducir en un script de una sola conexión: 27.2 comprueba el código
+-- y 27.20 que los locks estén tomados.
+
+select set_config('request.jwt.claims', '', true);
+reset role;
+
+-- Helpers de la sección. Id de un gasto, viaje, etc. a partir de su etiqueta.
+create or replace function public._test_s27_id(p_sufijo text)
+returns uuid language sql immutable as $$
+  select ('27000000-0000-4000-8000-' || lpad(p_sufijo, 12, '0'))::uuid
+$$;
+
+-- Lista de ids a partir de etiquetas (un NULL queda NULL).
+create or replace function public._test_s27_ids(variadic p_sufijos text[])
+returns uuid[] language sql immutable as $$
+  select array_agg(case when t.s is null then null else public._test_s27_id(t.s) end order by t.o)
+    from unnest(p_sufijos) with ordinality as t(s, o)
+$$;
+
+-- Llama a la función y devuelve 'etiqueta=resultado,...' en el orden devuelto, o
+-- 'SQLSTATE|mensaje' si falla. SECURITY INVOKER: corre con el rol de la sesión. El
+-- savepoint del EXCEPTION deshace lo que haya escrito una llamada que falla.
+create or replace function public._test_s27_vincular(p_viaje uuid, p_ids uuid[])
+returns text language plpgsql as $$
+declare v_r text; v_state text; v_msg text;
+begin
+  select string_agg(coalesce(right(f.gasto_id::text, 4), 'NULL') || '=' || coalesce(f.resultado, 'NULL'), ',' order by f.ord)
+    into v_r
+    from public.vincular_gastos_a_viaje(p_viaje, p_ids) with ordinality as f(gasto_id, resultado, ord);
+  return v_r;
+exception when others then
+  get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+  return v_state || '|' || v_msg;
+end;
+$$;
+
+-- A qué viaje (etiqueta de 4 caracteres; '-' = ninguno; 'x' = el gasto no existe) y a qué camión
+-- pertenece un gasto, y la fila entera como texto. Se llaman como postgres, sin RLS.
+create or replace function public._test_s27_viaje_de(p_sufijo text)
+returns text language sql stable as $$
+  select coalesce((select coalesce(right(g.viaje_id::text, 4), '-') from public.gastos g where g.id = public._test_s27_id(p_sufijo)), 'x')
+$$;
+
+create or replace function public._test_s27_camion_de(p_sufijo text)
+returns text language sql stable as $$
+  select coalesce((select coalesce(right(g.camion_id::text, 4), '-') from public.gastos g where g.id = public._test_s27_id(p_sufijo)), 'x')
+$$;
+
+create or replace function public._test_s27_fila(p_sufijo text)
+returns text language sql stable as $$
+  select (select to_jsonb(g)::text from public.gastos g where g.id = public._test_s27_id(p_sufijo))
+$$;
+
+-- Los números del Resumen de la cuenta R (mayo de 2020) en cuatro textos, para compararlos antes y después.
+create or replace function public._test_s27_resumen_r()
+returns jsonb language plpgsql as $$
+declare v_g text; v_v text; v_m text; v_c text;
+begin
+  select string_agg(s.k, ' ' order by s.k collate "C") into v_g from (
+    select f.grupo || '/' || coalesce(f.nombre, f.clave, '-') || '/' || f.cantidad || '/' || f.monto as k
+      from public.resumen_gastos('2020-05-01', '2020-05-31') f) s;
+  select string_agg(right(f.viaje_id::text, 4) || '/' || f.gastos_cantidad || '/' || f.gastos_monto || '/' || coalesce(f.ganancia::text, '-'), ' ' order by f.viaje_id)
+    into v_v from public.resumen_viajes('2020-05-01', '2020-05-31') f;
+  select string_agg(f.mes || '/' || f.gastos_cantidad || '/' || f.gastos_monto || '/' || f.combustible_cargas || '/' || f.combustible_litros
+                    || '/' || f.viajes_ingreso || '/' || coalesce(f.resultado::text, '-'), ' ')
+    into v_m from public.resumen_mensual('2020-05-01', 1) f;
+  select string_agg(f.patente || '/' || f.cargas || '/' || f.litros || '/' || f.monto, ' ' order by f.patente)
+    into v_c from public.resumen_combustible('2020-05-01', '2020-05-31') f;
+  return jsonb_build_object('gastos', v_g, 'viajes', v_v, 'mensual', v_m, 'combustible', v_c);
+end;
+$$;
+
+-- Como postgres, sin JWT (contexto de confianza de la 002: inserta con los transportista_id, id, created_at y
+-- updated_at que manda). Un solo bloque: si algo falla, no queda nada y 27.0 lo informa.
+do $$
+declare
+  v_pe uuid; v_co uuid;
+  c_ts constant timestamptz := '2020-02-01 10:00:00+00';
+  a0 constant uuid := '27000000-0000-4000-8000-0000000000a0';
+  b0 constant uuid := '27000000-0000-4000-8000-0000000000b0';
+  c0 constant uuid := '27000000-0000-4000-8000-0000000000c0';
+  d0 constant uuid := '27000000-0000-4000-8000-0000000000d0';
+begin
+  select id into strict v_pe from public.categorias_gasto where transportista_id is null and lower(nombre) = 'peajes';
+  select id into strict v_co from public.categorias_gasto where transportista_id is null and lower(nombre) = 'combustible';
+
+  insert into auth.users (instance_id, id, aud, role, email) values
+    ('00000000-0000-0000-0000-000000000000', '27000000-0000-4000-8000-0000000000a1', 'authenticated', 'authenticated', 's27-a1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '27000000-0000-4000-8000-0000000000b1', 'authenticated', 'authenticated', 's27-b1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '27000000-0000-4000-8000-0000000000c1', 'authenticated', 'authenticated', 's27-c1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '27000000-0000-4000-8000-0000000000d1', 'authenticated', 'authenticated', 's27-d1@test.elan'),
+    ('00000000-0000-0000-0000-000000000000', '27000000-0000-4000-8000-0000000000e1', 'authenticated', 'authenticated', 's27-e1@test.elan');
+  insert into public.transportistas (id, nombre) values (a0, 'S27 A'), (b0, 'S27 B'), (c0, 'S27 R'), (d0, 'S27 D');
+  insert into public.miembros (user_id, transportista_id, rol) values
+    ('27000000-0000-4000-8000-0000000000a1', a0, 'admin'), ('27000000-0000-4000-8000-0000000000b1', b0, 'admin'),
+    ('27000000-0000-4000-8000-0000000000c1', c0, 'admin'), ('27000000-0000-4000-8000-0000000000d1', d0, 'admin');
+
+  insert into public.camiones (id, transportista_id, patente) values
+    (public._test_s27_id('ca01'), a0, 'S27X'), (public._test_s27_id('ca02'), a0, 'S27W'), (public._test_s27_id('ca03'), a0, 'S27Y'),
+    (public._test_s27_id('cb01'), b0, 'S27B'), (public._test_s27_id('cc01'), c0, 'S27R'), (public._test_s27_id('cd01'), d0, 'S27D');
+
+  -- Con 3 camiones activos en A, un viaje sin camión no recibe uno por defecto (la 010 lo hace solo con exactamente uno).
+  insert into public.viajes (id, transportista_id, fecha, origen, destino, camion_id, ingreso, created_at, updated_at)
+  select public._test_s27_id(x.k), x.t, x.fecha::date, 'O ' || x.k, 'D ' || x.k,
+         case when x.camion is null then null else public._test_s27_id(x.camion) end, x.ingreso, c_ts, c_ts
+    from (values
+      ('da01', a0, '2020-03-10', 'ca01', 10000.00), ('da02', a0, '2020-03-12', 'ca02', null), ('da03', a0, '2020-03-15', null, null),
+      ('da04', a0, '2020-03-16', 'ca01', null), ('da05', a0, '2020-03-17', 'ca03', null), ('da06', a0, '2020-03-18', null, null),
+      ('da07', a0, '2020-03-19', 'ca01', null), ('da08', a0, '2020-03-20', 'ca01', null), ('da0a', a0, '2020-03-21', 'ca01', null),
+      ('db01', b0, '2020-03-11', 'cb01', null), ('dc01', c0, '2020-05-10', 'cc01', 10000.00),
+      ('dd01', d0, '2020-07-15', 'cd01', null), ('dd02', d0, '2020-07-16', 'cd01', null)
+    ) as x(k, t, fecha, camion, ingreso);
+
+  -- A: gastos de peajes (etiqueta, monto, fecha, descripción, método, viaje, camión).
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, descripcion, metodo_pago, viaje_id, camion_id, created_at, updated_at)
+  select public._test_s27_id(x.k), a0, v_pe, x.monto, x.fecha::date, x.descr, x.metodo::public.metodo_pago,
+         case when x.viaje is null then null else public._test_s27_id(x.viaje) end,
+         case when x.camion is null then null else public._test_s27_id(x.camion) end, c_ts, c_ts
+    from (values
+      ('f302', 2000.00, '2020-03-02', 'Peaje f302', 'transferencia', null, 'ca01'),
+      ('f401',  500.00, '2020-03-04', null, 'efectivo', 'da01', null),
+      ('f501',  700.00, '2020-03-05', null, null, 'da02', null),
+      ('f502',  800.00, '2020-03-06', null, 'efectivo', 'da02', 'ca02'),
+      ('f601',  900.00, '2020-03-07', null, null, null, 'ca02'),
+      ('f602',  100.00, '2020-03-08', null, null, null, 'ca01'),
+      ('f701',  110.00, '2020-03-09', null, null, null, 'ca01'),
+      ('f702',  120.00, '2020-03-10', null, null, null, 'ca03'),
+      ('f703',  130.00, '2020-03-11', null, null, null, 'ca01'),
+      ('f704',  140.00, '2020-03-12', null, null, null, null),
+      ('f901',  100.00, '2020-03-13', null, null, null, null),
+      ('f902',  200.00, '2020-03-14', null, null, null, 'ca01'),
+      ('f903',  300.00, '2020-03-15', null, null, null, 'ca02'),
+      ('f904',  400.00, '2020-03-16', null, null, 'da08', null),
+      ('f905',  500.00, '2020-03-17', null, null, 'da02', null),
+      ('f906',  600.00, '2020-03-18', null, null, null, null),
+      ('a101',   11.00, '2020-03-19', null, null, null, null),
+      ('a102',   12.00, '2020-03-19', null, null, null, null),
+      ('a103',   13.00, '2020-03-19', null, null, null, null),
+      ('1901',   21.00, '2020-03-20', null, null, null, 'ca01'),
+      ('1902',   22.00, '2020-03-20', null, null, null, null),
+      ('1903',   23.00, '2020-03-20', null, null, null, 'ca01'),
+      ('2001',   31.00, '2020-03-21', null, null, null, 'ca01'),
+      ('2002',   32.00, '2020-03-21', null, null, null, null),
+      ('2003',   33.00, '2020-03-21', null, null, null, null),
+      ('ab01',   41.00, '2020-03-22', null, null, 'da02', null),
+      ('ab02',   42.00, '2020-03-22', null, null, null, 'ca02')
+    ) as x(k, monto, fecha, descr, metodo, viaje, camion);
+  -- f301: con client_ref (para ver que se conserva). f303: un combustible completo (litros, odómetro y tanque lleno).
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, descripcion, metodo_pago, client_ref, created_at, updated_at) values
+    (public._test_s27_id('f301'), a0, v_pe, 1000.00, '2020-03-01', 'Peaje autopista f301', 'efectivo',
+     '27000000-0000-4000-8000-00000000c301', c_ts, c_ts);
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, descripcion, metodo_pago, camion_id,
+                             litros, precio_por_litro, km_odometro, tanque_lleno, created_at, updated_at) values
+    (public._test_s27_id('f303'), a0, v_co, 3000.00, '2020-03-03', 'Carga f303', 'tarjeta_debito', public._test_s27_id('ca01'),
+     30, 100.00, 1000.0, true, c_ts, c_ts);
+  -- A: 100 sueltos para el tope (03e9 a 044c) y 101 para el rechazo (04b1 a 0515).
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, created_at, updated_at)
+  select public._test_s27_id(lpad(to_hex(1000 + i), 4, '0')), a0, v_pe, 1, date '2020-04-01', c_ts, c_ts
+    from generate_series(1, 100) as i;
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, created_at, updated_at)
+  select public._test_s27_id(lpad(to_hex(1200 + i), 4, '0')), a0, v_pe, 1, date '2020-04-02', c_ts, c_ts
+    from generate_series(1, 101) as i;
+
+  -- B.
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, viaje_id, created_at, updated_at) values
+    (public._test_s27_id('fb01'), b0, v_pe, 300.00, '2020-03-09', null, c_ts, c_ts),
+    (public._test_s27_id('fb02'), b0, v_pe, 310.00, '2020-03-10', public._test_s27_id('db01'), c_ts, c_ts);
+
+  -- R: mayo de 2020. e001 sin camión, e002 y e003 del camión del viaje, e004 ya en el viaje (sin camión).
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, metodo_pago, viaje_id, camion_id, litros, precio_por_litro, created_at, updated_at)
+  select public._test_s27_id(x.k), c0, case when x.litros is null then v_pe else v_co end, x.monto, x.fecha::date, x.metodo::public.metodo_pago,
+         case when x.viaje is null then null else public._test_s27_id(x.viaje) end,
+         case when x.camion is null then null else public._test_s27_id(x.camion) end, x.litros, x.ppl, c_ts, c_ts
+    from (values
+      ('e001', 1000.00, '2020-05-02', 'efectivo', null, null, null::numeric, null::numeric),
+      ('e002', 2000.00, '2020-05-03', 'transferencia', null, 'cc01', null, null),
+      ('e003', 3000.00, '2020-05-04', 'tarjeta_debito', null, 'cc01', 30, 100.00),
+      ('e004',  500.00, '2020-05-05', 'efectivo', 'dc01', null, null, null)
+    ) as x(k, monto, fecha, metodo, viaje, camion, litros, ppl);
+
+  -- D: siete sueltos a distintas distancias del 15/7 y uno ya en otro viaje.
+  insert into public.gastos (id, transportista_id, categoria_id, monto, fecha, viaje_id, created_at, updated_at)
+  select public._test_s27_id(x.k), d0, v_pe, x.monto, x.fecha::date, case when x.viaje is null then null else public._test_s27_id(x.viaje) end, c_ts, c_ts
+    from (values
+      ('d001', 10, '2020-07-15', null), ('d002', 20, '2020-07-17', null), ('d003', 30, '2020-07-13', null), ('d004', 40, '2020-07-20', null),
+      ('d005', 50, '2020-07-01', null), ('d006', 60, '2020-08-31', null), ('d007', 70, '2019-12-01', null), ('d008', 80, '2020-07-15', 'dd02')
+    ) as x(k, monto, fecha, viaje);
+
+  -- El camión Y de A se archiva con sus viajes y gastos ya cargados (estado válido: la 010 solo rechaza ELEGIRLO).
+  update public.camiones set activa = false where id = public._test_s27_id('ca03');
+
+  perform public._test_set('s27_huella_b', (select md5(coalesce(string_agg(to_jsonb(g)::text, '|' order by g.id), ''))
+    from public.gastos g where g.transportista_id = b0));
+  perform public._test_set('s27_huella_vc', (select md5(string_agg(x, '|' order by x)) from (
+    select to_jsonb(v)::text as x from public.viajes v where v.transportista_id in (a0, b0, c0, d0)
+    union all select to_jsonb(c)::text from public.camiones c where c.transportista_id in (a0, b0, c0, d0)) s));
+exception when others then
+  perform public._test_set('s27_error_setup', sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.0 setup: cuatro cuentas con sus datos (A: 3 camiones con Y archivado, 9 viajes y 230 gastos, 224 sin viaje; B: 1 camión, 1 viaje y 2 gastos, 1 sin viaje; R: 1 camión, 1 viaje y 4 gastos, 3 sin viaje; D: 1 camión, 2 viajes y 8 gastos, 7 sin viaje) y un usuario sin cuenta';
+  a0 constant uuid := '27000000-0000-4000-8000-0000000000a0';
+  b0 constant uuid := '27000000-0000-4000-8000-0000000000b0';
+  c0 constant uuid := '27000000-0000-4000-8000-0000000000c0';
+  d0 constant uuid := '27000000-0000-4000-8000-0000000000d0';
+  v_r text; v_sin int; v_mi int;
+begin
+  select format('A:%s/%s/%s/%s/%s B:%s/%s/%s/%s R:%s/%s/%s/%s D:%s/%s/%s/%s',
+           (select count(*) from public.camiones where transportista_id = a0),
+           (select count(*) from public.camiones where transportista_id = a0 and not activa),
+           (select count(*) from public.viajes where transportista_id = a0),
+           (select count(*) from public.gastos where transportista_id = a0),
+           (select count(*) from public.gastos where transportista_id = a0 and viaje_id is null),
+           (select count(*) from public.camiones where transportista_id = b0),
+           (select count(*) from public.viajes where transportista_id = b0),
+           (select count(*) from public.gastos where transportista_id = b0),
+           (select count(*) from public.gastos where transportista_id = b0 and viaje_id is null),
+           (select count(*) from public.camiones where transportista_id = c0),
+           (select count(*) from public.viajes where transportista_id = c0),
+           (select count(*) from public.gastos where transportista_id = c0),
+           (select count(*) from public.gastos where transportista_id = c0 and viaje_id is null),
+           (select count(*) from public.camiones where transportista_id = d0),
+           (select count(*) from public.viajes where transportista_id = d0),
+           (select count(*) from public.gastos where transportista_id = d0),
+           (select count(*) from public.gastos where transportista_id = d0 and viaje_id is null)) into v_r;
+  select count(*) into v_mi from public.miembros where transportista_id in (a0, b0, c0, d0);
+  select count(*) into v_sin from auth.users u
+   where u.id = '27000000-0000-4000-8000-0000000000e1' and not exists (select 1 from public.miembros m where m.user_id = u.id);
+  perform public._test_chk(c_caso,
+    public._test_get('s27_error_setup') is null
+      and v_r = 'A:3/1/9/230/224 B:1/1/2/1 R:1/1/4/3 D:1/2/8/7' and v_mi = 4 and v_sin = 1,
+    format('error=%s | %s | miembros=%s usuario sin cuenta=%s', public._test_get('s27_error_setup'), v_r, v_mi, v_sin));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.1 Migración 019: vincular_gastos_a_viaje existe sin sobrecargas, con sus parámetros (p_viaje_id uuid, p_gasto_ids uuid[]) y columnas exactas (gasto_id, resultado), VOLATILE, SECURITY INVOKER, no STRICT (los NULL llegan a la función y se rechazan con 22023), search_path fijo, con comentario, y EXECUTE para authenticated, no para anon ni public (service_role conserva el EXECUTE por defecto de la plataforma, que no importa: sin sub en el JWT recibe 42501)';
+  v_n int; v_p record;
+begin
+  select count(*) into v_n from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'vincular_gastos_a_viaje';
+  select p.prosecdef, p.provolatile::text as vol, p.proisstrict as estricta, p.proretset as conjunto,
+         coalesce(p.proconfig::text like '%search_path=public%', false) as path,
+         obj_description(p.oid, 'pg_proc') is not null as com,
+         has_function_privilege('authenticated', p.oid, 'execute') as auth,
+         has_function_privilege('anon', p.oid, 'execute') as anon,
+         has_function_privilege('public', p.oid, 'execute') as pub,
+         pg_get_function_identity_arguments(p.oid) as args,
+         (select array_agg(a.n order by a.o) from unnest(p.proargnames, p.proargmodes::text[]) with ordinality as a(n, m, o) where a.m = 't') as sal,
+         pg_get_function_result(p.oid) as res
+    into v_p
+    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'vincular_gastos_a_viaje';
+  perform public._test_chk(c_caso,
+    v_n = 1 and v_p.prosecdef is false and v_p.vol = 'v' and v_p.estricta is false and v_p.conjunto and v_p.path and v_p.com
+      and v_p.auth and v_p.anon is false and v_p.pub is false
+      and v_p.args = 'p_viaje_id uuid, p_gasto_ids uuid[]'
+      and v_p.sal = array['gasto_id', 'resultado']
+      and v_p.res = 'TABLE(gasto_id uuid, resultado text)',
+    format('n=%s definer=%s vol=%s estricta=%s conjunto=%s path=%s com=%s EXECUTE auth/anon/public=%s/%s/%s args=%s sal=%s res=%s',
+      v_n, v_p.prosecdef, v_p.vol, v_p.estricta, v_p.conjunto, v_p.path, v_p.com, v_p.auth, v_p.anon, v_p.pub, v_p.args, v_p.sal, v_p.res));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.2 Código: la función bloquea primero el viaje (FOR SHARE, en una sentencia propia anterior a la que escribe) y después los gastos pedidos por id (ORDER BY id FOR UPDATE a secas, sin SKIP LOCKED ni NOWAIT: espera, no saltea ni falla) antes de actualizar, y no atrapa excepciones (un error de un trigger o de una restricción se propaga y no deja nada a medias). La espera entre dos transacciones no se puede probar en un script de una sola: se comprueba el código (y en 27.20 que los locks estén tomados)';
+  v_src text; v_viaje int; v_ret int; v_gastos int; v_upd int; v_atrapa boolean;
+begin
+  select regexp_replace(prosrc, '\s+', ' ', 'g') into v_src from pg_proc where oid = 'public.vincular_gastos_a_viaje(uuid, uuid[])'::regprocedure;
+  v_viaje := regexp_instr(v_src, 'from public\.viajes vi where [^;]* for share;');
+  v_ret := position('return query' in v_src);
+  -- El ")" final fija que el FOR UPDATE termine ahí: con SKIP LOCKED (saltearía en silencio los gastos bloqueados y
+  -- los informaría como no_encontrado) o NOWAIT (fallaría con 55P03 en vez de esperar) el patrón ya no coincide.
+  v_gastos := regexp_instr(v_src, 'order by g\.id for update \)');
+  v_upd := regexp_instr(v_src, 'update public\.gastos gu set viaje_id = p_viaje_id');
+  v_atrapa := v_src ~* 'exception when';
+  perform public._test_chk(c_caso,
+    v_viaje > 0 and v_ret > v_viaje and v_gastos > v_ret and v_upd > v_gastos and not v_atrapa,
+    format('posiciones: FOR SHARE del viaje=%s, return query=%s, ORDER BY id FOR UPDATE=%s, UPDATE=%s | atrapa excepciones=%s', v_viaje, v_ret, v_gastos, v_upd, v_atrapa));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.3 vinculado: tres gastos sueltos (un peaje sin camión, un peaje del camión X y un combustible del camión X con litros, odómetro y tanque lleno) se suman a V1 (camión X): 3 filas vinculado en el orden recibido, los 3 quedan en V1 con updated_at nuevo, y ninguno cambia de camión (el que no tenía sigue sin camión)';
+  v_viaje constant uuid := public._test_s27_id('da01');
+  v_r text; v_viajes text[]; v_camiones text[]; v_nuevos int;
+begin
+  perform public._test_set('s27_pre_g3', (select jsonb_agg(to_jsonb(g) order by g.id)::text from public.gastos g
+    where g.id in (public._test_s27_id('f301'), public._test_s27_id('f302'), public._test_s27_id('f303'))));
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_s27_vincular(v_viaje, public._test_s27_ids('f301', 'f302', 'f303'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_viajes := array[public._test_s27_viaje_de('f301'), public._test_s27_viaje_de('f302'), public._test_s27_viaje_de('f303')];
+  v_camiones := array[public._test_s27_camion_de('f301'), public._test_s27_camion_de('f302'), public._test_s27_camion_de('f303')];
+  select count(*) into v_nuevos from public.gastos g
+   where g.id in (public._test_s27_id('f301'), public._test_s27_id('f302'), public._test_s27_id('f303')) and g.updated_at = now();
+  perform public._test_chk(c_caso,
+    v_r = 'f301=vinculado,f302=vinculado,f303=vinculado' and v_viajes = array['da01', 'da01', 'da01']
+      and v_camiones = array['-', 'ca01', 'ca01'] and v_nuevos = 3,
+    format('%s | viaje=%s camión=%s | con updated_at nuevo=%s', v_r, v_viajes, v_camiones, v_nuevos));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.4 ya_estaba: f401, que ya estaba en V1, devuelve ya_estaba y no se toca (la fila queda idéntica, también updated_at) y sigue en V1';
+  v_antes text; v_despues text; v_r text;
+begin
+  v_antes := public._test_s27_fila('f401');
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('f401'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_despues := public._test_s27_fila('f401');
+  perform public._test_chk(c_caso,
+    v_r = 'f401=ya_estaba' and v_despues = v_antes and public._test_s27_viaje_de('f401') = 'da01',
+    format('%s | fila igual=%s viaje=%s', v_r, v_despues = v_antes, public._test_s27_viaje_de('f401')));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.5 en_otro_viaje, no se mueve: f501 y f502 están en V2 (f502 además es de otro camión que V1); pedirlos para V1 devuelve en_otro_viaje para los dos (gana sobre camion_distinto), quedan en V2 con la fila idéntica, y V1 y V2 conservan sus gastos (4 y 4)';
+  v_antes text[]; v_despues text[]; v_r text; v_v1 int; v_v2 int;
+begin
+  v_antes := array[public._test_s27_fila('f501'), public._test_s27_fila('f502')];
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('f501', 'f502'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_despues := array[public._test_s27_fila('f501'), public._test_s27_fila('f502')];
+  select count(*) into v_v1 from public.gastos where viaje_id = public._test_s27_id('da01');
+  select count(*) into v_v2 from public.gastos where viaje_id = public._test_s27_id('da02');
+  perform public._test_chk(c_caso,
+    v_r = 'f501=en_otro_viaje,f502=en_otro_viaje' and v_despues = v_antes
+      and public._test_s27_viaje_de('f501') = 'da02' and public._test_s27_viaje_de('f502') = 'da02' and v_v1 = 4 and v_v2 = 4,
+    format('%s | filas iguales=%s | gastos en V1=%s en V2=%s', v_r, v_despues = v_antes, v_v1, v_v2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.6 camion_distinto en los dos sentidos: f601 (camión W) para V1 (camión X) y f602 (camión X) para V2 (camión W) devuelven camion_distinto, no se vinculan (siguen sueltos) y las filas quedan idénticas';
+  v_antes text[]; v_despues text[]; v_r1 text; v_r2 text;
+begin
+  v_antes := array[public._test_s27_fila('f601'), public._test_s27_fila('f602')];
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r1 := public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('f601'));
+  v_r2 := public._test_s27_vincular(public._test_s27_id('da02'), public._test_s27_ids('f602'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_despues := array[public._test_s27_fila('f601'), public._test_s27_fila('f602')];
+  perform public._test_chk(c_caso,
+    v_r1 = 'f601=camion_distinto' and v_r2 = 'f602=camion_distinto' and v_despues = v_antes
+      and public._test_s27_viaje_de('f601') = '-' and public._test_s27_viaje_de('f602') = '-',
+    format('%s | %s | filas iguales=%s | viajes %s y %s', v_r1, v_r2, v_despues = v_antes, public._test_s27_viaje_de('f601'), public._test_s27_viaje_de('f602')));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.7 Bordes de camión (la regla de la 010: solo choca si el gasto Y el viaje tienen camión y son distintos): a V3 (sin camión) f701 (camión X) se vincula y conserva X; a V5 (camión Y, archivado) f702 (Y) se vincula y conserva Y, f703 (X) devuelve camion_distinto y f704 (sin camión) se vincula sin camión; V3 sigue sin camión y Y sigue archivado';
+  v_r1 text; v_r2 text; v_arch boolean; v_camion_v3 uuid;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r1 := public._test_s27_vincular(public._test_s27_id('da03'), public._test_s27_ids('f701'));
+  v_r2 := public._test_s27_vincular(public._test_s27_id('da05'), public._test_s27_ids('f702', 'f703', 'f704'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select not activa into v_arch from public.camiones where id = public._test_s27_id('ca03');
+  select camion_id into v_camion_v3 from public.viajes where id = public._test_s27_id('da03');
+  perform public._test_chk(c_caso,
+    v_r1 = 'f701=vinculado' and v_r2 = 'f702=vinculado,f703=camion_distinto,f704=vinculado'
+      and public._test_s27_viaje_de('f701') = 'da03' and public._test_s27_camion_de('f701') = 'ca01'
+      and public._test_s27_viaje_de('f702') = 'da05' and public._test_s27_camion_de('f702') = 'ca03'
+      and public._test_s27_viaje_de('f703') = '-' and public._test_s27_camion_de('f703') = 'ca01'
+      and public._test_s27_viaje_de('f704') = 'da05' and public._test_s27_camion_de('f704') = '-'
+      and v_arch and v_camion_v3 is null,
+    format('%s | %s | f701=%s/%s f702=%s/%s f703=%s/%s f704=%s/%s (viaje/camión) | Y archivado=%s | camión de V3=%s',
+      v_r1, v_r2, public._test_s27_viaje_de('f701'), public._test_s27_camion_de('f701'), public._test_s27_viaje_de('f702'), public._test_s27_camion_de('f702'),
+      public._test_s27_viaje_de('f703'), public._test_s27_camion_de('f703'), public._test_s27_viaje_de('f704'), public._test_s27_camion_de('f704'), v_arch, v_camion_v3));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.8 no_encontrado: un gasto de otra cuenta (fb01, de B, suelto; fb02, de B, ya en su viaje) y un id inexistente (ffff) dan EXACTAMENTE la misma respuesta (no_encontrado: sin oráculo de existencia ni de viaje entre cuentas, tampoco en_otro_viaje); el de B no cambia (fila idéntica, sigue sin viaje)';
+  v_antes text; v_despues text; v_r1 text; v_r2 text; v_r3 text; v_r4 text;
+begin
+  v_antes := public._test_s27_fila('fb01');
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r1 := public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('fb01'));
+  v_r2 := public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('ffff'));
+  v_r3 := public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('fb02'));
+  v_r4 := public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('fb01', 'ffff'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_despues := public._test_s27_fila('fb01');
+  perform public._test_chk(c_caso,
+    v_r1 = 'fb01=no_encontrado' and v_r2 = 'ffff=no_encontrado' and v_r3 = 'fb02=no_encontrado'
+      and split_part(v_r1, '=', 2) = split_part(v_r2, '=', 2) and split_part(v_r3, '=', 2) = split_part(v_r2, '=', 2)
+      and v_r4 = 'fb01=no_encontrado,ffff=no_encontrado'
+      and v_despues = v_antes and public._test_s27_viaje_de('fb01') = '-' and public._test_s27_viaje_de('fb02') = 'db01',
+    format('%s | %s | %s | %s | fila de B igual=%s', v_r1, v_r2, v_r3, v_r4, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.9 Lote mixto con repetidos y NULL (12 elementos, V8 camión X): [f903, f901, NULL, f904, f901, f905, fb01, ffff, f902, f903, NULL, f906] devuelve 8 filas, una por id distinto y en el orden de la primera aparición: camion_distinto, vinculado, ya_estaba, en_otro_viaje, no_encontrado, no_encontrado, vinculado, vinculado; V8 queda con f901, f902, f904 y f906, f903 sigue suelto y f905 sigue en V2';
+  v_r text; v_en_v8 int; v_viajes text[];
+begin
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_s27_vincular(public._test_s27_id('da08'),
+    public._test_s27_ids('f903', 'f901', null, 'f904', 'f901', 'f905', 'fb01', 'ffff', 'f902', 'f903', null, 'f906'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_en_v8 from public.gastos where viaje_id = public._test_s27_id('da08');
+  v_viajes := array[public._test_s27_viaje_de('f901'), public._test_s27_viaje_de('f902'), public._test_s27_viaje_de('f903'),
+                    public._test_s27_viaje_de('f904'), public._test_s27_viaje_de('f905'), public._test_s27_viaje_de('f906')];
+  perform public._test_chk(c_caso,
+    v_r = 'f903=camion_distinto,f901=vinculado,f904=ya_estaba,f905=en_otro_viaje,fb01=no_encontrado,ffff=no_encontrado,f902=vinculado,f906=vinculado'
+      and v_en_v8 = 4 and v_viajes = array['da08', 'da08', '-', 'da08', 'da02', 'da08'],
+    format('%s | gastos en V8=%s | viajes de f901..f906=%s', v_r, v_en_v8, v_viajes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.10 Idempotencia: repetir el lote de 27.9 (como al reintentar con mala señal) deja los gastos de A exactamente como estaban (huella igual, también updated_at) y devuelve ya_estaba para lo que la primera vez vinculó (f901, f902, f906) y para f904, y lo mismo que antes para el resto';
+  v_antes text; v_despues text; v_r text;
+begin
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_antes from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_s27_vincular(public._test_s27_id('da08'),
+    public._test_s27_ids('f903', 'f901', null, 'f904', 'f901', 'f905', 'fb01', 'ffff', 'f902', 'f903', null, 'f906'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_despues from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform public._test_chk(c_caso,
+    v_r = 'f903=camion_distinto,f901=ya_estaba,f904=ya_estaba,f905=en_otro_viaje,fb01=no_encontrado,ffff=no_encontrado,f902=ya_estaba,f906=ya_estaba'
+      and v_despues = v_antes,
+    format('%s | huella igual=%s', v_r, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.11 Normalización de la lista (V6, sin camión): [a101, a101, NULL, a101] devuelve UNA fila; [a102, NULL, a103, a102] devuelve a102 y a103 en ese orden; ningún NULL sale como fila; una lista de solo NULL ([NULL] y [NULL, NULL]) queda vacía y es 22023 con el texto de lista vacía, sin cambios';
+  v_e constant text := '22023|Hace falta al menos un gasto para sumar al viaje';
+  v_viaje constant uuid := public._test_s27_id('da06');
+  v_r text[]; v_viajes text[];
+begin
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_s27_vincular(v_viaje, public._test_s27_ids('a101', 'a101', null, 'a101')),
+    public._test_s27_vincular(v_viaje, public._test_s27_ids('a102', null, 'a103', 'a102')),
+    public._test_s27_vincular(v_viaje, public._test_s27_ids(null)),
+    public._test_s27_vincular(v_viaje, public._test_s27_ids(null, null))];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_viajes := array[public._test_s27_viaje_de('a101'), public._test_s27_viaje_de('a102'), public._test_s27_viaje_de('a103')];
+  perform public._test_chk(c_caso,
+    v_r = array['a101=vinculado', 'a102=vinculado,a103=vinculado', v_e, v_e] and v_viajes = array['da06', 'da06', 'da06'],
+    format('%s | viajes de a101..a103=%s', v_r, v_viajes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.12 Tope de 100 (V6): 100 ids distintos se vinculan los 100 (100 filas vinculado); 101 ids dan 22023 "Se pueden sumar como máximo 100 gastos por vez" y los 101 siguen sueltos; el tope mira el largo recibido: 100 elementos con solo 2 ids distintos pasan (2 filas, ya_estaba) y 101 elementos con 2 distintos son 22023';
+  v_e constant text := '22023|Se pueden sumar como máximo 100 gastos por vez';
+  v_viaje constant uuid := public._test_s27_id('da06');
+  a_p uuid[] := array(select public._test_s27_id(lpad(to_hex(1000 + i), 4, '0')) from generate_series(1, 100) as i order by i);
+  a_q uuid[] := array(select public._test_s27_id(lpad(to_hex(1200 + i), 4, '0')) from generate_series(1, 101) as i order by i);
+  v_n int; v_vinc int; v_dist int; v_r101 text; v_r100d text; v_r101d text; v_p_en_v6 int; v_q_sueltos int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  select count(*), count(*) filter (where f.resultado = 'vinculado'), count(distinct f.gasto_id) into v_n, v_vinc, v_dist
+    from public.vincular_gastos_a_viaje(v_viaje, a_p) f;
+  v_r101 := public._test_s27_vincular(v_viaje, a_q);
+  v_r100d := public._test_s27_vincular(v_viaje,
+    array(select public._test_s27_id(case when i % 2 = 0 then '03e9' else '03ea' end) from generate_series(1, 100) as i order by i));
+  v_r101d := public._test_s27_vincular(v_viaje,
+    array(select public._test_s27_id(case when i % 2 = 0 then '03e9' else '03ea' end) from generate_series(1, 101) as i order by i));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_p_en_v6 from public.gastos where id = any (a_p) and viaje_id = v_viaje;
+  select count(*) into v_q_sueltos from public.gastos where id = any (a_q) and viaje_id is null;
+  perform public._test_chk(c_caso,
+    v_n = 100 and v_vinc = 100 and v_dist = 100 and v_p_en_v6 = 100
+      and v_r101 = v_e and v_q_sueltos = 101
+      and v_r100d = '03ea=ya_estaba,03e9=ya_estaba' and v_r101d = v_e,
+    format('100: filas=%s vinculado=%s distintos=%s en V6=%s | 101: %s, sueltos=%s | 100 con 2 distintos: %s | 101 con 2 distintos: %s',
+      v_n, v_vinc, v_dist, v_p_en_v6, v_r101, v_q_sueltos, v_r100d, v_r101d));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.13 Parámetros vacíos o nulos, sin cambiar nada: lista vacía, NULL, [NULL] y [NULL, NULL] dan 22023 "Hace falta al menos un gasto para sumar al viaje"; viaje NULL da 22023 "Falta el id del viaje" también con lista nula o vacía (el viaje se valida primero); los gastos de A quedan con la misma huella';
+  v_e1 constant text := '22023|Hace falta al menos un gasto para sumar al viaje';
+  v_e2 constant text := '22023|Falta el id del viaje';
+  v_v constant uuid := public._test_s27_id('da01');
+  v_antes text; v_despues text; v_r text[];
+begin
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_antes from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_s27_vincular(v_v, '{}'::uuid[]),
+    public._test_s27_vincular(v_v, null::uuid[]),
+    public._test_s27_vincular(v_v, array[null]::uuid[]),
+    public._test_s27_vincular(v_v, array[null, null]::uuid[]),
+    public._test_s27_vincular(null::uuid, public._test_s27_ids('f601')),
+    public._test_s27_vincular(null::uuid, null::uuid[]),
+    public._test_s27_vincular(null::uuid, '{}'::uuid[])];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_despues from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform public._test_chk(c_caso,
+    v_r = array[v_e1, v_e1, v_e1, v_e1, v_e2, v_e2, v_e2] and v_despues = v_antes,
+    format('%s | huella igual=%s', v_r, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.14 Viaje ajeno e inexistente: el viaje de B (db01) y un uuid que no existe dan EXACTAMENTE el mismo error (P0002 "No se encontró el viaje"), con gastos de A, con un gasto de B y con ambos; el gasto de A (2003) sigue suelto y el de B no cambia';
+  v_e constant text := 'P0002|No se encontró el viaje';
+  v_ajeno constant uuid := public._test_s27_id('db01');
+  v_inex constant uuid := public._test_s27_id('dfff');
+  v_antes text[]; v_despues text[]; v_r text[];
+begin
+  v_antes := array[public._test_s27_fila('2003'), public._test_s27_fila('fb01'), public._test_s27_fila('fb02')];
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_s27_vincular(v_ajeno, public._test_s27_ids('2003')),
+    public._test_s27_vincular(v_inex, public._test_s27_ids('2003')),
+    public._test_s27_vincular(v_ajeno, public._test_s27_ids('fb01')),
+    public._test_s27_vincular(v_inex, public._test_s27_ids('fb01')),
+    public._test_s27_vincular(v_ajeno, public._test_s27_ids('2003', 'fb01', 'fb02')),
+    public._test_s27_vincular(v_inex, public._test_s27_ids('2003', 'fb01', 'fb02'))];
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_despues := array[public._test_s27_fila('2003'), public._test_s27_fila('fb01'), public._test_s27_fila('fb02')];
+  perform public._test_chk(c_caso,
+    v_r = array[v_e, v_e, v_e, v_e, v_e, v_e] and v_despues = v_antes and public._test_s27_viaje_de('2003') = '-',
+    format('%s | filas iguales=%s | 2003 en viaje=%s', v_r, v_despues = v_antes, public._test_s27_viaje_de('2003')));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.15 Solo cambia viaje_id (y updated_at, que lo pone el trigger): f301, f302 y f303 son idénticos a antes de 27.3 salvo esas dos columnas (monto, fecha, descripción, método, litros, precio por litro, odómetro, tanque lleno, categoría, camión, created_at y client_ref); el client_ref de f301 sigue siendo el que tenía; updated_at pasó del 1/2/2020 a la hora de la transacción';
+  v_antes jsonb; v_despues jsonb; v_cref text; v_viejos int;
+begin
+  select (public._test_get('s27_pre_g3'))::jsonb into v_antes;
+  select jsonb_agg(to_jsonb(g) order by g.id) into v_despues from public.gastos g
+   where g.id in (public._test_s27_id('f301'), public._test_s27_id('f302'), public._test_s27_id('f303'));
+  select client_ref::text into v_cref from public.gastos where id = public._test_s27_id('f301');
+  select count(*) into v_viejos from public.gastos g
+   where g.id in (public._test_s27_id('f301'), public._test_s27_id('f302'), public._test_s27_id('f303')) and g.updated_at = '2020-02-01 10:00:00+00';
+  perform public._test_chk(c_caso,
+    (select jsonb_agg(e - 'viaje_id' - 'updated_at' order by e->>'id') from jsonb_array_elements(v_antes) e)
+      = (select jsonb_agg(e - 'viaje_id' - 'updated_at' order by e->>'id') from jsonb_array_elements(v_despues) e)
+      and jsonb_array_length(v_antes) = 3 and jsonb_array_length(v_despues) = 3
+      and v_cref = '27000000-0000-4000-8000-00000000c301' and v_viejos = 0
+      and (select count(*) from jsonb_array_elements(v_antes) e where e->>'updated_at' is not null and e->>'viaje_id' is null) = 3,
+    format('antes=%s | después=%s | client_ref=%s | con updated_at viejo=%s', v_antes, v_despues, v_cref, v_viejos));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Sin cuenta: el usuario e1 no pertenece a ninguna, y una sesión authenticated sin sub tampoco.
+do $$
+declare
+  c_caso constant text := '27.16 Sin cuenta: un usuario sin miembro y una sesión authenticated sin sub reciben 42501 "No perteneces a ningún transportista: no se pueden sumar gastos al viaje", antes de validar los parámetros (también con viaje y lista NULL), y no cambian nada';
+  v_e constant text := '42501|No perteneces a ningún transportista: no se pueden sumar gastos al viaje';
+  v_antes text; v_despues text; v_r text[];
+begin
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_antes from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000e1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := array[
+    public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('f601', 'f602')),
+    public._test_s27_vincular(null::uuid, null::uuid[])];
+  perform set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+  v_r := v_r || public._test_s27_vincular(public._test_s27_id('da01'), public._test_s27_ids('f601', 'f602'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_despues from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform public._test_chk(c_caso, v_r = array[v_e, v_e, v_e] and v_despues = v_antes,
+    format('%s | huella igual=%s', v_r, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- anon: 42501 por permiso sobre la función misma (el mensaje la nombra), no el 42501 de adentro.
+do $$
+declare
+  c_caso constant text := '27.17 anon no puede ejecutar vincular_gastos_a_viaje: 42501 por permiso sobre la función misma (el mensaje la nombra), no el 42501 de adentro, y los gastos de A no cambian';
+  v_viaje constant uuid := public._test_s27_id('da01');
+  v_ids constant uuid[] := public._test_s27_ids('f601', 'f602');
+  v_antes text; v_despues text; v_s text; v_m text;
+begin
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_antes from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform set_config('request.jwt.claims', '', true);
+  set local role anon;
+  begin
+    perform * from public.vincular_gastos_a_viaje(v_viaje, v_ids);
+    v_s := 'OK'; v_m := '';
+  exception when others then
+    get stacked diagnostics v_s = returned_sqlstate, v_m = message_text;
+  end;
+  reset role;
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_despues from public.gastos g where g.transportista_id = '27000000-0000-4000-8000-0000000000a0';
+  perform public._test_chk(c_caso, v_s = '42501' and position('vincular_gastos_a_viaje' in v_m) > 0 and v_despues = v_antes,
+    format('%s | %s | huella igual=%s', v_s, v_m, v_despues = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- Atomicidad: un trigger de prueba que se comporta como lo haría uno de cobro (excepción PT402 en el UPDATE de un gasto
+-- puntual). Se crea aquí (como postgres) y el caso 27.18 lo borra. Cuenta cuántos gastos del mismo viaje ya estaban
+-- escritos cuando falla (en el detalle del error), para probar que hubo cambios a medias que se deshicieron.
+create function public._test_s27_trigger_cobro()
+returns trigger language plpgsql as $$
+declare v_previos int;
+begin
+  if new.id::text = public._test_get('s27_trig_gasto') then
+    select count(*) into v_previos from public.gastos g where g.viaje_id = new.viaje_id and g.id <> new.id;
+    raise exception 'La cuenta está en modo de solo lectura' using errcode = 'PT402', detail = format('previos=%s', v_previos);
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_90_s27_cobro
+  before update on public.gastos
+  for each row execute function public._test_s27_trigger_cobro();
+
+do $$
+declare
+  c_caso constant text := '27.18 Atomicidad: con un trigger de prueba que levanta PT402 ("La cuenta está en modo de solo lectura") en el UPDATE de un solo gasto, la llamada para V4 con 3 gastos falla con ese mismo SQLSTATE y texto (la excepción se propaga tal cual, nadie la atrapa) y NO queda ningún gasto vinculado, ni con el gasto que falla al final ni con el que falla al principio (en al menos una de las dos pruebas ya se había escrito otro gasto antes de fallar, y se deshizo); sin el trigger, la misma llamada vincula los 3';
+  v_viaje constant uuid := public._test_s27_id('da04');
+  v_ids constant uuid[] := public._test_s27_ids('1901', '1902', '1903');
+  v_msg constant text := 'La cuenta está en modo de solo lectura';
+  v_antes text; v_despues text;
+  v_s1 text; v_m1 text; v_d1 text; v_s2 text; v_m2 text; v_d2 text;
+  v_p1 int; v_p2 int; v_sueltos int; v_ok text; v_vinc int;
+begin
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_antes from public.gastos g where g.id = any (v_ids);
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+
+  -- Falla el último (por id) de los tres.
+  perform public._test_set('s27_trig_gasto', public._test_s27_id('1903')::text);
+  set local role authenticated;
+  begin
+    perform * from public.vincular_gastos_a_viaje(v_viaje, v_ids);
+    v_s1 := 'OK';
+  exception when others then
+    get stacked diagnostics v_s1 = returned_sqlstate, v_m1 = message_text, v_d1 = pg_exception_detail;
+  end;
+  reset role;
+
+  -- Falla el primero.
+  perform public._test_set('s27_trig_gasto', public._test_s27_id('1901')::text);
+  set local role authenticated;
+  begin
+    perform * from public.vincular_gastos_a_viaje(v_viaje, v_ids);
+    v_s2 := 'OK';
+  exception when others then
+    get stacked diagnostics v_s2 = returned_sqlstate, v_m2 = message_text, v_d2 = pg_exception_detail;
+  end;
+  reset role;
+
+  select md5(string_agg(to_jsonb(g)::text, '|' order by g.id)) into v_despues from public.gastos g where g.id = any (v_ids);
+  select count(*) into v_sueltos from public.gastos g where g.id = any (v_ids) and g.viaje_id is null;
+  v_p1 := coalesce(substring(v_d1 from 'previos=(\d+)')::int, -1);
+  v_p2 := coalesce(substring(v_d2 from 'previos=(\d+)')::int, -1);
+
+  -- Sin el trigger, la misma llamada anda.
+  drop trigger trg_90_s27_cobro on public.gastos;
+  drop function public._test_s27_trigger_cobro();
+  set local role authenticated;
+  v_ok := public._test_s27_vincular(v_viaje, v_ids);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  select count(*) into v_vinc from public.gastos g where g.id = any (v_ids) and g.viaje_id = v_viaje;
+
+  perform public._test_chk(c_caso,
+    v_s1 = 'PT402' and v_m1 = v_msg and v_s2 = 'PT402' and v_m2 = v_msg
+      and greatest(v_p1, v_p2) >= 1 and v_despues = v_antes and v_sueltos = 3
+      and v_ok = '1901=vinculado,1902=vinculado,1903=vinculado' and v_vinc = 3,
+    format('falla el último: %s "%s" (%s) | falla el primero: %s "%s" (%s) | sueltos tras los fallos=%s, filas iguales=%s | sin el trigger: %s, vinculados=%s',
+      v_s1, v_m1, v_d1, v_s2, v_m2, v_d2, v_sueltos, v_despues = v_antes, v_ok, v_vinc));
+exception when others then
+  drop trigger if exists trg_90_s27_cobro on public.gastos;
+  drop function if exists public._test_s27_trigger_cobro();
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+-- RLS salteada: como postgres (dueño de las tablas) CON el JWT de A. El filtro explícito por get_mi_transportista_id()
+-- tiene que dar lo mismo que con RLS.
+do $$
+declare
+  c_caso constant text := '27.19 Con RLS salteada (postgres con el JWT de A, que ve las 2 filas de B) la función igual aísla las cuentas por su filtro explícito: V10 recibe f2001 y f2002 de A (vinculado), el gasto suelto de B (fb01) y el ya vinculado de B (fb02) dan no_encontrado y no se tocan, e id inexistente igual; el viaje de B da P0002 y el gasto de A (2003) sigue suelto; y no se bloquea ninguna fila de B (el xmax de fb01 y fb02 sigue en 0: la función no pide locks sobre otras cuentas ni siquiera sin RLS)';
+  v_a_v10 constant uuid := public._test_s27_id('da0a');
+  v_b_viaje constant uuid := public._test_s27_id('db01');
+  v_ve_b int; v_r1 text; v_r2 text; v_r3 text; v_b_antes text; v_b_despues text; v_huella_b text;
+  v_x_antes text[]; v_x_despues text[];
+begin
+  v_b_antes := public._test_s27_fila('fb01') || public._test_s27_fila('fb02');
+  v_x_antes := array[(select xmax::text from public.gastos where id = public._test_s27_id('fb01')),
+                     (select xmax::text from public.gastos where id = public._test_s27_id('fb02'))];
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  select count(*) into v_ve_b from public.gastos where transportista_id = '27000000-0000-4000-8000-0000000000b0';
+  v_r1 := public._test_s27_vincular(v_a_v10, public._test_s27_ids('2001', '2002', 'fb01', 'ffff'));
+  v_r2 := public._test_s27_vincular(v_b_viaje, public._test_s27_ids('2003'));
+  v_r3 := public._test_s27_vincular(v_a_v10, public._test_s27_ids('fb02'));
+  perform set_config('request.jwt.claims', '', true);
+  v_b_despues := public._test_s27_fila('fb01') || public._test_s27_fila('fb02');
+  v_x_despues := array[(select xmax::text from public.gastos where id = public._test_s27_id('fb01')),
+                       (select xmax::text from public.gastos where id = public._test_s27_id('fb02'))];
+  perform public._test_chk(c_caso,
+    v_ve_b = 2 and v_r1 = '2001=vinculado,2002=vinculado,fb01=no_encontrado,ffff=no_encontrado'
+      and v_r2 = 'P0002|No se encontró el viaje' and v_r3 = 'fb02=no_encontrado'
+      and v_b_despues = v_b_antes
+      and v_x_antes = array['0', '0'] and v_x_despues = array['0', '0']
+      and public._test_s27_viaje_de('2001') = 'da0a' and public._test_s27_viaje_de('2002') = 'da0a' and public._test_s27_viaje_de('2003') = '-'
+      and public._test_s27_viaje_de('fb01') = '-' and public._test_s27_viaje_de('fb02') = 'db01',
+    format('filas de B visibles=%s | %s | %s | %s | filas de B iguales=%s | xmax de fb01 y fb02 antes=%s después=%s', v_ve_b, v_r1, v_r2, v_r3, v_b_despues = v_b_antes, v_x_antes, v_x_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.20 Locks tomados: una llamada que no vincula nada (V7: ab01 está en otro viaje, ab02 es de otro camión, fb01 es de B y ffff no existe) igual deja bloqueados el viaje y los gastos pedidos que existen en la cuenta (sus xmax pasan de 0 a distinto de 0; el modo, FOR SHARE y FOR UPDATE, lo fija el código que comprueba 27.2); el gasto de B no se bloquea (sigue en 0), así que no hay espera ni señal entre cuentas';
+  v_viaje constant uuid := public._test_s27_id('da07');
+  v_antes text[]; v_despues text[]; v_r text;
+begin
+  v_antes := array[
+    (select xmax::text from public.viajes where id = v_viaje),
+    (select xmax::text from public.gastos where id = public._test_s27_id('ab01')),
+    (select xmax::text from public.gastos where id = public._test_s27_id('ab02')),
+    (select xmax::text from public.gastos where id = public._test_s27_id('fb01'))];
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000a1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r := public._test_s27_vincular(v_viaje, public._test_s27_ids('ab01', 'ab02', 'fb01', 'ffff'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_despues := array[
+    (select xmax::text from public.viajes where id = v_viaje),
+    (select xmax::text from public.gastos where id = public._test_s27_id('ab01')),
+    (select xmax::text from public.gastos where id = public._test_s27_id('ab02')),
+    (select xmax::text from public.gastos where id = public._test_s27_id('fb01'))];
+  perform public._test_chk(c_caso,
+    v_antes = array['0', '0', '0', '0']
+      and v_r = 'ab01=en_otro_viaje,ab02=camion_distinto,fb01=no_encontrado,ffff=no_encontrado'
+      and v_despues[1] <> '0' and v_despues[2] <> '0' and v_despues[3] <> '0' and v_despues[4] = '0',
+    format('xmax antes (viaje, ab01, ab02, fb01)=%s | %s | después=%s', v_antes, v_r, v_despues));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.21 Efecto en el Resumen (cuenta R, mayo de 2020, viaje dc01 con ingreso 10000 y 1 gasto de 500): al sumar e001 (1000, sin camión), e002 (2000) y e003 (combustible 3000, 30 litros) al viaje, la ganancia del viaje pasa de 9500,00 a 3500,00 (1 gasto de 500 a 4 de 6500) y en «por camión» el gasto sin camión pasa de «Sin camión» (1 de 1000) al camión del viaje (3 de 5500 a 4 de 6500); NINGÚN total por fecha cambia (total 4 de 6500, categorías, métodos de pago, resultado del mes 3500,00 y combustible); al quitarlos del viaje todo vuelve exactamente a como estaba';
+  v_viaje constant uuid := public._test_s27_id('dc01');
+  v_antes jsonb; v_despues jsonb; v_quitado jsonb; v_r text; v_n int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000c1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_antes := public._test_s27_resumen_r();
+  v_r := public._test_s27_vincular(v_viaje, public._test_s27_ids('e001', 'e002', 'e003', 'e004'));
+  v_despues := public._test_s27_resumen_r();
+  update public.gastos set viaje_id = null
+   where id in (public._test_s27_id('e001'), public._test_s27_id('e002'), public._test_s27_id('e003')) and viaje_id = v_viaje;
+  get diagnostics v_n = row_count;
+  v_quitado := public._test_s27_resumen_r();
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  perform public._test_chk(c_caso,
+    v_r = 'e001=vinculado,e002=vinculado,e003=vinculado,e004=ya_estaba'
+      and v_antes->>'gastos' = 'camion/-/1/1000.00 camion/S27R/3/5500.00 categoria/Combustible/1/3000.00 categoria/Peajes/3/3500.00 metodo_pago/efectivo/2/1500.00 metodo_pago/tarjeta_debito/1/3000.00 metodo_pago/transferencia/1/2000.00 total/-/4/6500.00'
+      and v_despues->>'gastos' = 'camion/S27R/4/6500.00 categoria/Combustible/1/3000.00 categoria/Peajes/3/3500.00 metodo_pago/efectivo/2/1500.00 metodo_pago/tarjeta_debito/1/3000.00 metodo_pago/transferencia/1/2000.00 total/-/4/6500.00'
+      and v_antes->>'viajes' = 'dc01/1/500.00/9500.00' and v_despues->>'viajes' = 'dc01/4/6500.00/3500.00'
+      and v_antes->>'mensual' = '2020-05-01/4/6500.00/1/30.000/10000.00/3500.00' and v_despues->>'mensual' = v_antes->>'mensual'
+      and v_antes->>'combustible' = 'S27R/1/30.000/3000.00' and v_despues->>'combustible' = v_antes->>'combustible'
+      and v_n = 3 and v_quitado = v_antes
+      and public._test_s27_camion_de('e001') = '-' and public._test_s27_viaje_de('e004') = 'dc01',
+    format('%s | antes=%s | después=%s | quitados=%s, de vuelta igual=%s', v_r, v_antes, v_despues, v_n, v_quitado = v_antes));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.22 Candidatos de la pantalla (consulta común, authenticated, cuenta D, viaje del 15/7): los gastos sin viaje por distancia en días a la fecha del viaje y, a igual distancia, el más reciente primero (d001 a 0 días, d002 a 2 [17/7], d003 a 2 [13/7], d004 a 5, d005 a 14, d006 a 47, d007 a 227: SIN ventana de días), con tope; d008 (ya en otro viaje) no aparece y no aparece ningún gasto de otra cuenta (la RLS filtra: A, B y R todavía tienen gastos sueltos)';
+  v_todos text; v_top3 text; v_ajenos int; v_otras_existen int;
+begin
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000d1","role":"authenticated"}', true);
+  set local role authenticated;
+  select string_agg(right(q.id::text, 4), ',' order by q.rn) into v_todos from (
+    select g.id, row_number() over (order by abs(g.fecha - date '2020-07-15'), g.fecha desc, g.created_at desc, g.id) as rn
+      from public.gastos g where g.viaje_id is null) q
+   where q.rn <= 100;
+  select string_agg(right(q.id::text, 4), ',' order by q.rn) into v_top3 from (
+    select g.id, row_number() over (order by abs(g.fecha - date '2020-07-15'), g.fecha desc, g.created_at desc, g.id) as rn
+      from public.gastos g where g.viaje_id is null) q
+   where q.rn <= 3;
+  select count(*) into v_ajenos from public.gastos g where g.viaje_id is null and g.transportista_id <> '27000000-0000-4000-8000-0000000000d0';
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  -- Sin RLS (como postgres) las otras cuentas sí tienen gastos sueltos: que no los vea D es obra de la RLS.
+  select count(*) into v_otras_existen from public.gastos g where g.viaje_id is null
+     and g.transportista_id in ('27000000-0000-4000-8000-0000000000a0', '27000000-0000-4000-8000-0000000000b0', '27000000-0000-4000-8000-0000000000c0');
+  perform public._test_chk(c_caso,
+    v_todos = 'd001,d002,d003,d004,d005,d006,d007' and v_top3 = 'd001,d002,d003' and v_ajenos = 0 and v_otras_existen > 0,
+    format('todos=%s | primeros 3=%s | sueltos de otras cuentas vistos por D=%s (existen %s)', v_todos, v_top3, v_ajenos, v_otras_existen));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.23 «Quitar del viaje» (consulta común, authenticated, cuenta D): se suman d001 a d004 a dd01 (4 vinculado) y el UPDATE "set viaje_id = null where id in (...) and viaje_id = X" con [d002, d004, d008] afecta 2 filas (d008 está en otro viaje y no se toca); d002 y d004 quedan idénticos a antes de sumarlos (salvo updated_at: ida y vuelta sin cambios); el mismo UPDATE sobre gastos de A afecta 0 filas (RLS) y no los cambia; authenticated tiene UPDATE sobre gastos.viaje_id; y volver a sumarlos funciona (quitar + sumar = mover de viaje)';
+  v_viaje constant uuid := public._test_s27_id('dd01');
+  v_antes jsonb; v_despues jsonb; v_r1 text; v_r2 text; v_n int; v_ajeno1 int; v_ajeno2 int; v_estado text[]; v_a_antes text; v_a_despues text; v_col boolean; v_tabla boolean;
+begin
+  select jsonb_agg(to_jsonb(g) - 'updated_at' order by g.id) into v_antes from public.gastos g
+   where g.id in (public._test_s27_id('d002'), public._test_s27_id('d004'));
+  v_a_antes := public._test_s27_fila('f302') || public._test_s27_fila('f301');
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000d1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r1 := public._test_s27_vincular(v_viaje, public._test_s27_ids('d001', 'd002', 'd003', 'd004'));
+  update public.gastos set viaje_id = null
+   where id in (public._test_s27_id('d002'), public._test_s27_id('d004'), public._test_s27_id('d008')) and viaje_id = v_viaje;
+  get diagnostics v_n = row_count;
+  -- Gastos de A (con el viaje de A) y sin el filtro por viaje: la RLS no los deja ver ni tocar.
+  update public.gastos set viaje_id = null where id = public._test_s27_id('f301') and viaje_id = public._test_s27_id('da01');
+  get diagnostics v_ajeno1 = row_count;
+  update public.gastos set viaje_id = null where id = public._test_s27_id('f302');
+  get diagnostics v_ajeno2 = row_count;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  v_estado := array[public._test_s27_viaje_de('d001'), public._test_s27_viaje_de('d002'), public._test_s27_viaje_de('d003'),
+                    public._test_s27_viaje_de('d004'), public._test_s27_viaje_de('d008')];
+  select jsonb_agg(to_jsonb(g) - 'updated_at' order by g.id) into v_despues from public.gastos g
+   where g.id in (public._test_s27_id('d002'), public._test_s27_id('d004'));
+  v_a_despues := public._test_s27_fila('f302') || public._test_s27_fila('f301');
+  v_col := has_column_privilege('authenticated', 'public.gastos', 'viaje_id', 'UPDATE');
+  v_tabla := has_table_privilege('authenticated', 'public.gastos', 'UPDATE');
+  perform set_config('request.jwt.claims', '{"sub":"27000000-0000-4000-8000-0000000000d1","role":"authenticated"}', true);
+  set local role authenticated;
+  v_r2 := public._test_s27_vincular(v_viaje, public._test_s27_ids('d002', 'd004'));
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  perform public._test_chk(c_caso,
+    v_r1 = 'd001=vinculado,d002=vinculado,d003=vinculado,d004=vinculado' and v_n = 2
+      and v_estado = array['dd01', '-', 'dd01', '-', 'dd02'] and v_despues = v_antes
+      and v_ajeno1 = 0 and v_ajeno2 = 0 and v_a_despues = v_a_antes
+      and v_col and v_r2 = 'd002=vinculado,d004=vinculado',
+    format('%s | filas quitadas=%s | viajes de d001, d002, d003, d004 y d008=%s | ida y vuelta igual=%s | filas de A afectadas=%s y %s, sin cambios=%s | UPDATE de authenticated en viaje_id=%s (de tabla entera=%s) | de nuevo: %s',
+      v_r1, v_n, v_estado, v_despues = v_antes, v_ajeno1, v_ajeno2, v_a_despues = v_a_antes, v_col, v_tabla, v_r2));
+exception when others then
+  perform public._test_chk(c_caso, false, sqlerrm);
+end
+$$;
+
+do $$
+declare
+  c_caso constant text := '27.24 Nada de más: después de todos los casos, los gastos de B, y los viajes y camiones de las cuatro cuentas (la función no los toca), son idénticos a los del setup (huella igual), y no quedó ni el trigger ni la función de prueba de 27.18';
+  v_hb text; v_hvc text; v_trg int; v_fn int;
+  a0 constant uuid := '27000000-0000-4000-8000-0000000000a0';
+  b0 constant uuid := '27000000-0000-4000-8000-0000000000b0';
+  c0 constant uuid := '27000000-0000-4000-8000-0000000000c0';
+  d0 constant uuid := '27000000-0000-4000-8000-0000000000d0';
+begin
+  select md5(coalesce(string_agg(to_jsonb(g)::text, '|' order by g.id), '')) into v_hb from public.gastos g where g.transportista_id = b0;
+  select md5(string_agg(x, '|' order by x)) into v_hvc from (
+    select to_jsonb(v)::text as x from public.viajes v where v.transportista_id in (a0, b0, c0, d0)
+    union all select to_jsonb(c)::text from public.camiones c where c.transportista_id in (a0, b0, c0, d0)) s;
+  select count(*) into v_trg from pg_trigger t where t.tgname = 'trg_90_s27_cobro' and not t.tgisinternal;
+  select count(*) into v_fn from pg_proc p where p.proname = '_test_s27_trigger_cobro';
+  perform public._test_chk(c_caso,
+    v_hb = public._test_get('s27_huella_b') and v_hvc = public._test_get('s27_huella_vc') and v_trg = 0 and v_fn = 0,
+    format('gastos de B iguales=%s | viajes y camiones iguales=%s | triggers de prueba=%s funciones de prueba=%s',
+      v_hb = public._test_get('s27_huella_b'), v_hvc = public._test_get('s27_huella_vc'), v_trg, v_fn));
 exception when others then
   perform public._test_chk(c_caso, false, sqlerrm);
 end
