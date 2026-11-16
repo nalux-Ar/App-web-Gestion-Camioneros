@@ -22,6 +22,7 @@ const ESPERADO: Record<string, string> = {
   'gastosKeys.list': 'gastos-lista',
   'gastosKeys.detail': 'gastos-detalle',
   'gastosKeys.delViaje': 'gastos-viaje',
+  'gastosKeys.sueltos': 'gastos-sueltos', // «Sumar gastos que ya cargué»: el id del viaje y su fecha van DESPUÉS de los dos rótulos, no viajan
   'gastosKeys.categorias': 'categorias-gasto',
   'viajesKeys.all': 'viajes',
   'viajesKeys.lists': 'viajes-lista',

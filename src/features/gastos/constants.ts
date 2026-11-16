@@ -37,6 +37,13 @@ export { MIN_YEAR, MIN_FECHA } from '@/lib/dates';
 /** Tope de gastos que trae la lista de un mes. Se pide uno más para saber si se alcanzó. */
 export const LIST_LIMIT = 500;
 
+/**
+ * Tope de gastos que se suman a un viaje (o se quitan de él) en UNA llamada: el mismo que impone la función de la base
+ * `vincular_gastos_a_viaje` (migración 019: con más de 100 responde 22023). También es cuántos candidatos muestra la
+ * pantalla «Sumar gastos que ya cargué» (los 100 más cercanos a la fecha del viaje). Si el valor cambia en la base, cambia acá.
+ */
+export const MAX_GASTOS_POR_VEZ = 100;
+
 /** Largo máximo de la descripción: mismo valor que `gastos_descripcion_chk` (length <= 2000). */
 export const MAX_DESCRIPCION = 2000;
 

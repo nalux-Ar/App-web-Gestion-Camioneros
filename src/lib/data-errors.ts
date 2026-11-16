@@ -25,6 +25,8 @@ import {
  *  - Auth: `AuthApiError` (con `code` tipo 'session_expired') o
  *    `AuthSessionMissingError`.
  *  - Errores propios (`RecordNotFoundError`, `DataRequestError`, `UserMessageError`).
+ *  - `PT402` (HTTP 402): lo levantará un trigger de la base (todavía no existe) cuando la cuenta esté en solo lectura por falta
+ *    de pago. PostgREST convierte un código `PT###` en el status HTTP de esos tres dígitos. Es la clase `payment`.
  */
 
 export type DataErrorKind =
@@ -35,6 +37,7 @@ export type DataErrorKind =
   | 'foreign-key'
   | 'unique'
   | 'permission'
+  | 'payment'
   | 'not-found'
   | 'server'
   | 'unknown';
@@ -86,6 +89,11 @@ export interface DataErrorContext {
   notFound?: string;
   /** Sin permiso (42501). */
   permission?: string;
+  /**
+   * Cuenta en solo lectura por falta de pago (`PT402`, o un 402 sin código). Por defecto vale el mensaje general de
+   * `DEFAULT_MESSAGES.payment`; una pantalla puede poner el suyo. Nunca se reintenta: con los mismos datos da lo mismo.
+   */
+  payment?: string;
   /** Check, datos faltantes o con formato inválido (23514, 23502, clase 22). */
   invalidData?: string;
 }
@@ -198,6 +206,9 @@ function classifyByCode(code: string): DataErrorKind | null {
   // existe o cambió: `actualizar_viaje_con_entregas`. Reintentar con los mismos datos da lo mismo.
   if (code === 'P0002') return 'not-found';
   if (code === '42501') return 'permission'; // RLS o trigger de la base
+  // PT402: cuenta en solo lectura (un trigger de la base). No es un SQLSTATE de Postgres sino uno propio: sin esta línea la
+  // clase 'PT' caería en 'unknown', que es reintentable y ofrecería un «Reintentar» que nunca puede funcionar.
+  if (code === 'PT402') return 'payment';
   if (code === '28000' || code === '28P01') return 'session'; // autorización inválida
   const sqlClass = code.slice(0, 2);
   if (sqlClass === '22' || sqlClass === '23') return 'invalid-data'; // datos fuera de rango/formato; check (23514), not null (23502)
@@ -243,6 +254,7 @@ export function classifyDataError(error: unknown): DataErrorKind {
 
   if (status !== undefined) {
     if (status === 401) return 'session';
+    if (status === 402) return 'payment'; // respaldo de `PT402` cuando el error no trae el código
     if (status === 403) return 'permission';
     if (status === 404) return 'not-found';
     if (status >= 500) return 'server'; // 502/504 de un gateway: no traen código de PostgREST
@@ -286,7 +298,7 @@ function messageByConstraint(error: unknown, context: DataErrorContext): string 
 }
 
 /** ¿Tiene sentido ofrecer "Reintentar" con los mismos datos? Con un check
- *  violado, un permiso negado o un registro inexistente, reintentar da lo mismo.
+ *  violado, un permiso negado, una cuenta en solo lectura (`payment`) o un registro inexistente, reintentar da lo mismo.
  *  Con el `context` de la pantalla, una FK puede declararse reintentable (`foreignKeyRetryable`), y un error que nombra
  *  un constraint de `messagesByConstraint` nunca se reintenta. */
 export function isRetryableDataError(error: unknown, context: DataErrorContext = {}): boolean {
@@ -336,6 +348,8 @@ const DEFAULT_MESSAGES: Record<DataErrorKind, string> = {
   'foreign-key': 'No se puede completar la acción porque este registro está relacionado con otros datos.',
   unique: 'Ya existe un registro con esos datos.',
   permission: 'No tienes permiso para hacer esto.',
+  // PROVISIONAL: el texto definitivo se decide cuando se arme el cobro. Es general a propósito (no nombra ningún botón ni plan).
+  payment: 'Tu cuenta está en modo de solo lectura: por ahora no se pueden guardar cambios.',
   'not-found': 'No encontramos ese registro.',
   server: SERVER_ERROR_MESSAGE,
   unknown: GENERIC_ERROR_MESSAGE,
@@ -364,6 +378,8 @@ export function mapDataError(error: unknown, context: DataErrorContext = {}): st
       return context.notFound ?? DEFAULT_MESSAGES[kind];
     case 'permission':
       return context.permission ?? DEFAULT_MESSAGES[kind];
+    case 'payment':
+      return context.payment ?? DEFAULT_MESSAGES[kind];
     case 'invalid-data':
       return context.invalidData ?? DEFAULT_MESSAGES[kind];
     default:

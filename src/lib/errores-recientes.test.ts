@@ -229,3 +229,16 @@ describe('errores recientes: el sqlstate solo en MAYÚSCULAS y dígitos', () => 
     }
   });
 });
+
+describe('errores recientes: la clase "payment" (PT402, cuenta en solo lectura)', () => {
+  it('un PT402 se anota como "payment" con su sqlstate y la operación, sin ningún texto del servidor', () => {
+    registrarErrorDeDatos(new DataRequestError({ code: 'PT402', message: 'texto_fijo_de_prueba', details: 'Key (id)=(123)' }, 402), 'vincular-gastos', T0);
+    expect(erroresRecientes(1, T0)).toEqual([{ tipo: 'payment', sqlstate: 'PT402', operacion: 'vincular-gastos', hace_s: 0 }]);
+    expect(JSON.stringify(erroresRecientes(1, T0))).not.toMatch(/texto_fijo|Key|123/);
+  });
+
+  it('un 402 sin código también se anota como "payment" (y sin sqlstate: no lo hay)', () => {
+    registrarErrorDeDatos(new DataRequestError({ message: 'Payment Required' }, 402), 'crear-gasto', T0);
+    expect(erroresRecientes(1, T0)).toEqual([{ tipo: 'payment', operacion: 'crear-gasto', hace_s: 0 }]);
+  });
+});

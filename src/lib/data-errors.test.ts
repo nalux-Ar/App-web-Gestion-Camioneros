@@ -414,3 +414,106 @@ describe('eliminar y cambiar el estado de un camión: textos de red y de timeout
     for (const texto of CUATRO) expect(texto).not.toMatch(/\$|\bacá\b|\b(?:tocá|revisá|probá|esperá|intentá|inténtalo vos)\b/i);
   });
 });
+
+describe('payment: PT402 (HTTP 402), la cuenta está en solo lectura', () => {
+  const MENSAJE = 'Tu cuenta está en modo de solo lectura: por ahora no se pueden guardar cambios.';
+  /** Lo que arma `unwrap` con un PT402: PostgREST convierte el código `PT402` en el status HTTP 402. */
+  const pt402 = (message = 'texto_fijo_de_prueba', status = 402) => new DataRequestError({ code: 'PT402', message, details: '' }, status);
+  /** El mismo PT402 pero SIN status (el `status` HTTP no viaja dentro del error de supabase-js si no pasa por `unwrap`). */
+  const pt402SinStatus = () => new DataRequestError({ code: 'PT402', message: 'x' });
+  /** Un 402 SIN código (por ejemplo, un gateway o una respuesta que no pasó por PostgREST). */
+  const sinCodigo = () => new DataRequestError({ message: 'Payment Required' }, 402);
+  const SIN_RED = { message: 'TypeError: Failed to fetch', code: '' };
+
+  it('PT402 es "payment", con o sin status: el código manda', () => {
+    expect(classifyDataError(pt402())).toBe('payment');
+    expect(classifyDataError(pt402SinStatus())).toBe('payment'); // sin status
+    expect(classifyDataError({ code: 'PT402', message: 'x' })).toBe('payment'); // el objeto plano de supabase-js, sin status
+    expect(classifyDataError(pt402('x', 400))).toBe('payment'); // el código gana aunque el status diga otra cosa
+    expect(classifyDataError(pt402('x', 500))).toBe('payment');
+  });
+
+  it('un 402 SIN código también es "payment" (respaldo), venga como DataRequestError o como objeto con `status`', () => {
+    expect(classifyDataError(sinCodigo())).toBe('payment');
+    expect(classifyDataError({ message: 'x', code: '', status: 402 })).toBe('payment');
+    expect(classifyDataError({ message: 'x', status: 402 })).toBe('payment');
+    // Un código que no es de la lista (P0001 da "desconocido") con status 402: el 402 es más específico.
+    expect(classifyDataError(new DataRequestError({ code: 'P0001', message: 'x' }, 402))).toBe('payment');
+  });
+
+  it('no cambia a sus vecinos: otros códigos PT y los demás status siguen como antes', () => {
+    expect(classifyDataError({ message: 'x', code: 'PT403' })).toBe('unknown'); // el código se compara entero, no por prefijo
+    expect(classifyDataError({ message: 'x', code: 'PT401' })).toBe('unknown');
+    expect(classifyDataError({ message: 'x', code: 'PT4020' })).toBe('unknown'); // 6 caracteres: no es un SQLSTATE
+    for (const [status, clase] of [
+      [401, 'session'],
+      [403, 'permission'],
+      [404, 'not-found'],
+      [500, 'server'],
+      [503, 'server'],
+    ] as const) {
+      expect(classifyDataError(new DataRequestError({ message: 'x' }, status)), String(status)).toBe(clase);
+    }
+    // Un 402 que llega junto con un código de OTRA clase no la pisa: el código es más específico que el status.
+    expect(classifyDataError(new DataRequestError({ code: '42501', message: 'x' }, 402))).toBe('permission');
+    expect(classifyDataError(new DataRequestError({ code: '23505', message: 'x' }, 402))).toBe('unique');
+  });
+
+  it('NO se reintenta (con los mismos datos da lo mismo): ni por código, ni por status, ni con un contexto', () => {
+    expect(isRetryableDataError(pt402())).toBe(false);
+    expect(isRetryableDataError(pt402SinStatus())).toBe(false);
+    expect(isRetryableDataError(sinCodigo())).toBe(false);
+    expect(isRetryableDataError({ message: 'x', status: 402 })).toBe(false);
+    expect(isRetryableDataError(pt402(), { payment: 'Texto propio.' })).toBe(false);
+    expect(isRetryableDataError(pt402(), GUARDAR_GASTO_CONTEXT)).toBe(false);
+    // Ni siquiera con los flags que vuelven reintentables a otras clases.
+    expect(isRetryableDataError(pt402(), { foreignKeyRetryable: true, restrictAsForeignKey: true })).toBe(false);
+  });
+
+  it('un error "unknown" SIGUE siendo reintentable (lo único que cambió es que PT402 ya no cae ahí)', () => {
+    for (const raro of [{ message: 'x', code: 'P0001' }, { message: 'x', code: 'PT403' }, { message: 'x', code: '' }, new Error('raro'), 'texto suelto', null]) {
+      expect(classifyDataError(raro), String(raro)).toBe('unknown');
+      expect(isRetryableDataError(raro), String(raro)).toBe(true);
+    }
+    // Y la red, el timeout y el servidor, también.
+    expect(isRetryableDataError(SIN_RED)).toBe(true);
+    expect(isRetryableDataError(new DataRequestError({ message: 'x' }, 503))).toBe(true);
+  });
+
+  it('mensaje por defecto (provisional): español neutro de «tú», sin voseo y SIN el texto del servidor', () => {
+    expect(mapDataError(pt402())).toBe(MENSAJE);
+    expect(mapDataError(sinCodigo())).toBe(MENSAJE);
+    expect(mapDataError(pt402SinStatus())).toBe(MENSAJE);
+    expect(MENSAJE).not.toMatch(/\$|\b(?:acá|vos|tenés|podés|tocá|revisá|probá|esperá|intentá|pagá|renová)\b/i);
+    const conTextoDelServidor = new DataRequestError({ code: 'PT402', message: 'texto_fijo_de_prueba: Key (id)=(123) violates', details: 'Key (id)=(123)' }, 402);
+    expect(mapDataError(conTextoDelServidor)).toBe(MENSAJE);
+    expect(mapDataError(conTextoDelServidor)).not.toMatch(/texto_fijo|Key|123|violates/);
+  });
+
+  it('`context.payment` pisa el mensaje y solo afecta a ESTA clase', () => {
+    expect(mapDataError(pt402(), { payment: 'Texto propio.' })).toBe('Texto propio.');
+    expect(mapDataError(sinCodigo(), { payment: 'Texto propio.' })).toBe('Texto propio.');
+    expect(mapDataError(pt402(), {})).toBe(MENSAJE);
+    // Los textos de otras clases del contexto no la tocan...
+    expect(mapDataError(pt402(), { permission: 'PERMISO', unique: 'ÚNICO', invalidData: 'DATOS', notFound: 'NO ESTÁ', foreignKey: 'FK' })).toBe(MENSAJE);
+    // ...y el suyo no toca a las demás.
+    expect(mapDataError(fk('x', '', '42501'), { payment: 'Texto propio.' })).toBe('No tienes permiso para hacer esto.');
+    expect(mapDataError(SIN_RED, { payment: 'Texto propio.' })).toBe(NETWORK_ERROR_MESSAGE);
+    expect(mapDataError(new DataRequestError({ message: 'x' }, 503), { payment: 'Texto propio.' })).not.toBe('Texto propio.');
+  });
+
+  it('ningún contexto de pantalla actual pisa el mensaje (hoy ninguno define `payment`) y todos conservan su no-reintento', () => {
+    for (const contexto of [GUARDAR_GASTO_CONTEXT, ELIMINAR_GASTO_CONTEXT, GUARDAR_VIAJE_CONTEXT, ELIMINAR_VIAJE_CONTEXT, ELIMINAR_DEVOLUCION_CONTEXT, GUARDAR_CAMION_CONTEXT, ARCHIVAR_CAMION_CONTEXT]) {
+      expect(mapDataError(pt402(), contexto)).toBe(MENSAJE);
+      expect(mapDataError(sinCodigo(), contexto)).toBe(MENSAJE);
+      expect(isRetryableDataError(pt402(), contexto)).toBe(false);
+    }
+  });
+
+  it('un contexto que reconoce un texto fijo del error (`messagesByConstraint`) sigue pudiendo distinguir causas del mismo PT402', () => {
+    const contexto: DataErrorContext = { messagesByConstraint: { texto_fijo_de_prueba: 'Mensaje de esa causa.' } };
+    expect(mapDataError(pt402('texto_fijo_de_prueba'), contexto)).toBe('Mensaje de esa causa.');
+    expect(isRetryableDataError(pt402('texto_fijo_de_prueba'), contexto)).toBe(false);
+    expect(mapDataError(pt402('otro_texto'), contexto)).toBe(MENSAJE); // el resto, el mensaje general
+  });
+});

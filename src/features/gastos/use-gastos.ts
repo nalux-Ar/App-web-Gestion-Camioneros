@@ -2,9 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 
 import { useTenantId } from '@/features/member/use-tenant-id';
 import { CATEGORIAS_STALE_TIME_MS } from './constants';
-import { fetchCategorias, fetchGasto, fetchGastosDelRango, fetchGastosDelViaje } from './gastos-api';
+import { fetchCategorias, fetchGasto, fetchGastosDelRango, fetchGastosDelViaje, fetchGastosSueltos, type GastoDeFila } from './gastos-api';
 import { rangoDelFiltro, type GastosFiltro } from './gastos-filters';
 import { gastosKeys } from './gastos-keys';
+import type { Candidatos } from './sumar-gastos';
 
 /**
  * Queries de Gastos. Cada key lleva el tenant (`gastosKeys`) y cada `queryFn`
@@ -69,6 +70,30 @@ export function useGastosDelViaje(viajeId: string | null) {
     queryFn: ({ signal }) =>
       viajeId === null ? Promise.resolve({ items: [], truncado: false }) : fetchGastosDelViaje(viajeId, signal),
     enabled: viajeId !== null,
+    gcTime: 0,
+  });
+}
+
+/**
+ * Los gastos SIN viaje que se pueden sumar a un viaje («Sumar gastos que ya cargué»): los `MAX_GASTOS_POR_VEZ` más cercanos
+ * a la fecha del viaje, con `hayMas` si había más. `viajeId` y `fechaViaje` son null mientras no se conocen (el id de la URL
+ * no es un uuid, o el viaje todavía no cargó): no se consulta nada hasta tener los dos. La key cuelga de `gastosKeys.all`: cualquier
+ * alta, edición o borrado de un gasto, y sumar o quitar gastos de un viaje, la invalidan.
+ *
+ * Sin caché (`gcTime: 0`), como los gastos de un viaje: al entrar a la pantalla la lista tiene que ser la de ahora, no la de la
+ * última vez (un gasto que se sumó o se cargó desde otro lado no se ofrece de nuevo ni falta). OJO para la pantalla: la lista
+ * puede refrescarse sola (al volver la señal, o por una invalidación) mientras hay una selección armada; lo que ya no esté en
+ * la lista vigente no se tiene que mandar.
+ */
+export function useGastosSueltos(viajeId: string | null, fechaViaje: string | null) {
+  const tenantId = useTenantId();
+  return useQuery({
+    queryKey: gastosKeys.sueltos(tenantId, viajeId ?? 'sin-id', fechaViaje ?? 'sin-fecha'),
+    queryFn: ({ signal }) =>
+      viajeId === null || fechaViaje === null
+        ? Promise.resolve<Candidatos<GastoDeFila>>({ items: [], hayMas: false })
+        : fetchGastosSueltos({ fechaViaje, signal }),
+    enabled: viajeId !== null && fechaViaje !== null,
     gcTime: 0,
   });
 }

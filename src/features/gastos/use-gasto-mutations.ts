@@ -9,8 +9,9 @@ import type { RowChanges } from '@/lib/db';
 import { GASTOS_VIAJE_FK } from './constants';
 import { crearGasto, type CrearGastoResultado } from './gasto-save';
 import type { GastoColumns } from './gasto-form';
-import { actualizarGasto, eliminarGasto, gastoWriteIO } from './gastos-api';
+import { actualizarGasto, eliminarGasto, gastoWriteIO, quitarGastosDelViaje, vincularGastosAViaje } from './gastos-api';
 import { gastosKeys } from './gastos-keys';
+import type { ResultadoDeGasto } from './sumar-gastos';
 
 /**
  * Mutaciones de Gastos. Reglas:
@@ -98,5 +99,70 @@ export function useEliminarGasto() {
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },
     onSettled: (_borradas, _error, { tenantId }) => invalidarResumen(queryClient, tenantId),
+  });
+}
+
+/**
+ * Sumar y quitar gastos de un viaje (`useVincularGastos`, `useQuitarGastosDelViaje`). Mismas reglas de arriba (sin `retry` ni
+ * `networkMode`, el `tenantId` en las variables, el Resumen en `onSettled`) y además:
+ *  - `onSettled` invalida `gastosKeys.all`, también si la mutación falla: eso cubre la lista de gastos SUELTOS que ofrece la
+ *    pantalla de sumar, los gastos del viaje, la lista de cada mes y el detalle. A diferencia de las demás mutaciones de este
+ *    archivo (que invalidan solo en `onSuccess`, porque su lista no está a la vista), acá la lista de candidatos SÍ está a la vista
+ *    cuando termina la mutación. Con un timeout o una señal que se corta, la escritura pudo aplicarse igual: sin refrescar, la lista
+ *    seguiría ofreciendo como candidatos gastos que ya se sumaron (o, al quitar, sin los que ya quedaron sueltos). Refrescar de más
+ *    (por ejemplo si la base rechazó el pedido) solo cuesta una lectura. Igual que el Resumen, no se espera (`void`): la mutación
+ *    no queda colgada mientras la lista se vuelve a pedir.
+ *  - REINTENTAR (manual: no hay reintento automático) reenvía la MISMA selección y es seguro, porque la función de la base es
+ *    idempotente. Lo que NO es seguro es reenviar una selección VIEJA después de un «Quitar» (o al revés): volvería a sumar lo que
+ *    se quitó. Por eso la pantalla de «Sumar» tiene que mandar SIEMPRE la selección de AHORA, y nunca guardar una lista para
+ *    reenviarla sola más tarde.
+ *  - `scope` compartido: sumar y quitar corren de a UNO, en el orden en que se pidieron. Así un «Quitar» que se toca mientras un
+ *    «Sumar» sigue en camino (mala señal) no puede llegar a la base antes que él y quedar deshecho. Cubre lo que está en vuelo en
+ *    esta pestaña; entre dos dispositivos no hay orden posible desde acá.
+ */
+const SCOPE_DE_VINCULOS = { id: 'vincular-gastos' } as const;
+
+export interface VincularGastosVariables {
+  tenantId: string;
+  viajeId: string;
+  /** La selección de AHORA, entre 1 y `MAX_GASTOS_POR_VEZ` (sin repetidos: se juntan antes de mandar). */
+  gastoIds: readonly string[];
+}
+
+/**
+ * Suma los gastos sueltos elegidos a un viaje. Devuelve qué pasó con cada uno (`vinculado`, `ya_estaba`, `en_otro_viaje`,
+ * `camion_distinto`, `no_encontrado` o `no_se_pudo`): que algunos no se sumen NO es un error de la mutación, es parte del resultado
+ * y la pantalla lo cuenta con `resumirResultados`. Es un error de la mutación lo que rechaza la base (viaje inexistente, sin
+ * permiso, cuenta en solo lectura) o la red.
+ */
+export function useVincularGastos() {
+  const queryClient = useQueryClient();
+  return useMutation<ResultadoDeGasto[], Error, VincularGastosVariables>({
+    scope: SCOPE_DE_VINCULOS,
+    mutationFn: ({ viajeId, gastoIds }) => vincularGastosAViaje(viajeId, gastoIds),
+    onSettled: (_resultados, _error, { tenantId }) => {
+      void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
+      invalidarResumen(queryClient, tenantId);
+    },
+  });
+}
+
+export interface QuitarGastosDelViajeVariables {
+  tenantId: string;
+  viajeId: string;
+  /** Los gastos a dejar sin viaje, entre 1 y `MAX_GASTOS_POR_VEZ`. Solo se quitan los que sean de ESTE viaje. */
+  gastoIds: readonly string[];
+}
+
+/** Quita gastos de un viaje (quedan sin viaje, no se borran). Devuelve los ids que REALMENTE se quitaron; que sean menos, o ninguno, no es un error. */
+export function useQuitarGastosDelViaje() {
+  const queryClient = useQueryClient();
+  return useMutation<string[], Error, QuitarGastosDelViajeVariables>({
+    scope: SCOPE_DE_VINCULOS,
+    mutationFn: ({ viajeId, gastoIds }) => quitarGastosDelViaje(viajeId, gastoIds),
+    onSettled: (_quitados, _error, { tenantId }) => {
+      void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
+      invalidarResumen(queryClient, tenantId);
+    },
   });
 }
