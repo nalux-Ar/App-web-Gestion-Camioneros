@@ -43,6 +43,9 @@ const DevolucionFormPage = lazy(() =>
 const SumarGastosPage = lazy(() =>
   import('@/features/gastos/sumar-gastos-page').then((m) => ({ default: m.SumarGastosPage })),
 );
+const QuitarGastosPage = lazy(() =>
+  import('@/features/gastos/quitar-gastos-page').then((m) => ({ default: m.QuitarGastosPage })),
+);
 const GastosPage = lazy(() => import('@/features/gastos/gastos-page').then((m) => ({ default: m.GastosPage })));
 const GastoFormPage = lazy(() =>
   import('@/features/gastos/gasto-form-page').then((m) => ({ default: m.GastoFormPage })),
@@ -138,6 +141,9 @@ export function AppRouter() {
           {/* «Sumar gastos que ya cargué»: se llega SOLO desde el detalle de un viaje, que va en la URL (el `:id` lo valida la pantalla
               con `isUuid`). Mismos 3 segmentos que `viajes/:id/editar`, pero `sumar-gastos` es literal: no chocan. */}
           <Route path="viajes/:id/sumar-gastos" element={<SumarGastosPage />} />
+          {/* «Quitar gastos del viaje», el inverso: también solo desde el detalle de un viaje y con el `:id` validado por la pantalla.
+              `quitar-gastos` es literal, igual que `sumar-gastos`: no choca con `viajes/:id/editar`. */}
+          <Route path="viajes/:id/quitar-gastos" element={<QuitarGastosPage />} />
           {/* Las devoluciones se cargan SOLO desde el detalle de un viaje y se editan desde ahí o desde la pestaña Devoluciones de
               `/viajes` (`?vista=devoluciones`, que no es una ruta aparte): rutas anidadas bajo el viaje (el viaje va en la URL). No
               chocan con las de arriba: react-router rankea por segmentos y estas tienen 4 y 5 (`nueva` es literal). */}

@@ -367,7 +367,7 @@ const marcadas = () => casillas().filter((c) => c.checked);
 const botones = () => [...document.querySelectorAll<HTMLButtonElement>('button')];
 const botonesConTexto = (patron: RegExp) => botones().filter((b) => patron.test(b.textContent?.trim() ?? ''));
 /** Hay DOS (uno para el celular y otro para escritorio, solo uno se ve por ancho): se prueban siempre los dos. */
-const botonesDeSumar = () => botonesConTexto(/^(?:Sumar (?:\d+ gastos?|gastos) al viaje|Sumando…)$/);
+const botonesDeSumar = () => botonesConTexto(/^(?:Sumar (?:\d+ gastos?|gastos) al viaje|Sumando…|Un momento…)$/);
 const botonSumar = () => botonesDeSumar()[0]!;
 const botonMarcarTodos = () => botonesConTexto(/^(?:Marcar todos \(\d+\)|Desmarcar todos)$/)[0]!;
 /** «Reintentar» (o «Reintentando…» si no se puede tocar porque hay algo en curso). */
@@ -1305,7 +1305,7 @@ describe('«Sumar gastos que ya cargué»: mientras hay un «Sumar» o un «Quit
     expect(envios()).toHaveLength(1);
   });
 
-  it('un «Quitar» en vuelo (de otra pantalla o de un montaje anterior) también apaga «Sumar» aunque haya marcados', async () => {
+  it('un «Quitar» en vuelo (de otra pantalla o de un montaje anterior) también apaga «Sumar» aunque haya marcados, con un texto NEUTRO: «Un momento…» (decir «Sumando…» sería mentira)', async () => {
     const quitando = deferred();
     route.quitar = () => quitando.promise;
     await mount();
@@ -1315,10 +1315,13 @@ describe('«Sumar gastos que ya cargué»: mientras hay un «Sumar» o un «Quit
       otra.quitar!.mutate({ tenantId: T, viajeId: VIAJE, gastoIds: [G(2)] });
     });
     await settle(4);
+    expect(botonesDeSumar()).toHaveLength(2);
     for (const b of botonesDeSumar()) {
       expect(b.disabled).toBe(true);
-      expect(b.textContent?.trim()).toBe('Sumando…');
+      expect(b.textContent?.trim()).toBe('Un momento…');
+      expect(b.getAttribute('aria-busy')).toBe('true');
     }
+    expect(document.querySelector('[role="status"].sr-only')?.textContent).toBe('Un momento…');
     expect(casillas().every((c) => c.disabled)).toBe(true);
     await tocar(botonSumar()); // un toque sobre un botón apagado no manda nada
     expect(envios()).toHaveLength(0);
@@ -1330,7 +1333,7 @@ describe('«Sumar gastos que ya cargué»: mientras hay un «Sumar» o un «Quit
     expect(casilla('peaje norte').checked).toBe(true); // y lo marcado seguía ahí
   });
 
-  it('un «Sumar» de OTRO montaje en vuelo también cuenta (no lo conoce el hook de esta pantalla, pero sí el scope)', async () => {
+  it('un «Sumar» de OTRO montaje en vuelo también cuenta (no lo conoce el hook de esta pantalla, pero sí el scope) y dice «Un momento…» (esta pantalla no lo lanzó)', async () => {
     const enCamino = deferred();
     route.vincular = async (call) => {
       await enCamino.promise;
@@ -1342,7 +1345,9 @@ describe('«Sumar gastos que ya cargué»: mientras hay un «Sumar» o un «Quit
       otra.vincular!.mutate({ tenantId: T, viajeId: VIAJE, gastoIds: [G(2)] });
     });
     await settle(4);
-    expect(botonesDeSumar().every((b) => b.disabled)).toBe(true);
+    expect(botonesDeSumar()).toHaveLength(2);
+    expect(botonesDeSumar().every((b) => b.disabled && b.textContent?.trim() === 'Un momento…')).toBe(true);
+    expect(document.querySelector('[role="status"].sr-only')?.textContent).toBe('Un momento…');
     await act(async () => {
       enCamino.resolve(ok(null));
     });

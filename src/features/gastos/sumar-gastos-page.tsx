@@ -41,6 +41,7 @@ import {
   MARCAR_TODOS_DESMARCADO,
   NADA_PARA_SUMAR,
   SUMANDO,
+  UN_MOMENTO,
   SUMAR_GASTOS_CONTEXT,
   TITULO_LISTA_SUELTOS,
   TITULO_NO_SE_PUEDEN_SUMAR,
@@ -185,6 +186,8 @@ function SumarGastosDelViaje({ viaje, alViaje }: SumarGastosDelViajeProps) {
   // Hay un «Sumar» o un «Quitar» en curso o en cola (de esta pantalla o de una anterior): nada se puede tocar hasta que termine.
   // `pending` cubre el instante entre el toque y el primer dibujo; `vinculosEnCurso`, todo lo que está en la caché de mutaciones.
   const ocupado = pending || vinculosEnCurso;
+  // «Sumando…» solo si el pedido es de ESTA pantalla; si lo que corre es otra operación (un «Quitar», por ejemplo), un texto neutro.
+  const textoOcupado = pending ? SUMANDO : UN_MOMENTO;
 
   /**
    * Suma lo marcado AHORA. «Reintentar» llama a esta misma función: vuelve a leer la selección de este momento (selección ∩ lista
@@ -327,14 +330,14 @@ function SumarGastosDelViaje({ viaje, alViaje }: SumarGastosDelViajeProps) {
       >
         {ocupado ? (
           <>
-            <Spinner /> {SUMANDO}
+            <Spinner /> {textoOcupado}
           </>
         ) : (
           textoBotonSumar(cantidad)
         )}
       </Button>
       <span role="status" aria-live="polite" className="sr-only">
-        {ocupado ? SUMANDO : ''}
+        {ocupado ? textoOcupado : ''}
       </span>
     </div>
   );

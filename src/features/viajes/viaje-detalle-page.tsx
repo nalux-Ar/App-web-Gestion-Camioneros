@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { CheckCircle2, Info, ListChecks, Pencil, Plus, X } from 'lucide-react';
+import { CheckCircle2, Info, ListChecks, ListMinus, Pencil, Plus, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import type { Categoria } from '@/features/gastos/categorias';
 import { GastoItem } from '@/features/gastos/gasto-item';
 import { LIST_LIMIT as GASTOS_LIST_LIMIT } from '@/features/gastos/constants';
 import { sumMontos } from '@/features/gastos/gastos-list';
+import { BOTON_ENTRADA_QUITAR_GASTOS } from '@/features/gastos/quitar-gastos-textos';
 import { BOTON_ENTRADA_SUMAR_GASTOS } from '@/features/gastos/sumar-gastos-textos';
 import { useCategorias, useGastosDelViaje } from '@/features/gastos/use-gastos';
 import { buscarCamion, etiquetaCamion, type CamionDeLista } from '@/features/camiones/camion';
@@ -39,6 +40,7 @@ import {
   estadoDesdeViaje,
   leerAvisoDetalle,
   rutaNuevaDevolucion,
+  rutaQuitarGastos,
   rutaSumarGastos,
 } from './viaje-navegacion';
 import { ViajeNoEncontrado } from './viaje-no-encontrado';
@@ -399,6 +401,10 @@ interface GastosDelViajeProps {
  * SIEMPRE (también con el viaje sin gastos, cargando o con un error de lectura: no depende de lo que haya llegado), el botón
  * secundario «Sumar gastos que ya cargué», que lleva a `/viajes/<id>/sumar-gastos` con el mes de la lista (y el cliente, si el
  * detalle se abrió desde uno) como únicos datos en el state, igual que «Anotar devolución».
+ *
+ * Justo después, SOLO si el viaje tiene al menos un gasto a la vista, el botón secundario «Quitar gastos del viaje» (a
+ * `/viajes/<id>/quitar-gastos`, con el mismo state): con el viaje sin gastos, cargando o con un error de lectura no hay nada que
+ * quitar y no se muestra (ni apagado). Los dos botones van en un contenedor propio: en pantalla ancha quedan lado a lado, con aire.
  */
 function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categoriasPorId, errorCategorias }: GastosDelViajeProps) {
   const items = gastosQuery.data?.items ?? [];
@@ -468,11 +474,20 @@ function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categorias
         Gastos del viaje
       </h2>
       {contenido}
-      <Button asChild variant="outline" className="w-full sm:w-auto">
-        <Link to={rutaSumarGastos(viajeId)} state={{ volver, ...estadoDesdeCliente(desdeCliente) }}>
-          <ListChecks aria-hidden="true" /> {BOTON_ENTRADA_SUMAR_GASTOS}
-        </Link>
-      </Button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <Button asChild variant="outline" className="w-full sm:w-auto">
+          <Link to={rutaSumarGastos(viajeId)} state={{ volver, ...estadoDesdeCliente(desdeCliente) }}>
+            <ListChecks aria-hidden="true" /> {BOTON_ENTRADA_SUMAR_GASTOS}
+          </Link>
+        </Button>
+        {items.length > 0 ? (
+          <Button asChild variant="outline" className="w-full sm:w-auto">
+            <Link to={rutaQuitarGastos(viajeId)} state={{ volver, ...estadoDesdeCliente(desdeCliente) }}>
+              <ListMinus aria-hidden="true" /> {BOTON_ENTRADA_QUITAR_GASTOS}
+            </Link>
+          </Button>
+        ) : null}
+      </div>
     </section>
   );
 }

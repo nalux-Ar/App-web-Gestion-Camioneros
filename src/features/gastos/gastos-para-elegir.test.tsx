@@ -141,6 +141,44 @@ describe('GastosParaElegir', () => {
     expect(casillas().every((c) => !c.disabled)).toBe(true);
   });
 
+  it('sin cupo (se llegó al tope por vez): se apagan SOLO las casillas sin marcar; las marcadas siguen activas y se pueden desmarcar', async () => {
+    const onAlternar = vi.fn();
+    await dibujar(<GastosParaElegir {...props({ onAlternar, marcados: new Set([B]), sinCupo: true })} />);
+    expect(casillas().map((c) => c.disabled)).toEqual([true, false, true]);
+    // la apagada se ve apagada (opacidad y cursor de «no se puede») y tocarla no avisa nada
+    expect(filaDe(casillas()[0]!).className).toContain('peer-disabled:opacity-50');
+    expect(filaDe(casillas()[0]!).className).toContain('peer-disabled:cursor-not-allowed');
+    await act(async () => {
+      casillas()[0]!.click();
+    });
+    expect(onAlternar).not.toHaveBeenCalled();
+    // la marcada se puede desmarcar
+    await act(async () => {
+      casillas()[1]!.click();
+    });
+    expect(onAlternar).toHaveBeenCalledTimes(1);
+    expect(onAlternar).toHaveBeenCalledWith(B);
+  });
+
+  it('sin cupo y sin ninguna marcada (un tope de 0): todas apagadas', async () => {
+    await dibujar(<GastosParaElegir {...props({ sinCupo: true })} />);
+    expect(casillas().every((c) => c.disabled)).toBe(true);
+  });
+
+  it('con cupo (por defecto y con `sinCupo: false`) no se apaga ninguna por esto, tenga o no marcadas', async () => {
+    await dibujar(<GastosParaElegir {...props({ marcados: new Set([A, B]), sinCupo: false })} />);
+    expect(casillas().every((c) => !c.disabled)).toBe(true);
+    await dibujar(<GastosParaElegir {...props({ marcados: new Set([A, B]) })} />);
+    expect(casillas().every((c) => !c.disabled)).toBe(true);
+  });
+
+  it('deshabilitado (mientras se envía) apaga TAMBIÉN las marcadas aunque haya cupo; con `sinCupo` a la vez, todas', async () => {
+    await dibujar(<GastosParaElegir {...props({ marcados: new Set([B]), deshabilitado: true })} />);
+    expect(casillas().every((c) => c.disabled)).toBe(true);
+    await dibujar(<GastosParaElegir {...props({ marcados: new Set([B]), deshabilitado: true, sinCupo: true })} />);
+    expect(casillas().every((c) => c.disabled)).toBe(true);
+  });
+
   it('es un grupo con nombre: `fieldset` + `legend` solo para el lector de pantalla', async () => {
     await dibujar(<GastosParaElegir {...props({ etiqueta: 'Gastos del viaje' })} />);
     const grupo = container.querySelector('fieldset')!;

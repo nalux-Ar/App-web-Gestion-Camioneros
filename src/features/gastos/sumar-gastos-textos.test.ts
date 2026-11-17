@@ -49,6 +49,13 @@ describe('los textos de «Sumar gastos que ya cargué»', () => {
     expect(textos.MARCAR_TODOS_DESMARCADO).toBe('Desmarcar todos');
   });
 
+  it('mientras corre: «Sumando…» si es ESTE pedido y un texto NEUTRO («Un momento…», compartido con «Quitar») si es otra operación', () => {
+    expect(textos.SUMANDO).toBe('Sumando…');
+    expect(textos.UN_MOMENTO).toBe('Un momento…');
+    // el neutro no dice qué se está haciendo: no puede nombrar ni «Sumar» ni «Quitar»
+    expect(textos.UN_MOMENTO).not.toMatch(/sum|quit/i);
+  });
+
   it('«Marcar todos (N)»', () => {
     expect(textos.textoMarcarTodos(12)).toBe('Marcar todos (12)');
     expect(textos.textoMarcarTodos(1)).toBe('Marcar todos (1)');

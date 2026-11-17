@@ -217,6 +217,7 @@ async function mount(entry: InitialEntry = `/viajes/${VIAJE_ID}`) {
                   <Route path="/viajes/:id" element={<ViajeDetallePage />} />
                   <Route path="/viajes/:id/editar" element={<Destino nombre="editar-viaje" />} />
                   <Route path="/viajes/:id/sumar-gastos" element={<Destino nombre="sumar-gastos" />} />
+                  <Route path="/viajes/:id/quitar-gastos" element={<Destino nombre="quitar-gastos" />} />
                   <Route path="/viajes/:id/devoluciones/nueva" element={<Destino nombre="nueva-devolucion" />} />
                   <Route path="/viajes/:id/devoluciones/:devolucionId/editar" element={<Destino nombre="editar-devolucion" />} />
                   <Route path="/viajes" element={<Destino nombre="lista-de-viajes" />} />
@@ -901,6 +902,174 @@ describe('detalle de un viaje: el botón «Sumar gastos que ya cargué»', () =>
   it('el botón se muestra UNA sola vez (no está duplicado en el encabezado ni en la barra fija)', async () => {
     await mount();
     expect([...document.querySelectorAll('a')].filter((a) => a.textContent?.includes('Sumar gastos que ya cargué'))).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Quitar gastos del viaje»
+// ---------------------------------------------------------------------------
+describe('detalle de un viaje: el botón «Quitar gastos del viaje»', () => {
+  const RUTA = `/viajes/${VIAJE_ID}/quitar-gastos`;
+  const RUTA_SUMAR = `/viajes/${VIAJE_ID}/sumar-gastos`;
+  const CLIENTE_ID = 'a0000000-0000-4000-8000-0000000000c1';
+
+  it('es un botón SECUNDARIO de 48 px (outline, h-12) dentro de «Gastos del viaje», debajo de la lista, que lleva a /viajes/<id>/quitar-gastos', async () => {
+    await mount();
+    const quitar = linkTo(RUTA);
+    expect(quitar).toHaveLength(1);
+    expect(quitar[0]!.textContent?.trim()).toBe('Quitar gastos del viaje');
+    expect(quitar[0]!.className).toContain('border'); // outline: secundaria
+    expect(quitar[0]!.className).not.toContain('bg-primary'); // no es la acción primaria
+    expect(quitar[0]!.className).toContain('h-12'); // objetivo táctil de 48 px
+    expect(quitar[0]!.className).not.toContain('h-14'); // la acción primaria sigue siendo «Anotar gasto de este viaje»
+    expect(quitar[0]!.className).toContain('w-full'); // en el celular, a todo el ancho
+    expect(quitar[0]!.className).toContain('sm:w-auto'); // y desde sm, del ancho de su texto
+    // está en la sección de los gastos y DESPUÉS de sus filas
+    const gastos = section('Gastos del viaje');
+    expect(gastos.contains(quitar[0]!)).toBe(true);
+    const ultimoGasto = gastoItems().at(-1)!;
+    expect(ultimoGasto.compareDocumentPosition(quitar[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('va JUSTO DESPUÉS de «Sumar gastos que ya cargué», en el mismo contenedor, con aire entre los dos (en el celular uno abajo del otro; desde sm, lado a lado)', async () => {
+    await mount();
+    const sumar = linkTo(RUTA_SUMAR)[0]!;
+    const quitar = linkTo(RUTA)[0]!;
+    expect(sumar.compareDocumentPosition(quitar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sumar.parentElement).toBe(quitar.parentElement); // los dos son hermanos: ningún otro elemento en medio
+    expect(sumar.nextElementSibling).toBe(quitar);
+    const contenedor = quitar.parentElement!;
+    expect(contenedor.className).toContain('flex');
+    expect(contenedor.className).toContain('flex-col');
+    expect(contenedor.className).toContain('gap-3'); // aire: sin esto, desde sm los dos botones quedarían pegados
+    expect(contenedor.className).toContain('sm:flex-row');
+    expect(section('Gastos del viaje').contains(contenedor)).toBe(true);
+  });
+
+  it('tiene un ícono decorativo (no lo lee el lector de pantalla) y el rótulo es el texto del botón', async () => {
+    await mount();
+    const quitar = linkTo(RUTA)[0]!;
+    expect(quitar.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    expect(quitar.textContent?.trim()).toBe('Quitar gastos del viaje');
+  });
+
+  it('con UN solo gasto en el viaje también se ve (hay algo que quitar)', async () => {
+    route.gastos = () => ok([gasto(G_1, 250)]);
+    await mount();
+    expect(linkTo(RUTA)).toHaveLength(1);
+  });
+
+  it('con el viaje SIN gastos NO se muestra (ni apagado: no hay nada que quitar), pero «Sumar gastos que ya cargué» sí', async () => {
+    route.gastos = () => ok([]);
+    await mount();
+    expect(section('Gastos del viaje').textContent).toContain('Todavía no hay gastos anotados en este viaje.');
+    expect(linkTo(RUTA)).toHaveLength(0);
+    expect(bodyText()).not.toContain('Quitar gastos del viaje');
+    expect(buttonByText('Quitar gastos del viaje')).toBeUndefined(); // ni un botón apagado
+    expect(linkTo(RUTA_SUMAR)).toHaveLength(1);
+  });
+
+  it('mientras los gastos cargan NO se muestra (todavía no se sabe si hay alguno), y aparece cuando llegan', async () => {
+    let resolver!: (r: Resp) => void;
+    route.gastos = () => new Promise<Resp>((r) => (resolver = r));
+    await mount();
+    expect(section('Gastos del viaje').querySelector('[aria-busy="true"]')).not.toBeNull(); // cargando
+    expect(linkTo(RUTA)).toHaveLength(0);
+    expect(linkTo(RUTA_SUMAR)).toHaveLength(1);
+    await act(async () => {
+      resolver(ok(GASTOS));
+    });
+    await settle(4);
+    expect(linkTo(RUTA)).toHaveLength(1);
+  });
+
+  it('si los gastos no se pudieron cargar (sin datos) NO se muestra; con «Reintentar» que los trae, aparece', async () => {
+    let intento = 0;
+    route.gastos = () => {
+      intento += 1;
+      return intento === 1 ? sinRed() : ok(GASTOS);
+    };
+    await mount();
+    expect(section('Gastos del viaje').textContent).toContain('No hay señal');
+    expect(linkTo(RUTA)).toHaveLength(0);
+    await click(buttonByText('Reintentar'));
+    expect(linkTo(RUTA)).toHaveLength(1);
+  });
+
+  it('si falla el REFRESCO de los gastos y ya hay una lista a la vista, el botón se queda (la lista sigue a la vista)', async () => {
+    await mount();
+    expect(linkTo(RUTA)).toHaveLength(1);
+    route.gastos = () => sinRed();
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: gastosKeys.all('tenant-a') });
+    });
+    await settle(4);
+    expect(section('Gastos del viaje').textContent).toContain('No hay señal');
+    expect(gastoItems()).toHaveLength(3);
+    expect(linkTo(RUTA)).toHaveLength(1);
+  });
+
+  it('si se quitan todos los gastos (la lista se refresca y queda vacía), el botón desaparece', async () => {
+    await mount();
+    expect(linkTo(RUTA)).toHaveLength(1);
+    route.gastos = () => ok([]);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: gastosKeys.all('tenant-a') });
+    });
+    await settle(4);
+    expect(linkTo(RUTA)).toHaveLength(0);
+    expect(linkTo(RUTA_SUMAR)).toHaveLength(1);
+  });
+
+  it('lleva el mes de la lista como único dato en el state (no una ruta)', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?mes=2025-06' } });
+    await click(linkTo(RUTA)[0]!);
+    const destino = byId('destino-quitar-gastos')!;
+    expect(destino).not.toBeNull();
+    expect(stateOf(destino)).toEqual({ volver: '?mes=2025-06' });
+  });
+
+  it('sin mes de la lista, el state lleva el volver vacío', async () => {
+    await mount();
+    await click(linkTo(RUTA)[0]!);
+    expect(stateOf(byId('destino-quitar-gastos')!)).toEqual({ volver: '' });
+  });
+
+  it('si el detalle se abrió desde el detalle de un cliente, el cliente viaja en el state (igual que en «Sumar»)', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { desdeCliente: CLIENTE_ID, volverCliente: '?q=alma' } });
+    await click(linkTo(RUTA)[0]!);
+    expect(stateOf(byId('destino-quitar-gastos')!)).toEqual({ volver: '', desdeCliente: CLIENTE_ID, volverCliente: '?q=alma' });
+  });
+
+  it('un volver raro y un cliente que no es uuid se sanean antes de pasarlos', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '//evil.com?mes=2025-06&x=<script>', desdeCliente: '//evil.com', volverCliente: '?q=a' } });
+    await click(linkTo(RUTA)[0]!);
+    expect(stateOf(byId('destino-quitar-gastos')!)).toEqual({ volver: '' });
+  });
+
+  it('un viaje que no existe no ofrece el botón', async () => {
+    route.viaje = () => ok(null);
+    await mount();
+    expect(bodyText()).toContain('Viaje no encontrado');
+    expect(linkTo(RUTA)).toHaveLength(0);
+    expect(bodyText()).not.toContain('Quitar gastos del viaje');
+  });
+
+  it('el botón se muestra UNA sola vez (no está duplicado en el encabezado ni en la barra fija)', async () => {
+    await mount();
+    expect([...document.querySelectorAll('a')].filter((a) => a.textContent?.includes('Quitar gastos del viaje'))).toHaveLength(1);
+  });
+
+  it('la acción PRIMARIA sigue siendo «Anotar gasto de este viaje»: ni «Sumar» ni «Quitar» entran en el encabezado ni en la barra fija del celular', async () => {
+    await mount();
+    const raiz = container.querySelector('div.space-y-5')!;
+    const ultimo = raiz.lastElementChild as HTMLElement; // la barra fija: ÚLTIMO hijo de la pantalla
+    expect(ultimo.className).toContain('md:hidden');
+    expect(ultimo.textContent).not.toContain('Quitar');
+    expect(ultimo.textContent).not.toContain('Sumar');
+    const ocultosEnCelular = [...raiz.querySelectorAll('.max-md\\:hidden')];
+    expect(ocultosEnCelular).toHaveLength(1);
+    expect(ocultosEnCelular[0]!.textContent).not.toContain('Quitar');
   });
 });
 

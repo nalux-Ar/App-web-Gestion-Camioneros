@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { MAX_GASTOS_POR_VEZ } from '@/features/gastos/constants';
+import { BOTON_ENTRADA_SUMAR_GASTOS } from '@/features/gastos/sumar-gastos-textos';
 import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
 import * as pantallas from './ayuda-pantallas';
 import type { AyudaPantalla } from './ayuda-pantallas';
@@ -21,8 +23,8 @@ const TEXTOS = CON_VARIANTES.flatMap(([nombre, a]) => [{ nombre, texto: a.titulo
 const palabras = (lista: string) => new RegExp(String.raw`(?<![\p{L}])(?:${lista})(?![\p{L}])`, 'iu');
 
 describe('textos de ayuda por pantalla', () => {
-  it('hay una ayuda por cada pantalla con "i" (15)', () => {
-    expect(TODAS).toHaveLength(15);
+  it('hay una ayuda por cada pantalla con "i" (16)', () => {
+    expect(TODAS).toHaveLength(16);
   });
 
   it.each(CON_VARIANTES)('%s: título y entre 3 y 5 puntos, sin repetidos', (_nombre, a) => {
@@ -115,6 +117,54 @@ describe('la ayuda de «Sumar gastos que ya cargué»', () => {
     expect(punto).toContain('«Por camión»');
     expect(punto).toContain('Resumen');
     expect(punto).toMatch(/, pero no los totales por fecha\.$/);
+  });
+});
+
+describe('la ayuda de «Quitar gastos del viaje»', () => {
+  const ayuda = pantallas.AYUDA_QUITAR_GASTOS;
+  const texto = ayuda.puntos.join(' ');
+
+  it('tiene título propio, distinto del de «Sumar», y entre 3 y 5 puntos cortos', () => {
+    expect(ayuda.titulo).toBe('Ayuda para quitar gastos del viaje');
+    expect(ayuda.titulo).not.toBe(pantallas.AYUDA_SUMAR_GASTOS.titulo);
+    expect(ayuda.puntos.length).toBeGreaterThanOrEqual(3);
+    expect(ayuda.puntos.length).toBeLessThanOrEqual(4);
+    // cortos: ninguno pasa de 100 caracteres y todos juntos no son más largos que la ayuda más larga de las demás pantallas + 15 %
+    for (const punto of ayuda.puntos) expect(punto.length).toBeLessThanOrEqual(100);
+    const total = (a: AyudaPantalla) => a.puntos.join('').length;
+    const lasDemas = TODAS.filter(([nombre]) => nombre !== 'AYUDA_QUITAR_GASTOS').map(([, a]) => total(a));
+    expect(total(ayuda)).toBeLessThanOrEqual(Math.max(...lasDemas) * 1.15);
+  });
+
+  it('dice qué hace la pantalla: se marcan los gastos de este viaje y se toca «Quitar»', () => {
+    expect(ayuda.puntos[0]).toContain('gastos de este viaje');
+    expect(texto).toContain('Marca los que quieres sacar');
+    expect(texto).toContain('«Quitar»');
+  });
+
+  it('dice que los gastos NO se borran: quedan sin viaje', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('no se borran'));
+    expect(punto).toBeDefined();
+    expect(punto).toContain('quedan sin viaje');
+  });
+
+  it('dice que se pueden quitar hasta 100 por vez, el mismo número que el tope real (MAX_GASTOS_POR_VEZ)', () => {
+    expect(texto).toContain(`hasta ${MAX_GASTOS_POR_VEZ} por vez`);
+  });
+
+  it('dice que quitar cambia la ganancia del viaje y «Por camión» del Resumen, pero NO los totales por fecha', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('ganancia'));
+    expect(punto).toBeDefined();
+    expect(punto).toContain('«Por camión»');
+    expect(punto).toContain('Resumen');
+    expect(punto).toMatch(/, pero no los totales por fecha.$/);
+  });
+
+  it('dice cómo volver a ponerlos: «Sumar gastos que ya cargué»', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('volver a ponerlos'));
+    expect(punto).toBeDefined();
+    expect(punto).toContain('«Sumar gastos que ya cargué»');
+    expect(punto).toContain(BOTON_ENTRADA_SUMAR_GASTOS); // el nombre es el del botón de verdad
   });
 });
 

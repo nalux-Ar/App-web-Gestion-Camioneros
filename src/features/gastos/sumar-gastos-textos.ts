@@ -72,6 +72,11 @@ export function textoBotonSumar(cantidad: number): string {
 }
 
 export const SUMANDO = 'Sumando…';
+/**
+ * Mientras corre OTRA operación sobre los gastos (un «Sumar» o un «Quitar» de otra pantalla, de un montaje anterior o en cola): no
+ * se sabe qué es y decir «Sumando…» o «Quitando…» sería mentira si en realidad es lo otro. Lo usan las dos pantallas.
+ */
+export const UN_MOMENTO = 'Un momento…';
 
 /** «Suman 12.345,00»: `monto` ya viene formateado, sin símbolo de moneda. */
 export function textoTotalMarcado(monto: string): string {

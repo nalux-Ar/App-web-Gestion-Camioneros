@@ -84,6 +84,9 @@ describe('rutaDeVuelta: lista blanca de rutas de la app, o Inicio', () => {
     [`/viajes/${UUID}/editar`, `/viajes/${UUID}/editar`],
     [`/viajes/${UUID}/sumar-gastos`, `/viajes/${UUID}/sumar-gastos`],
     [`/viajes/${UUID.toUpperCase()}/sumar-gastos`, `/viajes/${UUID.toUpperCase()}/sumar-gastos`],
+    [`/viajes/${UUID}/quitar-gastos`, `/viajes/${UUID}/quitar-gastos`],
+    [`/viajes/${UUID.toUpperCase()}/quitar-gastos`, `/viajes/${UUID.toUpperCase()}/quitar-gastos`],
+    [`/viajes/${UUID}/quitar-gastos?mes=2026-08`, `/viajes/${UUID}/quitar-gastos?mes=2026-08`],
     [`/viajes/${UUID}/devoluciones/nueva`, `/viajes/${UUID}/devoluciones/nueva`],
     [`/viajes/${UUID}/devoluciones/${UUID2}/editar`, `/viajes/${UUID}/devoluciones/${UUID2}/editar`],
     ['/gastos/nuevo', '/gastos/nuevo'],
@@ -111,6 +114,10 @@ describe('rutaDeVuelta: lista blanca de rutas de la app, o Inicio', () => {
     '/viajes/sumar-gastos',
     `/viajes/${UUID}/sumar-gastos/x`,
     `/viajes/${UUID}/sumar`,
+    '/viajes/no-es-uuid/quitar-gastos',
+    '/viajes/quitar-gastos',
+    `/viajes/${UUID}/quitar-gastos/x`,
+    `/viajes/${UUID}/quitar`,
     '/gastos/123/editar',
     '/admin',
     `/clientes/${UUID}/editar/x`,
@@ -145,6 +152,7 @@ describe('pantallaParaElReporte: lo que viaja al servidor (solo el nombre de la 
     expect(pantallaParaElReporte(`/viajes/${UUID}`)).toBe('/viajes/:id');
     expect(pantallaParaElReporte(`/viajes/${UUID}/editar`)).toBe('/viajes/:id/editar');
     expect(pantallaParaElReporte(`/viajes/${UUID}/sumar-gastos`)).toBe('/viajes/:id/sumar-gastos');
+    expect(pantallaParaElReporte(`/viajes/${UUID}/quitar-gastos`)).toBe('/viajes/:id/quitar-gastos');
     expect(pantallaParaElReporte(`/viajes/${UUID}/devoluciones/${UUID2}/editar`)).toBe('/viajes/:id/devoluciones/:id/editar');
     expect(pantallaParaElReporte(`/clientes/${UUID}?q=Ejemplo`)).toBe('/clientes/:id');
   });

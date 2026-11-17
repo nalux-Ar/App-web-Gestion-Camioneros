@@ -81,6 +81,15 @@ export function rutaSumarGastos(viajeId: string): string {
   return `/viajes/${viajeId}/sumar-gastos`;
 }
 
+/**
+ * Ruta de «Quitar gastos del viaje» de un viaje (sacar varios de sus gastos de una vez; quedan sin viaje, no se borran). Igual que
+ * `rutaSumarGastos`: lleva el viaje en la URL y del `state` solo toma el `volver` y el cliente, si el detalle del viaje se abrió desde
+ * uno. Solo se llama con un id ya validado (`isUuid`): se arma acá, en el código.
+ */
+export function rutaQuitarGastos(viajeId: string): string {
+  return `/viajes/${viajeId}/quitar-gastos`;
+}
+
 /** Ruta de la edición de una devolución de un viaje. Los dos ids ya validados (`isUuid`); se arma acá, en el código. */
 export function rutaEditarDevolucion(viajeId: string, devolucionId: string): string {
   return `/viajes/${viajeId}/devoluciones/${devolucionId}/editar`;

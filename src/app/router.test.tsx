@@ -390,6 +390,111 @@ describe('router: «Sumar gastos que ya cargué», anidada bajo el viaje', () =>
   });
 });
 
+describe('router: «Quitar gastos del viaje», anidada bajo el viaje', () => {
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+  /** Las lecturas de los gastos de un viaje (`.eq('viaje_id', …)`): lo que pide la pantalla. */
+  const lecturasDelViaje = () => h.calls.filter((c) => c.table === 'gastos' && c.ops.some((o) => o.m === 'eq' && o.args[0] === 'viaje_id'));
+  /** Un gasto en el viaje: el detalle ofrece «Quitar gastos del viaje» solo si hay alguno. */
+  function hayUnGasto() {
+    const base = h.state.responder!;
+    h.state.responder = (call: Call) => {
+      if (call.table === 'gastos') {
+        return ok([{ id: 'e0000000-0000-4000-8000-000000000001', categoria_id: '210b4f00-fdb4-499b-bf15-79ebe2aaf3c3', fecha: '2025-06-15', monto: 100, descripcion: 'peaje norte', litros: null, camion_id: null, created_at: '2025-06-15T12:00:00Z' }]);
+      }
+      return base(call);
+    };
+  }
+
+  it('/viajes/<id>/quitar-gastos abre la pantalla (carga diferida), dentro del layout, con el viaje y la lista de los gastos de ESE viaje', async () => {
+    await mount(`/viajes/${VIAJE}/quitar-gastos`);
+    await until(() => h1() === 'Quitar gastos del viaje');
+    expect(h1()).toBe('Quitar gastos del viaje');
+    expect(document.querySelector('header')).not.toBeNull(); // el layout (AppShell) de la app logueada
+    await until(() => document.body.textContent?.includes('Este viaje no tiene gastos.') === true);
+    expect(document.body.textContent).toContain('Rosario');
+    expect(document.body.textContent).toContain('Córdoba');
+    expect(lecturasDelViaje()).toHaveLength(1);
+    expect(lecturasDelViaje()[0]!.ops.find((o) => o.m === 'eq' && o.args[0] === 'viaje_id')!.args[1]).toBe(VIAJE);
+  });
+
+  it('con un gasto en el viaje, la pantalla lo ofrece con su casilla y el botón de quitar apagado', async () => {
+    hayUnGasto();
+    await mount(`/viajes/${VIAJE}/quitar-gastos`);
+    await until(() => document.querySelector('input[type="checkbox"]') !== null);
+    expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Quitar gastos del viaje' && b.disabled)).toBe(true);
+  });
+
+  it('no choca con las rutas de viajes: /viajes/<id> sigue siendo el detalle (y su botón, con un gasto, lleva a la pantalla nueva) y /viajes/<id>/editar y /sumar-gastos las suyas', async () => {
+    hayUnGasto();
+    await mount(`/viajes/${VIAJE}`);
+    await until(() => h1().includes('Rosario'));
+    expect(h1()).toContain('Rosario');
+    expect(h1()).not.toContain('Quitar');
+    await until(() => [...document.querySelectorAll<HTMLAnchorElement>('a')].some((a) => a.getAttribute('href') === `/viajes/${VIAJE}/quitar-gastos`));
+    const boton = [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.getAttribute('href') === `/viajes/${VIAJE}/quitar-gastos`);
+    expect(boton).toBeDefined();
+    await act(async () => {
+      boton!.click();
+    });
+    await until(() => h1() === 'Quitar gastos del viaje');
+    expect(ubicacion().pathname).toBe(`/viajes/${VIAJE}/quitar-gastos`);
+    await desmontar();
+
+    await mount(`/viajes/${VIAJE}/sumar-gastos`);
+    await until(() => h1() === 'Sumar gastos que ya cargué');
+    expect(h1()).toBe('Sumar gastos que ya cargué');
+    await desmontar();
+
+    await mount(`/viajes/${VIAJE}/editar`);
+    await until(() => h1() === 'Editar viaje');
+    expect(h1()).toBe('Editar viaje');
+  });
+
+  it('el «Volver» de la pantalla lleva al detalle del viaje', async () => {
+    await mount(`/viajes/${VIAJE}/quitar-gastos`);
+    await until(() => h1() === 'Quitar gastos del viaje');
+    const volver = document.querySelector<HTMLAnchorElement>('main a.min-h-12')!; // el primero de la pantalla (la barra lateral también tiene enlaces de 48 px)
+    expect(volver.getAttribute('href')).toBe(`/viajes/${VIAJE}`);
+    await act(async () => {
+      volver.click();
+    });
+    await until(() => h1().includes('Rosario'));
+    expect(ubicacion().pathname).toBe(`/viajes/${VIAJE}`);
+  });
+
+  it('un id que no es uuid: «Viaje no encontrado», sin pedir ningún gasto', async () => {
+    await mount('/viajes/no-es-un-uuid/quitar-gastos');
+    await until(() => document.body.textContent?.includes('Viaje no encontrado') === true);
+    expect(h1()).toBe('Quitar gastos del viaje');
+    expect(h.calls.filter((c) => c.table === 'gastos' || c.table === 'viajes')).toHaveLength(0);
+  });
+
+  it('rutas parecidas que no existen caen en la ruta desconocida (Inicio), sin pedir ningún gasto', async () => {
+    for (const ruta of [`/viajes/${VIAJE}/quitar`, `/viajes/${VIAJE}/quitar-gastos/x`, '/viajes/quitar-gastos/x/y', '/quitar-gastos', `/quitar-gastos/${VIAJE}`]) {
+      h.calls.length = 0;
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola'));
+      expect(h1(), ruta).toMatch(/^Hola/);
+      expect(lecturasDelViaje(), ruta).toHaveLength(0);
+      await desmontar();
+    }
+  });
+
+  it('está detrás de la sesión: sin sesión no se muestra ni se pide NADA', async () => {
+    await mount(`/viajes/${VIAJE}/quitar-gastos`, false);
+    await settle(6);
+    expect(h1()).not.toBe('Quitar gastos del viaje');
+    expect(h.calls.filter((c) => c.table === 'gastos' || c.table === 'viajes')).toHaveLength(0);
+  });
+});
+
 describe('router: las rutas de Clientes', () => {
   async function desmontar() {
     await act(async () => {

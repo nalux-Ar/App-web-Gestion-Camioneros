@@ -17,6 +17,7 @@ import {
   rutaEditarDevolucion,
   rutaListaDevoluciones,
   rutaNuevaDevolucion,
+  rutaQuitarGastos,
   rutaSumarGastos,
 } from '@/features/viajes/viaje-navegacion';
 
@@ -100,6 +101,23 @@ describe('rutaSumarGastos («Sumar gastos que ya cargué»: se arma en el códig
   it('con lo que sale de leerDesdeViaje arma siempre una ruta interna con uuid', () => {
     const leido = leerDesdeViaje({ desdeViaje: ID.toUpperCase() })!;
     expect(rutaSumarGastos(leido.id)).toMatch(/^\/viajes\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/sumar-gastos$/);
+  });
+});
+
+describe('rutaQuitarGastos («Quitar gastos del viaje»: se arma en el código, con el uuid ya validado)', () => {
+  it('/viajes/<viaje>/quitar-gastos', () => {
+    expect(rutaQuitarGastos(ID)).toBe(`/viajes/${ID}/quitar-gastos`);
+  });
+
+  it('con lo que sale de leerDesdeViaje arma siempre una ruta interna con uuid', () => {
+    const leido = leerDesdeViaje({ desdeViaje: ID.toUpperCase() })!;
+    expect(rutaQuitarGastos(leido.id)).toMatch(/^\/viajes\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/quitar-gastos$/);
+  });
+
+  it('es una ruta distinta de la de «Sumar» (no se pisan)', () => {
+    expect(rutaQuitarGastos(ID)).not.toBe(rutaSumarGastos(ID));
+    expect(rutaQuitarGastos(ID).endsWith('/quitar-gastos')).toBe(true);
+    expect(rutaSumarGastos(ID).endsWith('/sumar-gastos')).toBe(true);
   });
 });
 

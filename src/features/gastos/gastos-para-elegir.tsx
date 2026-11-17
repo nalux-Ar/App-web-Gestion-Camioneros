@@ -52,6 +52,11 @@ interface GastosParaElegirProps {
   onAlternar: (gastoId: string) => void;
   /** Sin poder tocar ninguna casilla (mientras se envía). */
   deshabilitado?: boolean;
+  /**
+   * No se pueden marcar más gastos (se llegó al tope por vez): se apagan las casillas SIN marcar; las marcadas siguen activas, para
+   * poder desmarcarlas. Por defecto no hay tope y ninguna se apaga por esto.
+   */
+  sinCupo?: boolean;
   /** El nombre del grupo de casillas, para el lector de pantalla («Gastos sin viaje»). */
   etiqueta: string;
 }
@@ -63,7 +68,15 @@ interface GastosParaElegirProps {
  * se distingue por el borde grueso, el fondo, el TILDE y no solo por el color. Ninguno viene marcado de antes: lo decide
  * quien usa el componente.
  */
-export function GastosParaElegir({ gastos, categoriasPorId, marcados, onAlternar, deshabilitado = false, etiqueta }: GastosParaElegirProps) {
+export function GastosParaElegir({
+  gastos,
+  categoriasPorId,
+  marcados,
+  onAlternar,
+  deshabilitado = false,
+  sinCupo = false,
+  etiqueta,
+}: GastosParaElegirProps) {
   return (
     <fieldset className="min-w-0">
       <legend className="sr-only">{etiqueta}</legend>
@@ -76,7 +89,7 @@ export function GastosParaElegir({ gastos, categoriasPorId, marcados, onAlternar
                 <input
                   type="checkbox"
                   checked={marcado}
-                  disabled={deshabilitado}
+                  disabled={deshabilitado || (sinCupo && !marcado)}
                   onChange={() => onAlternar(gasto.id)}
                   className="peer sr-only"
                 />

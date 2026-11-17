@@ -84,6 +84,16 @@ export const AYUDA_SUMAR_GASTOS: AyudaPantalla = {
   ],
 };
 
+export const AYUDA_QUITAR_GASTOS: AyudaPantalla = {
+  titulo: 'Ayuda para quitar gastos del viaje',
+  puntos: [
+    'Aquí ves los gastos de este viaje. Marca los que quieres sacar y toca «Quitar».',
+    'Los gastos no se borran: quedan sin viaje. Puedes quitar hasta 100 por vez.',
+    'Quitar cambia la ganancia del viaje y «Por camión» del Resumen, pero no los totales por fecha.',
+    'Para volver a ponerlos en un viaje, usa «Sumar gastos que ya cargué».',
+  ],
+};
+
 export const AYUDA_GASTO_FORM: AyudaPantalla = {
   titulo: 'Ayuda para anotar un gasto',
   puntos: [
