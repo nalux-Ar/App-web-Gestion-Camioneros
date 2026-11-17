@@ -216,6 +216,7 @@ async function mount(entry: InitialEntry = `/viajes/${VIAJE_ID}`) {
                 <Routes>
                   <Route path="/viajes/:id" element={<ViajeDetallePage />} />
                   <Route path="/viajes/:id/editar" element={<Destino nombre="editar-viaje" />} />
+                  <Route path="/viajes/:id/sumar-gastos" element={<Destino nombre="sumar-gastos" />} />
                   <Route path="/viajes/:id/devoluciones/nueva" element={<Destino nombre="nueva-devolucion" />} />
                   <Route path="/viajes/:id/devoluciones/:devolucionId/editar" element={<Destino nombre="editar-devolucion" />} />
                   <Route path="/viajes" element={<Destino nombre="lista-de-viajes" />} />
@@ -815,6 +816,91 @@ describe('detalle de un viaje: las acciones', () => {
     await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '//evil.com?mes=2025-06&x=<script>' } });
     await click(linkTo(`/viajes/${VIAJE_ID}/editar`)[0]!);
     expect(stateOf(byId('destino-editar-viaje')!)).toEqual({ desdeViaje: VIAJE_ID, volverViaje: '' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Sumar gastos que ya cargué»
+// ---------------------------------------------------------------------------
+describe('detalle de un viaje: el botón «Sumar gastos que ya cargué»', () => {
+  const RUTA = `/viajes/${VIAJE_ID}/sumar-gastos`;
+  const CLIENTE_ID = 'a0000000-0000-4000-8000-0000000000c1';
+
+  it('es un botón SECUNDARIO de 48 px (outline, h-12) dentro de «Gastos del viaje», debajo de la lista, que lleva a /viajes/<id>/sumar-gastos', async () => {
+    await mount();
+    const sumar = linkTo(RUTA);
+    expect(sumar).toHaveLength(1);
+    expect(sumar[0]!.textContent?.trim()).toBe('Sumar gastos que ya cargué');
+    expect(sumar[0]!.className).toContain('border'); // outline: secundaria
+    expect(sumar[0]!.className).toContain('h-12'); // objetivo táctil de 48 px
+    expect(sumar[0]!.className).not.toContain('h-14'); // la acción primaria sigue siendo «Anotar gasto de este viaje»
+    expect(sumar[0]!.className).toContain('w-full'); // en el celular, a todo el ancho
+    expect(sumar[0]!.className).toContain('sm:w-auto'); // y desde sm, del ancho de su texto
+    // está en la sección de los gastos y DESPUÉS de sus filas
+    const gastos = section('Gastos del viaje');
+    expect(gastos.contains(sumar[0]!)).toBe(true);
+    const ultimoGasto = gastoItems().at(-1)!;
+    expect(ultimoGasto.compareDocumentPosition(sumar[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('se ve TAMBIÉN cuando el viaje todavía no tiene gastos', async () => {
+    route.gastos = () => ok([]);
+    await mount();
+    expect(section('Gastos del viaje').textContent).toContain('Todavía no hay gastos anotados en este viaje.');
+    expect(linkTo(RUTA)).toHaveLength(1);
+  });
+
+  it('se ve mientras los gastos cargan y también si fallan (no depende de lo que haya llegado)', async () => {
+    let resolver!: (r: Resp) => void;
+    route.gastos = () => new Promise<Resp>((r) => (resolver = r));
+    await mount();
+    expect(section('Gastos del viaje').querySelector('[aria-busy="true"]')).not.toBeNull(); // cargando
+    expect(linkTo(RUTA)).toHaveLength(1);
+    await act(async () => {
+      resolver(sinRed());
+    });
+    await settle(4);
+    expect(section('Gastos del viaje').textContent).toContain('No hay señal');
+    expect(linkTo(RUTA)).toHaveLength(1);
+  });
+
+  it('lleva el mes de la lista como único dato en el state (no una ruta)', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '?mes=2025-06' } });
+    await click(linkTo(RUTA)[0]!);
+    const destino = byId('destino-sumar-gastos')!;
+    expect(destino).not.toBeNull();
+    expect(stateOf(destino)).toEqual({ volver: '?mes=2025-06' });
+  });
+
+  it('sin mes de la lista, el state lleva el volver vacío', async () => {
+    await mount();
+    await click(linkTo(RUTA)[0]!);
+    expect(stateOf(byId('destino-sumar-gastos')!)).toEqual({ volver: '' });
+  });
+
+  it('si el detalle se abrió desde el detalle de un cliente, el cliente viaja en el state (como en las devoluciones)', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { desdeCliente: CLIENTE_ID, volverCliente: '?q=alma' } });
+    await click(linkTo(RUTA)[0]!);
+    expect(stateOf(byId('destino-sumar-gastos')!)).toEqual({ volver: '', desdeCliente: CLIENTE_ID, volverCliente: '?q=alma' });
+  });
+
+  it('un volver raro y un cliente que no es uuid se sanean antes de pasarlos', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { volver: '//evil.com?mes=2025-06&x=<script>', desdeCliente: '//evil.com', volverCliente: '?q=a' } });
+    await click(linkTo(RUTA)[0]!);
+    expect(stateOf(byId('destino-sumar-gastos')!)).toEqual({ volver: '' });
+  });
+
+  it('un viaje que no existe no ofrece el botón', async () => {
+    route.viaje = () => ok(null);
+    await mount();
+    expect(bodyText()).toContain('Viaje no encontrado');
+    expect(linkTo(RUTA)).toHaveLength(0);
+    expect(bodyText()).not.toContain('Sumar gastos que ya cargué');
+  });
+
+  it('el botón se muestra UNA sola vez (no está duplicado en el encabezado ni en la barra fija)', async () => {
+    await mount();
+    expect([...document.querySelectorAll('a')].filter((a) => a.textContent?.includes('Sumar gastos que ya cargué'))).toHaveLength(1);
   });
 });
 

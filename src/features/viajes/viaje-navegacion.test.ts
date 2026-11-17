@@ -17,6 +17,7 @@ import {
   rutaEditarDevolucion,
   rutaListaDevoluciones,
   rutaNuevaDevolucion,
+  rutaSumarGastos,
 } from '@/features/viajes/viaje-navegacion';
 
 const ID = 'b0000000-0000-4000-8000-000000000001';
@@ -88,6 +89,17 @@ describe('rutaDelViaje', () => {
       const leido = leerDesdeViaje({ desdeViaje: entrada });
       expect(rutaDelViaje(leido!.id)).toMatch(/^\/viajes\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
     }
+  });
+});
+
+describe('rutaSumarGastos («Sumar gastos que ya cargué»: se arma en el código, con el uuid ya validado)', () => {
+  it('/viajes/<viaje>/sumar-gastos', () => {
+    expect(rutaSumarGastos(ID)).toBe(`/viajes/${ID}/sumar-gastos`);
+  });
+
+  it('con lo que sale de leerDesdeViaje arma siempre una ruta interna con uuid', () => {
+    const leido = leerDesdeViaje({ desdeViaje: ID.toUpperCase() })!;
+    expect(rutaSumarGastos(leido.id)).toMatch(/^\/viajes\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/sumar-gastos$/);
   });
 });
 

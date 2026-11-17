@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { CheckCircle2, Info, Pencil, Plus, X } from 'lucide-react';
+import { CheckCircle2, Info, ListChecks, Pencil, Plus, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import type { Categoria } from '@/features/gastos/categorias';
 import { GastoItem } from '@/features/gastos/gasto-item';
 import { LIST_LIMIT as GASTOS_LIST_LIMIT } from '@/features/gastos/constants';
 import { sumMontos } from '@/features/gastos/gastos-list';
+import { BOTON_ENTRADA_SUMAR_GASTOS } from '@/features/gastos/sumar-gastos-textos';
 import { useCategorias, useGastosDelViaje } from '@/features/gastos/use-gastos';
 import { buscarCamion, etiquetaCamion, type CamionDeLista } from '@/features/camiones/camion';
 import { useCamiones } from '@/features/camiones/use-camiones';
@@ -33,7 +34,13 @@ import { formatNumber } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { isUuid } from '@/lib/uuid';
 import { useViajeVista } from './use-viajes';
-import { DETALLE_AVISO_MENSAJES, estadoDesdeViaje, leerAvisoDetalle, rutaNuevaDevolucion } from './viaje-navegacion';
+import {
+  DETALLE_AVISO_MENSAJES,
+  estadoDesdeViaje,
+  leerAvisoDetalle,
+  rutaNuevaDevolucion,
+  rutaSumarGastos,
+} from './viaje-navegacion';
 import { ViajeNoEncontrado } from './viaje-no-encontrado';
 import type { ViajeVista } from './viajes-api';
 import { sanitizeVolver } from './viajes-filters';
@@ -387,7 +394,12 @@ interface GastosDelViajeProps {
   errorCategorias: ReactNode;
 }
 
-/** Los gastos del viaje (del más nuevo al más viejo) con su total, sumado en centavos enteros. Cada uno enlaza a su edición. */
+/**
+ * Los gastos del viaje (del más nuevo al más viejo) con su total, sumado en centavos enteros. Cada uno enlaza a su edición. Debajo,
+ * SIEMPRE (también con el viaje sin gastos, cargando o con un error de lectura: no depende de lo que haya llegado), el botón
+ * secundario «Sumar gastos que ya cargué», que lleva a `/viajes/<id>/sumar-gastos` con el mes de la lista (y el cliente, si el
+ * detalle se abrió desde uno) como únicos datos en el state, igual que «Anotar devolución».
+ */
 function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categoriasPorId, errorCategorias }: GastosDelViajeProps) {
   const items = gastosQuery.data?.items ?? [];
   const truncado = gastosQuery.data?.truncado ?? false;
@@ -456,6 +468,11 @@ function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categorias
         Gastos del viaje
       </h2>
       {contenido}
+      <Button asChild variant="outline" className="w-full sm:w-auto">
+        <Link to={rutaSumarGastos(viajeId)} state={{ volver, ...estadoDesdeCliente(desdeCliente) }}>
+          <ListChecks aria-hidden="true" /> {BOTON_ENTRADA_SUMAR_GASTOS}
+        </Link>
+      </Button>
     </section>
   );
 }

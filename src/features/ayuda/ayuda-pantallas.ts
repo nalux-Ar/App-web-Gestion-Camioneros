@@ -74,6 +74,16 @@ export const AYUDA_GASTOS: AyudaPantalla = {
   ],
 };
 
+export const AYUDA_SUMAR_GASTOS: AyudaPantalla = {
+  titulo: 'Ayuda para sumar gastos al viaje',
+  puntos: [
+    'Aquí ves los gastos sin viaje. Los más cercanos a la fecha de este viaje van primero.',
+    'Marca los que fueron de este viaje y toca «Sumar». «Marcar todos» los marca de una vez.',
+    'Uno de otro camión, o que ya está en otro viaje, no se suma: te avisamos cuál.',
+    'Sumar cambia la ganancia del viaje y «Por camión» del Resumen, pero no los totales por fecha.',
+  ],
+};
+
 export const AYUDA_GASTO_FORM: AyudaPantalla = {
   titulo: 'Ayuda para anotar un gasto',
   puntos: [

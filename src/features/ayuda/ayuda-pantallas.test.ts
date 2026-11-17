@@ -21,8 +21,8 @@ const TEXTOS = CON_VARIANTES.flatMap(([nombre, a]) => [{ nombre, texto: a.titulo
 const palabras = (lista: string) => new RegExp(String.raw`(?<![\p{L}])(?:${lista})(?![\p{L}])`, 'iu');
 
 describe('textos de ayuda por pantalla', () => {
-  it('hay una ayuda por cada pantalla con "i" (14)', () => {
-    expect(TODAS).toHaveLength(14);
+  it('hay una ayuda por cada pantalla con "i" (15)', () => {
+    expect(TODAS).toHaveLength(15);
   });
 
   it.each(CON_VARIANTES)('%s: título y entre 3 y 5 puntos, sin repetidos', (_nombre, a) => {
@@ -77,6 +77,44 @@ describe('textos de ayuda por pantalla', () => {
 
   it('el texto del botón del recorrido es el de siempre', () => {
     expect(pantallas.TEXTO_VER_RECORRIDO).toBe('Ver el recorrido otra vez');
+  });
+});
+
+describe('la ayuda de «Sumar gastos que ya cargué»', () => {
+  const ayuda = pantallas.AYUDA_SUMAR_GASTOS;
+  const texto = ayuda.puntos.join(' ');
+
+  it('tiene título propio y entre 3 y 5 puntos cortos', () => {
+    expect(ayuda.titulo).toBe('Ayuda para sumar gastos al viaje');
+    expect(ayuda.puntos.length).toBeGreaterThanOrEqual(3);
+    expect(ayuda.puntos.length).toBeLessThanOrEqual(5);
+    // cortos: ninguno pasa de 100 caracteres y todos juntos no son más largos que la ayuda más larga de las demás pantallas + 15 %
+    for (const punto of ayuda.puntos) expect(punto.length).toBeLessThanOrEqual(100);
+    const total = (a: AyudaPantalla) => a.puntos.join('').length;
+    const lasDemas = TODAS.filter(([nombre]) => nombre !== 'AYUDA_SUMAR_GASTOS').map(([, a]) => total(a));
+    expect(total(ayuda)).toBeLessThanOrEqual(Math.max(...lasDemas) * 1.15);
+  });
+
+  it('dice qué hace la pantalla y que se marcan los gastos y se toca «Sumar»', () => {
+    expect(ayuda.puntos[0]).toContain('sin viaje');
+    expect(texto).toContain('Marca los que fueron de este viaje');
+    expect(texto).toContain('«Sumar»');
+    expect(texto).toContain('«Marcar todos»');
+  });
+
+  it('dice que uno de otro camión, o que ya está en otro viaje, no se suma', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('otro camión'));
+    expect(punto).toBeDefined();
+    expect(punto).toMatch(/ya está en otro viaje/);
+    expect(punto).toMatch(/no se suma/);
+  });
+
+  it('dice que sumar cambia la ganancia del viaje y «Por camión» del Resumen, pero NO los totales por fecha', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('ganancia'));
+    expect(punto).toBeDefined();
+    expect(punto).toContain('«Por camión»');
+    expect(punto).toContain('Resumen');
+    expect(punto).toMatch(/, pero no los totales por fecha\.$/);
   });
 });
 

@@ -72,6 +72,15 @@ export function rutaNuevaDevolucion(viajeId: string): string {
   return `/viajes/${viajeId}/devoluciones/nueva`;
 }
 
+/**
+ * Ruta de «Sumar gastos que ya cargué» de un viaje (los gastos sin viaje que se le pueden sumar). Como las de las devoluciones, lleva
+ * el viaje en la URL y del `state` solo toma el `volver` (el mes y la pestaña de la lista, saneados) y el cliente, si el detalle
+ * del viaje se abrió desde uno. Solo se llama con un id ya validado (`isUuid`): se arma acá, en el código.
+ */
+export function rutaSumarGastos(viajeId: string): string {
+  return `/viajes/${viajeId}/sumar-gastos`;
+}
+
 /** Ruta de la edición de una devolución de un viaje. Los dos ids ya validados (`isUuid`); se arma acá, en el código. */
 export function rutaEditarDevolucion(viajeId: string, devolucionId: string): string {
   return `/viajes/${viajeId}/devoluciones/${devolucionId}/editar`;

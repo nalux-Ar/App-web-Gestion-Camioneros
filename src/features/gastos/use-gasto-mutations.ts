@@ -119,8 +119,10 @@ export function useEliminarGasto() {
  *  - `scope` compartido: sumar y quitar corren de a UNO, en el orden en que se pidieron. Así un «Quitar» que se toca mientras un
  *    «Sumar» sigue en camino (mala señal) no puede llegar a la base antes que él y quedar deshecho. Cubre lo que está en vuelo en
  *    esta pestaña; entre dos dispositivos no hay orden posible desde acá.
+ *  - El scope se exporta (`SCOPE_DE_VINCULOS`) para que `useVinculosEnCurso` (la pantalla de sumar) cuente las mutaciones de ESTE
+ *    scope sin repetir su id a mano: el id vive en un solo lugar.
  */
-const SCOPE_DE_VINCULOS = { id: 'vincular-gastos' } as const;
+export const SCOPE_DE_VINCULOS = { id: 'vincular-gastos' } as const;
 
 export interface VincularGastosVariables {
   tenantId: string;

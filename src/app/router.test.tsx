@@ -16,7 +16,7 @@ const h = vi.hoisted(() => {
     const call = { table, ops: firstOp ? [firstOp] : ([] as Array<{ m: string; args: unknown[] }>) };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const builder: any = {};
-    for (const m of ['select', 'update', 'insert', 'delete', 'eq', 'abortSignal', 'order', 'limit', 'gte', 'lt', 'maybeSingle', 'single']) {
+    for (const m of ['select', 'update', 'insert', 'delete', 'eq', 'abortSignal', 'order', 'limit', 'gte', 'lt', 'is', 'maybeSingle', 'single']) {
       builder[m] = (...args: unknown[]) => {
         call.ops.push({ m, args });
         return builder;
@@ -307,6 +307,86 @@ describe('router: las rutas de devoluciones, anidadas bajo el viaje', () => {
     expect(h1()).not.toBe('Nueva devolución');
     expect(document.querySelector('input[type="radio"][value="otro"]')).toBeNull();
     expect(h.calls.filter((c) => c.table === 'devoluciones' || c.table === 'clientes' || c.table === 'viajes')).toHaveLength(0);
+  });
+});
+
+describe('router: «Sumar gastos que ya cargué», anidada bajo el viaje', () => {
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+  /** Las lecturas de los gastos sin viaje (`.is('viaje_id', null)`). */
+  const lecturasDeSueltos = () => h.calls.filter((c) => c.table === 'gastos' && c.ops.some((o) => o.m === 'is'));
+
+  it('/viajes/<id>/sumar-gastos abre la pantalla (carga diferida), dentro del layout, con el viaje y la lista de los gastos sin viaje', async () => {
+    await mount(`/viajes/${VIAJE}/sumar-gastos`);
+    await until(() => h1() === 'Sumar gastos que ya cargué');
+    expect(h1()).toBe('Sumar gastos que ya cargué');
+    expect(document.querySelector('header')).not.toBeNull(); // el layout (AppShell) de la app logueada
+    await until(() => document.body.textContent?.includes('No tienes gastos sin viaje.') === true);
+    expect(document.body.textContent).toContain('Rosario');
+    expect(document.body.textContent).toContain('Córdoba');
+    expect(lecturasDeSueltos()).toHaveLength(2); // una por cada lado de la fecha del viaje
+    expect(lecturasDeSueltos().every((c) => c.ops.some((o) => o.m === 'is' && o.args[0] === 'viaje_id' && o.args[1] === null))).toBe(true);
+  });
+
+  it('no choca con las rutas de viajes: /viajes/<id> sigue siendo el detalle (y su botón lleva a la pantalla nueva) y /viajes/<id>/editar la edición', async () => {
+    await mount(`/viajes/${VIAJE}`);
+    await until(() => h1().includes('Rosario'));
+    expect(h1()).toContain('Rosario');
+    expect(h1()).not.toContain('Sumar');
+    const boton = [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.getAttribute('href') === `/viajes/${VIAJE}/sumar-gastos`);
+    expect(boton).toBeDefined();
+    await act(async () => {
+      boton!.click();
+    });
+    await until(() => h1() === 'Sumar gastos que ya cargué');
+    expect(ubicacion().pathname).toBe(`/viajes/${VIAJE}/sumar-gastos`);
+    await desmontar();
+
+    await mount(`/viajes/${VIAJE}/editar`);
+    await until(() => h1() === 'Editar viaje');
+    expect(h1()).toBe('Editar viaje');
+  });
+
+  it('el «Volver» de la pantalla lleva al detalle del viaje', async () => {
+    await mount(`/viajes/${VIAJE}/sumar-gastos`);
+    await until(() => h1() === 'Sumar gastos que ya cargué');
+    const volver = document.querySelector<HTMLAnchorElement>('main a.min-h-12')!; // el primero de la pantalla (la barra lateral también tiene enlaces de 48 px)
+    expect(volver.getAttribute('href')).toBe(`/viajes/${VIAJE}`);
+    await act(async () => {
+      volver.click();
+    });
+    await until(() => h1().includes('Rosario'));
+    expect(ubicacion().pathname).toBe(`/viajes/${VIAJE}`);
+  });
+
+  it('un id que no es uuid: «Viaje no encontrado», sin pedir ningún gasto', async () => {
+    await mount('/viajes/no-es-un-uuid/sumar-gastos');
+    await until(() => document.body.textContent?.includes('Viaje no encontrado') === true);
+    expect(h1()).toBe('Sumar gastos que ya cargué');
+    expect(h.calls.filter((c) => c.table === 'gastos' || c.table === 'viajes')).toHaveLength(0);
+  });
+
+  it('rutas parecidas que no existen caen en la ruta desconocida (Inicio), sin pedir ningún gasto', async () => {
+    for (const ruta of [`/viajes/${VIAJE}/sumar`, `/viajes/${VIAJE}/sumar-gastos/x`, '/viajes/sumar-gastos/x/y', '/sumar-gastos', `/sumar-gastos/${VIAJE}`]) {
+      h.calls.length = 0;
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola'));
+      expect(h1(), ruta).toMatch(/^Hola/);
+      expect(lecturasDeSueltos(), ruta).toHaveLength(0);
+      await desmontar();
+    }
+  });
+
+  it('está detrás de la sesión: sin sesión no se muestra ni se pide NADA', async () => {
+    await mount(`/viajes/${VIAJE}/sumar-gastos`, false);
+    await settle(6);
+    expect(h1()).not.toBe('Sumar gastos que ya cargué');
+    expect(h.calls.filter((c) => c.table === 'gastos' || c.table === 'viajes')).toHaveLength(0);
   });
 });
 
