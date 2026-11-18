@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
-import { CheckCircle2, Info, Plus, Receipt, X } from 'lucide-react';
+import { CheckCircle2, Info, ListChecks, Plus, Receipt, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,8 @@ import { useCamiones } from '@/features/camiones/use-camiones';
 import { GastoItem } from './gasto-item';
 import { filtroToParams, filtroToSearch, readFiltro, type GastosFiltro } from './gastos-filters';
 import { sumMontos } from './gastos-list';
+import { hayGastosSinViaje } from './sumar-a-viaje';
+import { BOTON_ENTRADA_SUMAR_A_VIAJE } from './sumar-a-viaje-textos';
 import { useCategorias, useGastosDelMes } from './use-gastos';
 
 function leerAviso(state: unknown): GastoAviso | null {
@@ -225,6 +227,16 @@ export function GastosPage() {
       />
 
       {errorCategorias}
+
+      {/* Solo con la lista del mes a la vista (con el filtro puesto) y al menos un gasto sin viaje; con la lista cargando, en error sin
+          datos o con todos en un viaje no hay nada que sumar. Un refresco que falla con datos a la vista no lo saca. */}
+      {gastosQuery.data !== undefined && hayGastosSinViaje(items) ? (
+        <Button asChild variant="outline" className="w-full sm:w-auto">
+          <Link to={{ pathname: '/gastos/sumar-a-viaje', search: volver }}>
+            <ListChecks aria-hidden="true" /> {BOTON_ENTRADA_SUMAR_A_VIAJE}
+          </Link>
+        </Button>
+      ) : null}
 
       {contenido}
 

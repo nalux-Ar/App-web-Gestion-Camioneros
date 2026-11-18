@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { Link, type LinkProps } from 'react-router';
 import { CheckCircle2, Info } from 'lucide-react';
 
@@ -6,18 +7,27 @@ import { Button } from '@/components/ui/button';
 import type { ResultadoParaMostrar } from './sumar-gastos-resultado';
 import { NINGUNO_SUMADO, textoNoSeSumaron, textoSumaste, textoYaEstaban, VOLVER_AL_VIAJE } from './sumar-gastos-textos';
 
-interface ResultadoDeSumarProps {
+type ResultadoDeSumarProps = {
   resultado: ResultadoParaMostrar;
-  /** A dónde lleva «Volver al viaje» (la ruta ya armada y validada, y el estado de navegación que conserva el origen). */
-  alViaje: { to: LinkProps['to']; state: LinkProps['state'] };
-}
+} & (
+  | {
+      /** A dónde lleva «Volver al viaje» (la ruta ya armada y validada, y el estado de navegación que conserva el origen). */
+      alViaje: { to: LinkProps['to']; state: LinkProps['state'] };
+      acciones?: undefined;
+    }
+  | {
+      /** Los botones del aviso, en lugar de «Volver al viaje» (los arma quien lo usa: p. ej. «Sumar varios a un viaje», desde Gastos). */
+      acciones: ReactElement;
+      alViaje?: undefined;
+    }
+);
 
 /**
  * El aviso de lo que pasó al tocar «Sumar» (`role="status"`: el lector de pantalla lo anuncia sin interrumpir). La pantalla NO vuelve
  * sola: el aviso se queda hasta el próximo «Sumar» y ofrece «Volver al viaje». Los gastos sumados ya no aparecen en la lista; los que
  * no se pudieron sumar siguen ahí y acá se dice cuáles y por qué.
  */
-export function ResultadoDeSumar({ resultado, alViaje }: ResultadoDeSumarProps) {
+export function ResultadoDeSumar({ resultado, alViaje, acciones }: ResultadoDeSumarProps) {
   const { sumados, yaEstaban, noSumados } = resultado;
   // Con algo sumado (o que ya estaba) el aviso es de «salió bien»; si no se sumó nada es neutro: no es un error, pero tampoco algo
   // para festejar.
@@ -39,11 +49,15 @@ export function ResultadoDeSumar({ resultado, alViaje }: ResultadoDeSumarProps) 
             ))}
           </ul>
         ) : null}
-        <Button asChild variant="outline" className="w-full sm:w-auto">
-          <Link to={alViaje.to} state={alViaje.state}>
-            {VOLVER_AL_VIAJE}
-          </Link>
-        </Button>
+        {alViaje ? (
+          <Button asChild variant="outline" className="w-full sm:w-auto">
+            <Link to={alViaje.to} state={alViaje.state}>
+              {VOLVER_AL_VIAJE}
+            </Link>
+          </Button>
+        ) : (
+          acciones
+        )}
       </div>
     </Alert>
   );

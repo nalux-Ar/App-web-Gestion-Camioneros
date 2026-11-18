@@ -94,6 +94,16 @@ export const AYUDA_QUITAR_GASTOS: AyudaPantalla = {
   ],
 };
 
+export const AYUDA_SUMAR_A_VIAJE: AyudaPantalla = {
+  titulo: 'Ayuda para sumar varios gastos a un viaje',
+  puntos: [
+    'Aquí ves los gastos sin viaje del mes. Marca los que quieres poner en un viaje y toca «Elegir el viaje».',
+    'Después eliges el viaje. Puedes cambiar de mes para buscarlo. Puedes sumar hasta 100 por vez.',
+    'Si cambias el mes o la categoría, se desmarca lo que habías marcado.',
+    'Los gastos que ya están en un viaje no aparecen aquí. Si uno es de otro camión que el viaje, no se suma: te avisamos cuántos son.',
+  ],
+};
+
 export const AYUDA_GASTO_FORM: AyudaPantalla = {
   titulo: 'Ayuda para anotar un gasto',
   puntos: [

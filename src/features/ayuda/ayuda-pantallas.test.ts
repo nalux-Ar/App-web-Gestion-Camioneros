@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { MAX_GASTOS_POR_VEZ } from '@/features/gastos/constants';
+import { ELEGIR_EL_VIAJE as BOTON_ELEGIR_EL_VIAJE } from '@/features/gastos/sumar-a-viaje-textos';
 import { BOTON_ENTRADA_SUMAR_GASTOS } from '@/features/gastos/sumar-gastos-textos';
 import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
 import * as pantallas from './ayuda-pantallas';
@@ -23,8 +24,8 @@ const TEXTOS = CON_VARIANTES.flatMap(([nombre, a]) => [{ nombre, texto: a.titulo
 const palabras = (lista: string) => new RegExp(String.raw`(?<![\p{L}])(?:${lista})(?![\p{L}])`, 'iu');
 
 describe('textos de ayuda por pantalla', () => {
-  it('hay una ayuda por cada pantalla con "i" (16)', () => {
-    expect(TODAS).toHaveLength(16);
+  it('hay una ayuda por cada pantalla con "i" (17)', () => {
+    expect(TODAS).toHaveLength(17);
   });
 
   it.each(CON_VARIANTES)('%s: título y entre 3 y 5 puntos, sin repetidos', (_nombre, a) => {
@@ -195,5 +196,40 @@ describe('«Reportar un problema» en la ayuda de Inicio y de Configuración', (
   it('`AYUDA_INICIO` y `AYUDA_CONFIGURACION` (lo que usa la app) salen del interruptor real', () => {
     expect(pantallas.AYUDA_INICIO).toEqual(pantallas.ayudaInicio(REPORTAR_VISIBLE));
     expect(pantallas.AYUDA_CONFIGURACION).toEqual(pantallas.ayudaConfiguracion(REPORTAR_VISIBLE));
+  });
+});
+
+describe('la ayuda de «Sumar varios a un viaje»', () => {
+  const ayuda = pantallas.AYUDA_SUMAR_A_VIAJE;
+  const texto = ayuda.puntos.join(' ');
+
+  it('tiene título propio, distinto del de las otras pantallas de sumar y quitar, y entre 3 y 4 puntos cortos', () => {
+    expect(ayuda.titulo).toBe('Ayuda para sumar varios gastos a un viaje');
+    expect(ayuda.titulo).not.toBe(pantallas.AYUDA_SUMAR_GASTOS.titulo);
+    expect(ayuda.titulo).not.toBe(pantallas.AYUDA_QUITAR_GASTOS.titulo);
+    expect(ayuda.puntos.length).toBeGreaterThanOrEqual(3);
+    expect(ayuda.puntos.length).toBeLessThanOrEqual(4);
+    for (const punto of ayuda.puntos) expect(punto.length).toBeLessThanOrEqual(130);
+  });
+
+  it('dice qué hace: se marcan los gastos sin viaje del mes y se toca «Elegir el viaje» (el nombre del botón de verdad)', () => {
+    expect(ayuda.puntos[0]).toContain('gastos sin viaje');
+    expect(texto).toContain(`«${BOTON_ELEGIR_EL_VIAJE}»`);
+  });
+
+  it('dice que después se elige el viaje, que se puede cambiar de mes para buscarlo y que se pueden sumar hasta 100 por vez (el tope real)', () => {
+    expect(texto).toContain('Después eliges el viaje');
+    expect(texto).toContain('cambiar de mes');
+    expect(texto).toContain(`hasta ${MAX_GASTOS_POR_VEZ} por vez`);
+  });
+
+  it('avisa que cambiar el mes o la categoría desmarca lo marcado', () => {
+    expect(ayuda.puntos.some((p) => p.includes('mes') && p.includes('categoría') && p.includes('se desmarca'))).toBe(true);
+  });
+
+  it('dice que los gastos que ya están en un viaje no aparecen y que uno de otro camión no se suma, y que se avisa CUÁNTOS (no cuáles)', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('otro camión'));
+    expect(punto).toBe('Los gastos que ya están en un viaje no aparecen aquí. Si uno es de otro camión que el viaje, no se suma: te avisamos cuántos son.');
+    expect(texto).not.toContain('te avisamos cuál.');
   });
 });

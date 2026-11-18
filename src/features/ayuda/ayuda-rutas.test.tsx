@@ -48,6 +48,7 @@ import { DevolucionFormPage } from '@/features/devoluciones/devolucion-form-page
 import { GastoFormPage } from '@/features/gastos/gasto-form-page';
 import { GastosPage } from '@/features/gastos/gastos-page';
 import { QuitarGastosPage } from '@/features/gastos/quitar-gastos-page';
+import { SumarAViajePage } from '@/features/gastos/sumar-a-viaje-page';
 import { SumarGastosPage } from '@/features/gastos/sumar-gastos-page';
 import { InicioPage } from '@/features/home/inicio-page';
 import { ReportarPage } from '@/features/reportar/reportar-page';
@@ -82,6 +83,7 @@ const PANTALLAS: Pantalla[] = [
   { ruta: 'viajes/:viajeId/devoluciones/:id/editar', url: `/viajes/${ID}/devoluciones/${ID2}/editar`, pagina: <DevolucionFormPage modo="editar" />, ayuda: textos.AYUDA_DEVOLUCION_FORM },
   { ruta: 'gastos', url: '/gastos', pagina: <GastosPage />, ayuda: textos.AYUDA_GASTOS },
   { ruta: 'gastos/nuevo', url: '/gastos/nuevo', pagina: <GastoFormPage modo="nuevo" />, ayuda: textos.AYUDA_GASTO_FORM },
+  { ruta: 'gastos/sumar-a-viaje', url: '/gastos/sumar-a-viaje', pagina: <SumarAViajePage />, ayuda: textos.AYUDA_SUMAR_A_VIAJE },
   { ruta: 'gastos/:id/editar', url: `/gastos/${ID}/editar`, pagina: <GastoFormPage modo="editar" />, ayuda: textos.AYUDA_GASTO_FORM },
   { ruta: 'clientes', url: '/clientes', pagina: <ClientesPage />, ayuda: textos.AYUDA_CLIENTES },
   { ruta: 'clientes/nuevo', url: '/clientes/nuevo', pagina: <ClienteFormPage modo="nuevo" />, ayuda: textos.AYUDA_CLIENTE_FORM },
@@ -189,7 +191,7 @@ describe('cobertura: toda pantalla de la app (menos Reportar) tiene su botón «
   it('cada pantalla usa una ayuda propia de su tipo (no se reutiliza la de otra)', () => {
     const porRuta = new Map(PANTALLAS.map((p) => [p.ruta, p.ayuda]));
     expect(porRuta.get('viajes')).not.toBe(porRuta.get('gastos'));
-    expect(new Set(PANTALLAS.map((p) => p.ayuda)).size).toBe(16);
+    expect(new Set(PANTALLAS.map((p) => p.ayuda)).size).toBe(17);
   });
 
   it.each(PANTALLAS.map((p) => [p.ruta || '(Inicio)', p] as const))('%s: un solo botón «Ayuda», que abre la ayuda de ESA pantalla y devuelve el foco', async (_nombre, p) => {

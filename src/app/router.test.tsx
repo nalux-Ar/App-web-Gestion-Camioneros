@@ -495,6 +495,96 @@ describe('router: «Quitar gastos del viaje», anidada bajo el viaje', () => {
   });
 });
 
+describe('router: «Sumar varios a un viaje», desde la lista de Gastos', () => {
+  async function desmontar() {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  }
+  /** La lista del mes: un gasto sin viaje (para que la lista de Gastos ofrezca el botón) y otro dentro de un viaje. */
+  function hayGastosDelMes() {
+    const base = h.state.responder!;
+    h.state.responder = (call: Call) => {
+      if (call.table === 'gastos') {
+        return ok([
+          { id: 'e0000000-0000-4000-8000-000000000001', categoria_id: '210b4f00-fdb4-499b-bf15-79ebe2aaf3c3', fecha: '2025-06-15', monto: 100, descripcion: 'peaje norte', litros: null, camion_id: null, created_at: '2025-06-15T12:00:00Z', viaje_id: null, viajes: null },
+          { id: 'e0000000-0000-4000-8000-000000000002', categoria_id: '210b4f00-fdb4-499b-bf15-79ebe2aaf3c3', fecha: '2025-06-14', monto: 50, descripcion: 'lavado', litros: null, camion_id: null, created_at: '2025-06-14T12:00:00Z', viaje_id: VIAJE, viajes: { origen: 'Rosario', destino: 'Córdoba' } },
+        ]);
+      }
+      return base(call);
+    };
+  }
+
+  it('/gastos/sumar-a-viaje abre la pantalla (carga diferida), dentro del layout, y ofrece solo los gastos SIN viaje del mes', async () => {
+    hayGastosDelMes();
+    await mount('/gastos/sumar-a-viaje?mes=2025-06');
+    await until(() => h1() === 'Sumar gastos a un viaje');
+    expect(h1()).toBe('Sumar gastos a un viaje');
+    expect(document.querySelector('header')).not.toBeNull(); // el layout (AppShell) de la app logueada
+    await until(() => document.querySelector('input[type="checkbox"]') !== null);
+    expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(1); // el del viaje no se ofrece
+    expect(document.body.textContent).toContain('peaje norte');
+    expect(document.body.textContent).not.toContain('lavado');
+  });
+
+  it('no choca con las rutas de gastos: /gastos sigue siendo la lista (y su botón lleva a la pantalla nueva con el mismo filtro), /gastos/nuevo el alta y /gastos/<id>/editar la edición', async () => {
+    hayGastosDelMes();
+    await mount('/gastos?mes=2025-06');
+    await until(() => [...document.querySelectorAll<HTMLAnchorElement>('a')].some((a) => a.getAttribute('href') === '/gastos/sumar-a-viaje?mes=2025-06'));
+    expect(h1()).toBe('Gastos');
+    const boton = [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.getAttribute('href') === '/gastos/sumar-a-viaje?mes=2025-06')!;
+    expect(boton.textContent?.trim()).toBe('Sumar varios a un viaje');
+    await act(async () => {
+      boton.click();
+    });
+    await until(() => h1() === 'Sumar gastos a un viaje');
+    expect(ubicacion().pathname).toBe('/gastos/sumar-a-viaje');
+    expect(ubicacion().search).toBe('?mes=2025-06');
+    await desmontar();
+
+    await mount('/gastos/nuevo');
+    await until(() => h1() === 'Nuevo gasto');
+    expect(h1()).toBe('Nuevo gasto');
+    await desmontar();
+
+    await mount(`/gastos/${VIAJE}/editar`);
+    await until(() => h1() === 'Editar gasto' || document.body.textContent?.includes('no encontrado') === true);
+    expect(h1()).not.toBe('Sumar gastos a un viaje');
+  });
+
+  it('el «Volver» de arriba lleva a la lista de Gastos con el mismo mes', async () => {
+    hayGastosDelMes();
+    await mount('/gastos/sumar-a-viaje?mes=2025-06');
+    await until(() => h1() === 'Sumar gastos a un viaje');
+    const volver = document.querySelector<HTMLAnchorElement>('main a.min-h-12')!;
+    expect(volver.getAttribute('href')).toBe('/gastos?mes=2025-06');
+    await act(async () => {
+      volver.click();
+    });
+    await until(() => h1() === 'Gastos');
+    expect(ubicacion().pathname).toBe('/gastos');
+    expect(ubicacion().search).toBe('?mes=2025-06');
+  });
+
+  it('rutas parecidas que no existen caen en la ruta desconocida (Inicio)', async () => {
+    for (const ruta of ['/gastos/sumar-a-viaje/x', `/gastos/${VIAJE}/sumar-a-viaje`, '/sumar-a-viaje', '/gastos/sumar']) {
+      await mount(ruta);
+      await until(() => h1().startsWith('Hola') || h1() !== '');
+      expect(h1(), ruta).not.toBe('Sumar gastos a un viaje');
+      await desmontar();
+    }
+  });
+
+  it('está detrás de la sesión: sin sesión no se muestra ni se pide NADA', async () => {
+    await mount('/gastos/sumar-a-viaje', false);
+    await settle(6);
+    expect(h1()).not.toBe('Sumar gastos a un viaje');
+    expect(h.calls.filter((c) => c.table === 'gastos' || c.table === 'viajes')).toHaveLength(0);
+  });
+});
+
 describe('router: las rutas de Clientes', () => {
   async function desmontar() {
     await act(async () => {

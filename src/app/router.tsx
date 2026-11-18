@@ -46,6 +46,9 @@ const SumarGastosPage = lazy(() =>
 const QuitarGastosPage = lazy(() =>
   import('@/features/gastos/quitar-gastos-page').then((m) => ({ default: m.QuitarGastosPage })),
 );
+const SumarAViajePage = lazy(() =>
+  import('@/features/gastos/sumar-a-viaje-page').then((m) => ({ default: m.SumarAViajePage })),
+);
 const GastosPage = lazy(() => import('@/features/gastos/gastos-page').then((m) => ({ default: m.GastosPage })));
 const GastoFormPage = lazy(() =>
   import('@/features/gastos/gasto-form-page').then((m) => ({ default: m.GastoFormPage })),
@@ -151,6 +154,9 @@ export function AppRouter() {
           <Route path="viajes/:viajeId/devoluciones/:id/editar" element={<DevolucionFormPage modo="editar" />} />
           <Route path="gastos" element={<GastosPage />} />
           <Route path="gastos/nuevo" element={<GastoFormPage modo="nuevo" />} />
+          {/* «Sumar varios a un viaje», desde la lista de Gastos. `sumar-a-viaje` es literal, igual que `nuevo`: no choca con `gastos/:id/editar` (tiene
+              un segmento de más). */}
+          <Route path="gastos/sumar-a-viaje" element={<SumarAViajePage />} />
           <Route path="gastos/:id/editar" element={<GastoFormPage modo="editar" />} />
           {/* `clientes/nuevo` (literal) gana sobre `clientes/:id`: react-router rankea los segmentos literales primero. El
               `:id` lo valida cada pantalla con `isUuid` (si no es uuid, "Cliente no encontrado" sin consultar nada). */}

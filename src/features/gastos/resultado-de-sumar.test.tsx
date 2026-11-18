@@ -141,3 +141,33 @@ describe('ResultadoDeSumar', () => {
     expect([...aviso().querySelectorAll('a')].some((a) => a.textContent === 'Volver al viaje')).toBe(true);
   });
 });
+
+describe('ResultadoDeSumar con `acciones` propias (desde la lista de Gastos)', () => {
+  async function dibujarConAcciones(resultado: ResultadoParaMostrar) {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/sumar']}>
+          <Routes>
+            <Route
+              path="/sumar"
+              element={<ResultadoDeSumar resultado={resultado} acciones={<a href="/gastos">Volver a Gastos</a>} />}
+            />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+  }
+
+  it('muestra esos botones EN LUGAR de «Volver al viaje» y el resto del aviso queda igual', async () => {
+    await dibujarConAcciones({ sumados: 2, yaEstaban: 1, noSumados: [{ gastoId: 'a', texto: 'Peajes · 15 jun 2025: Ya está en otro viaje.' }] });
+    expect([...aviso().querySelectorAll('a')].map((a) => a.textContent)).toEqual(['Volver a Gastos']);
+    expect(parrafos()).toEqual(['Sumaste 2 gastos al viaje.', '1 ya estaba en este viaje.', '1 no se pudo sumar:']);
+    expect(lineas()).toEqual(['Peajes · 15 jun 2025: Ya está en otro viaje.']);
+    expect(aviso().getAttribute('role')).toBe('status');
+  });
+
+  it('sin `acciones` sigue siendo «Volver al viaje» (lo de «Sumar gastos que ya cargué» no cambia)', async () => {
+    await dibujar({ sumados: 1, yaEstaban: 0, noSumados: [] });
+    expect([...aviso().querySelectorAll('a')].map((a) => a.textContent)).toEqual(['Volver al viaje']);
+  });
+});

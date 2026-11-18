@@ -90,6 +90,10 @@ describe('rutaDeVuelta: lista blanca de rutas de la app, o Inicio', () => {
     [`/viajes/${UUID}/devoluciones/nueva`, `/viajes/${UUID}/devoluciones/nueva`],
     [`/viajes/${UUID}/devoluciones/${UUID2}/editar`, `/viajes/${UUID}/devoluciones/${UUID2}/editar`],
     ['/gastos/nuevo', '/gastos/nuevo'],
+    ['/gastos/sumar-a-viaje', '/gastos/sumar-a-viaje'],
+    // La búsqueda de la lista (mes y categoría) se conserva: es simple y la valida la pantalla.
+    ['/gastos/sumar-a-viaje?mes=2026-08', '/gastos/sumar-a-viaje?mes=2026-08'],
+    [`/gastos/sumar-a-viaje?mes=2026-08&categoria=${UUID}`, `/gastos/sumar-a-viaje?mes=2026-08&categoria=${UUID}`],
     [`/gastos/${UUID}/editar`, `/gastos/${UUID}/editar`],
     [`/clientes/${UUID}`, `/clientes/${UUID}`],
     // La búsqueda sirve para el "Volver" (se queda en el dispositivo); al servidor NO viaja (ver `pantallaParaElReporte`).
@@ -119,6 +123,9 @@ describe('rutaDeVuelta: lista blanca de rutas de la app, o Inicio', () => {
     `/viajes/${UUID}/quitar-gastos/x`,
     `/viajes/${UUID}/quitar`,
     '/gastos/123/editar',
+    '/gastos/sumar-a-viaje/x',
+    `/gastos/${UUID}/sumar-a-viaje`,
+    '/sumar-a-viaje',
     '/admin',
     `/clientes/${UUID}/editar/x`,
   ])('%j → Inicio', (pantalla) => {
@@ -128,6 +135,7 @@ describe('rutaDeVuelta: lista blanca de rutas de la app, o Inicio', () => {
   it('una búsqueda con caracteres raros se descarta (se vuelve a la ruta sin búsqueda)', () => {
     expect(rutaDeVuelta('/gastos?mes=<script>')).toBe('/gastos');
     expect(rutaDeVuelta('/clientes?q="x"')).toBe('/clientes');
+    expect(rutaDeVuelta('/gastos/sumar-a-viaje?mes=<script>')).toBe('/gastos/sumar-a-viaje');
   });
 });
 

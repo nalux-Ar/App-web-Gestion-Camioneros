@@ -22,6 +22,7 @@ const RUTAS_DE_VUELTA: readonly string[] = [
   `/viajes/${UUID}/devoluciones/${UUID}/editar`,
   '/gastos',
   '/gastos/nuevo',
+  '/gastos/sumar-a-viaje',
   `/gastos/${UUID}/editar`,
   '/clientes',
   '/clientes/nuevo',

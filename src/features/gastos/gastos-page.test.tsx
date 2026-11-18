@@ -38,6 +38,7 @@ import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context
 import { MemberProvider } from '@/features/member/member-provider';
 import { RequireMember } from '@/app/guards';
 import { GastosPage } from '@/features/gastos/gastos-page';
+import { gastosKeys } from '@/features/gastos/gastos-keys';
 import { COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID } from '@/features/gastos/constants';
 import type { Categoria } from '@/features/gastos/categorias';
 import { queryClient } from '@/lib/query-client';
@@ -115,7 +116,7 @@ function AuthHarness({ children }: { children: ReactNode }) {
 /** La edicion de un gasto de mentira: muestra con que `state` se llego. */
 function Edicion() {
   const location = useLocation();
-  return <div id="edicion" data-state={JSON.stringify(location.state ?? null)} />;
+  return <div id="edicion" data-pathname={location.pathname} data-search={location.search} data-state={JSON.stringify(location.state ?? null)} />;
 }
 
 let root: Root;
@@ -145,6 +146,7 @@ async function mount(entry: InitialEntry = '/gastos') {
                   <Route path="/gastos" element={<GastosPage />} />
                   <Route path="/gastos/:id/editar" element={<Edicion />} />
                   <Route path="/gastos/nuevo" element={<Edicion />} />
+                  <Route path="/gastos/sumar-a-viaje" element={<Edicion />} />
                 </Routes>
               </RequireMember>
             </MemoryRouter>
@@ -274,5 +276,100 @@ describe('lista de gastos: el viaje vinculado', () => {
     await mount();
     expect(items()).toHaveLength(1);
     expect(lineasDeViaje(items()[0]!)).toHaveLength(0);
+  });
+});
+
+describe('lista de gastos: el botón «Sumar varios a un viaje»', () => {
+  const enlace = () => [...document.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Sumar varios a un viaje');
+
+  it('con al menos un gasto SIN viaje en la lista: aparece, es un enlace secundario de 48 px de todo el ancho en el celular y lleva a /gastos/sumar-a-viaje', async () => {
+    await mount();
+    const boton = enlace()!;
+    expect(boton).toBeDefined();
+    expect(boton.getAttribute('href')).toBe('/gastos/sumar-a-viaje');
+    expect(boton.className).toContain('h-12');
+    expect(boton.className).not.toContain('h-14'); // no es el botón principal (el de «Nuevo gasto» es de 56 px)
+    expect(boton.className).toContain('border-input'); // el estilo «secundario» (con borde) de los otros botones de ese tipo
+    expect(boton.className).toContain('w-full');
+    expect(boton.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('va debajo del filtro de categoría y antes del total y de la lista', async () => {
+    await mount();
+    const boton = enlace()!;
+    const select = document.querySelector('select')!;
+    const total = document.getElementById('gastos-total-titulo')!;
+    const lista = document.querySelector('ul')!;
+    expect(select.compareDocumentPosition(boton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(boton.compareDocumentPosition(total) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(boton.compareDocumentPosition(lista) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('lleva el MISMO search de la lista: el mes y la categoría', async () => {
+    await mount(`/gastos?mes=2025-06&categoria=${PEAJES_ID}`);
+    expect(enlace()!.getAttribute('href')).toBe(`/gastos/sumar-a-viaje?mes=2025-06&categoria=${PEAJES_ID}`);
+  });
+
+  it('con una categoría inválida en la URL el search sale normalizado (la categoría se ignora, igual que en la lista)', async () => {
+    await mount('/gastos?mes=2025-06&categoria=no-es-un-uuid');
+    expect(enlace()!.getAttribute('href')).toBe('/gastos/sumar-a-viaje?mes=2025-06');
+  });
+
+  it('al tocarlo se abre la pantalla nueva con ese search', async () => {
+    await mount('/gastos?mes=2025-06');
+    await act(async () => {
+      enlace()!.click();
+    });
+    await settle(3);
+    const destino = document.getElementById('edicion')!;
+    expect(destino.dataset.pathname).toBe('/gastos/sumar-a-viaje');
+    expect(destino.dataset.search).toBe('?mes=2025-06');
+  });
+
+  it('con TODOS los gastos en un viaje no aparece', async () => {
+    gastos = () => ok([fila(G_CON, { viaje_id: V_ID, viajes: { origen: 'Pilar', destino: 'Villa María' } }), fila(G_LARGO, { viaje_id: V_ID, viajes: { origen: 'A', destino: 'B' } })]);
+    await mount();
+    expect(items()).toHaveLength(2);
+    expect(enlace()).toBeUndefined();
+  });
+
+  it('con la lista vacía no aparece', async () => {
+    gastos = () => ok([]);
+    await mount();
+    expect(enlace()).toBeUndefined();
+  });
+
+  it('mientras la lista carga no aparece', async () => {
+    gastos = () => new Promise<Resp>(() => {}) as unknown as Resp;
+    await mount();
+    expect(document.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(enlace()).toBeUndefined();
+  });
+
+  it('si la lista falla y no hay datos, no aparece', async () => {
+    gastos = () => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
+    await mount();
+    expect(items()).toHaveLength(0);
+    expect(enlace()).toBeUndefined();
+  });
+
+  it('si falla un refresco con la lista ya a la vista, el botón se queda', async () => {
+    await mount();
+    expect(enlace()).toBeDefined();
+    gastos = () => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' }, status: 0 });
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: gastosKeys.all('tenant-a') });
+    });
+    await settle(6);
+    expect(items()).toHaveLength(3);
+    expect(document.querySelector('[role="alert"]')).not.toBeNull();
+    expect(enlace()).toBeDefined();
+  });
+
+  it('el resto de la pantalla no cambia: «Nuevo gasto» sigue en el encabezado y fijo abajo, y los gastos con su enlace a la edición', async () => {
+    await mount();
+    const nuevos = [...document.querySelectorAll<HTMLAnchorElement>('a[href="/gastos/nuevo"]')];
+    expect(nuevos).toHaveLength(2); // el del encabezado (escritorio) y el de la barra fija (celular)
+    expect(items()).toHaveLength(3);
   });
 });
