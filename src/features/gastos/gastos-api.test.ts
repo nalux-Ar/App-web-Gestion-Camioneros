@@ -45,9 +45,10 @@ vi.mock('@/lib/supabase', () => ({ supabase: { from: h.from, rpc: h.rpc } }));
 import { GENERIC_ERROR_MESSAGE } from '@/features/auth/auth-errors';
 import { DataRequestError, classifyDataError, isRetryableDataError, mapDataError } from '@/lib/data-errors';
 import { WRITE_TIMEOUT_MS } from '@/lib/db';
-import { MAX_GASTOS_POR_VEZ } from '@/features/gastos/constants';
+import { LIST_LIMIT, MAX_GASTOS_POR_VEZ } from '@/features/gastos/constants';
 import {
   SeleccionDeGastosInvalidaError,
+  fetchGastosDelRango,
   fetchGastosDelViaje,
   fetchGastosSueltos,
   quitarGastosDelViaje,
@@ -275,6 +276,59 @@ describe('fetchGastosSueltos: los gastos sin viaje, los más cercanos a la fecha
     h.state.responder = sueltos([gasto(G1, 'infinity'), gasto(G2, '2026-06-16')], [gasto(G3, '-infinity'), gasto(G4, '2026-06-14')]);
     const { items } = await fetchGastosSueltos({ fechaViaje: FECHA, signal: signal() });
     expect(items.map((x) => x.id)).toEqual([G2, G4, G1, G3]);
+  });
+});
+
+describe('el orden de las dos listas de gastos: fecha desc, created_at desc y id asc (desempate)', () => {
+  // Los gastos que se cargan juntos (varias categorías de una vez, un solo INSERT) comparten fecha y created_at: sin el `id` como último
+  // criterio su orden entre sí quedaría indefinido y podría cambiar de una lectura a otra. Es el mismo desempate de los gastos sueltos.
+  const ORDEN = [
+    ['fecha', { ascending: false }],
+    ['created_at', { ascending: false }],
+    ['id', { ascending: true }],
+  ];
+  const desde = '2026-06-01';
+  const hasta = '2026-07-01';
+
+  it('fetchGastosDelRango: tres órdenes, en ese orden y con el id al final, antes del límite de LIST_LIMIT + 1', async () => {
+    h.state.responder = () => ok([]);
+    await fetchGastosDelRango({ desde, hasta, categoriaId: null, signal: signal() });
+    expect(h.calls).toHaveLength(1);
+    const call = h.calls[0]!;
+    expect(call.target).toBe('gastos');
+    expect(ops(call)).toEqual(['select', 'gte', 'lt', 'order', 'order', 'order', 'limit', 'abortSignal']);
+    expect(op(call, 'order').map((o) => o.args)).toEqual(ORDEN);
+    expect(op(call, 'limit')[0]!.args).toEqual([LIST_LIMIT + 1]);
+  });
+
+  it('fetchGastosDelRango con una categoría filtra por ella y mantiene la MISMA cadena de órdenes', async () => {
+    h.state.responder = () => ok([]);
+    await fetchGastosDelRango({ desde, hasta, categoriaId: CATEGORIA, signal: signal() });
+    const call = h.calls[0]!;
+    expect(ops(call)).toEqual(['select', 'gte', 'lt', 'eq', 'order', 'order', 'order', 'limit', 'abortSignal']);
+    expect(op(call, 'eq')[0]!.args).toEqual(['categoria_id', CATEGORIA]);
+    expect(op(call, 'order').map((o) => o.args)).toEqual(ORDEN);
+  });
+
+  it('fetchGastosDelViaje: filtra por el viaje y pide los mismos tres órdenes, con el id al final, antes del límite de LIST_LIMIT + 1', async () => {
+    h.state.responder = () => ok([]);
+    await fetchGastosDelViaje(VIAJE_ID, signal());
+    expect(h.calls).toHaveLength(1);
+    const call = h.calls[0]!;
+    expect(call.target).toBe('gastos');
+    expect(ops(call)).toEqual(['select', 'eq', 'order', 'order', 'order', 'limit', 'abortSignal']);
+    expect(op(call, 'eq')[0]!.args).toEqual(['viaje_id', VIAJE_ID]);
+    expect(op(call, 'order').map((o) => o.args)).toEqual(ORDEN);
+    expect(op(call, 'limit')[0]!.args).toEqual([LIST_LIMIT + 1]);
+  });
+
+  it('las dos listas, y la de los gastos sueltos, desempatan con el MISMO último criterio (id ascendente)', async () => {
+    h.state.responder = () => ok([]);
+    await fetchGastosDelRango({ desde, hasta, categoriaId: null, signal: signal() });
+    await fetchGastosDelViaje(VIAJE_ID, signal());
+    await fetchGastosSueltos({ fechaViaje: FECHA, signal: signal() });
+    expect(h.calls).toHaveLength(4);
+    for (const call of h.calls) expect(op(call, 'order').at(-1)!.args).toEqual(['id', { ascending: true }]);
   });
 });
 

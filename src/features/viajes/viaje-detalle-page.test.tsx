@@ -672,7 +672,7 @@ describe('detalle de un viaje: los gastos', () => {
     expect(gastos.textContent).toContain(nums(250, 2));
   });
 
-  it('pide los gastos por viaje_id: fecha desc, created_at desc, 501 pedidos, con una key que cuelga de las de gastos', async () => {
+  it('pide los gastos por viaje_id: fecha desc, created_at desc, id asc, 501 pedidos, con una key que cuelga de las de gastos', async () => {
     await mount();
     const consultas = callsTo('gastos');
     expect(consultas).toHaveLength(1);
@@ -681,6 +681,7 @@ describe('detalle de un viaje: los gastos', () => {
     expect(call.ops.filter((o) => o.m === 'order').map((o) => o.args)).toEqual([
       ['fecha', { ascending: false }],
       ['created_at', { ascending: false }],
+      ['id', { ascending: true }],
     ]);
     expect(call.ops.find((o) => o.m === 'limit')!.args).toEqual([501]);
     expect(call.ops.find((o) => o.m === 'select')!.args[0]).not.toContain('viajes('); // no hace falta el embed del viaje

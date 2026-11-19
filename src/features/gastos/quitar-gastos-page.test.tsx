@@ -559,6 +559,7 @@ describe('«Quitar gastos del viaje»: la lista de los gastos del viaje', () => 
     expect(call.ops.filter((o) => o.m === 'order').map((o) => o.args)).toEqual([
       ['fecha', { ascending: false }],
       ['created_at', { ascending: false }],
+      ['id', { ascending: true }],
     ]);
     expect(call.ops.find((o) => o.m === 'limit')!.args).toEqual([LIST_LIMIT + 1]);
     expect(String(call.ops.find((o) => o.m === 'select')!.args[0])).not.toContain('viajes(');

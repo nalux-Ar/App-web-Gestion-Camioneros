@@ -44,6 +44,13 @@ export const LIST_LIMIT = 500;
  */
 export const MAX_GASTOS_POR_VEZ = 100;
 
+/**
+ * Tope de gastos que se cargan de una vez en «Nuevo gasto» (uno por categoría tildada, cada una con su monto): se mandan en UN
+ * solo pedido y la pantalla muestra un bloque por categoría. Es una regla del front, la base no la impone: una carga con más
+ * (o sin ninguna) se rechaza antes de tocar la red (`LoteDeGastosInvalidoError`).
+ */
+export const MAX_GASTOS_POR_CARGA = 10;
+
 /** Largo máximo de la descripción: mismo valor que `gastos_descripcion_chk` (length <= 2000). */
 export const MAX_DESCRIPCION = 2000;
 

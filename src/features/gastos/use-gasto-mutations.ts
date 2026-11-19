@@ -9,7 +9,15 @@ import type { RowChanges } from '@/lib/db';
 import { GASTOS_VIAJE_FK } from './constants';
 import { crearGasto, type CrearGastoResultado } from './gasto-save';
 import type { GastoColumns } from './gasto-form';
-import { actualizarGasto, eliminarGasto, gastoWriteIO, quitarGastosDelViaje, vincularGastosAViaje } from './gastos-api';
+import { crearGastos, type CrearGastosResultado, type GastoParaGuardar } from './gasto-lote-save';
+import {
+  actualizarGasto,
+  eliminarGasto,
+  gastoLoteWriteIO,
+  gastoWriteIO,
+  quitarGastosDelViaje,
+  vincularGastosAViaje,
+} from './gastos-api';
 import { gastosKeys } from './gastos-keys';
 import type { ResultadoDeGasto } from './sumar-gastos';
 
@@ -59,6 +67,33 @@ export function useCrearGasto() {
   const queryClient = useQueryClient();
   return useMutation<CrearGastoResultado, Error, CrearGastoVariables>({
     mutationFn: ({ columns, clientRef, sent }) => crearGasto({ columns, clientRef, sent, io: gastoWriteIO }),
+    onSuccess: (_resultado, { tenantId }) => {
+      void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
+    },
+    onError: (error, { tenantId }) => invalidarViajesSiNoExiste(queryClient, tenantId, error),
+    onSettled: (_resultado, _error, { tenantId }) => invalidarResumen(queryClient, tenantId),
+  });
+}
+
+export interface CrearGastosVariables {
+  tenantId: string;
+  /** Un gasto por categoría, cada uno con su `client_ref` (estable entre reintentos: lo guarda quien llama). */
+  items: readonly GastoParaGuardar[];
+  /** Huellas de lo ya mandado con estos `client_ref` (ver `crearGastos`). Se modifica. */
+  sent: Set<string>;
+}
+
+/**
+ * Cargar VARIOS gastos de una vez (uno por categoría) con `crearGastos`. «Todo o nada» vale solo para el INSERT: va en UN solo pedido
+ * (una sola transacción) y quedan todos o ninguno. Los UPDATE de después (cuando entre intentos cambiaron datos y el INSERT chocó con
+ * el `client_ref` de un intento anterior que sí llegó) son N pedidos seguidos, uno por gasto, y NO son atómicos: si uno falla quedan
+ * algunos actualizados y otros no, y el reintento los vuelve a actualizar a todos hasta que convergen. Mismas invalidaciones que
+ * `useCrearGasto`; el reintento manual con los mismos `client_ref` es seguro porque `crearGastos` es idempotente.
+ */
+export function useCrearGastos() {
+  const queryClient = useQueryClient();
+  return useMutation<CrearGastosResultado, Error, CrearGastosVariables>({
+    mutationFn: ({ items, sent }) => crearGastos({ items, sent, io: gastoLoteWriteIO }),
     onSuccess: (_resultado, { tenantId }) => {
       void queryClient.invalidateQueries({ queryKey: gastosKeys.all(tenantId) });
     },

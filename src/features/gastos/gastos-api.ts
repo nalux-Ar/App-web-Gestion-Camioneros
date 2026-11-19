@@ -14,6 +14,7 @@ import { isUuid } from '@/lib/uuid';
 import { LIST_LIMIT, MAX_GASTOS_POR_VEZ } from './constants';
 import type { Categoria } from './categorias';
 import type { ViajeOpcion } from '@/features/viajes/viaje-opciones';
+import type { GastoLoteWriteIO } from './gasto-lote-save';
 import type { GastoWriteIO } from './gasto-save';
 import { acotarLista, type ListaAcotada } from './gastos-list';
 import {
@@ -91,7 +92,11 @@ export interface FetchGastosArgs {
   signal: AbortSignal;
 }
 
-/** Gastos del rango, del más nuevo al más viejo (fecha desc, luego created_at desc), con tope. */
+/**
+ * Gastos del rango, del más nuevo al más viejo (fecha desc, luego created_at desc y, por último, `id` asc), con tope. El `id` es el
+ * desempate: los gastos que se cargan juntos (varias categorías de una vez, un solo INSERT) comparten fecha y `created_at`, y sin él su
+ * orden quedaría indefinido y podría cambiar entre lecturas. Es el mismo desempate que `leerSueltosDeUnLado`.
+ */
 export async function fetchGastosDelRango({
   desde,
   hasta,
@@ -105,6 +110,7 @@ export async function fetchGastosDelRango({
     await query
       .order('fecha', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .limit(LIST_LIMIT + 1) // uno de más: así se sabe si se alcanzó el tope
       .abortSignal(signal),
   );
@@ -146,8 +152,9 @@ export async function fetchCategorias(signal: AbortSignal): Promise<Categoria[]>
 }
 
 /**
- * Los gastos de UN viaje, del más nuevo al más viejo (fecha desc, luego created_at desc), con tope: se piden
- * `LIST_LIMIT + 1` y, si vino uno de más, la lista (y el total que se calcule sobre ella) es parcial.
+ * Los gastos de UN viaje, del más nuevo al más viejo (fecha desc, luego created_at desc y, por último, `id` asc: el desempate de los
+ * gastos que se cargaron juntos, que comparten fecha y `created_at`), con tope: se piden `LIST_LIMIT + 1` y, si vino uno de más, la
+ * lista (y el total que se calcule sobre ella) es parcial.
  */
 export async function fetchGastosDelViaje(viajeId: string, signal: AbortSignal): Promise<ListaAcotada<GastoDeFila>> {
   const rows = unwrap(
@@ -157,6 +164,7 @@ export async function fetchGastosDelViaje(viajeId: string, signal: AbortSignal):
       .eq('viaje_id', viajeId)
       .order('fecha', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .limit(LIST_LIMIT + 1)
       .abortSignal(signal),
   );
@@ -237,6 +245,19 @@ export const gastoWriteIO: GastoWriteIO = {
     );
     if (rows.length === 0) throw new RecordNotFoundError();
   },
+};
+
+/**
+ * INSERT de VARIOS gastos de una vez para `crearGastos` (src/features/gastos/gasto-lote-save.ts). `insertMany` es UN solo pedido
+ * con todas las filas: una sola sentencia, es decir una sola transacción (o quedan todas o ninguna). NUNCA un pedido por gasto.
+ * Cada fila lleva su propio `client_ref` (`insertPayload` le quita `id`, `transportista_id` y los timestamps a cada una). Sin
+ * `.select()`, como `gastoWriteIO.insert`. El UPDATE por `client_ref` es el mismo de un gasto solo.
+ */
+export const gastoLoteWriteIO: GastoLoteWriteIO = {
+  async insertMany(rows: ReadonlyArray<NewRow<'gastos'>>) {
+    unwrap(await supabase.from('gastos').insert(rows.map((row) => insertPayload<'gastos'>(row))).abortSignal(writeTimeoutSignal()));
+  },
+  updateByClientRef: gastoWriteIO.updateByClientRef,
 };
 
 /** Edición: UPDATE por id (nunca upsert). 0 filas = el gasto ya no existe → `RecordNotFoundError`. */

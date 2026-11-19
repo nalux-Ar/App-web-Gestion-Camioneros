@@ -26,7 +26,7 @@ vi.mock('@/lib/supabase', async () => {
   return { supabase };
 });
 
-import { fetchGastosSueltos, quitarGastosDelViaje, vincularGastosAViaje } from '@/features/gastos/gastos-api';
+import { fetchGastosDelRango, fetchGastosDelViaje, fetchGastosSueltos, quitarGastosDelViaje, vincularGastosAViaje } from '@/features/gastos/gastos-api';
 
 const VIAJE = '33333333-3333-4333-8333-333333333333';
 const [G1, G2, G3] = ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'];
@@ -90,6 +90,36 @@ describe('vincularGastosAViaje: lo que viaja', () => {
     expect(parametros(pedido.url)).toEqual([]);
     expect(pedido.cabeceras.get('content-type')).toBe('application/json');
     expect(JSON.parse(pedido.cuerpo ?? 'null')).toEqual({ p_viaje_id: VIAJE, p_gasto_ids: [G2, G1] });
+    sinTransportistaId(pedido);
+  });
+});
+
+describe('fetchGastosDelRango y fetchGastosDelViaje: el orden que viaja', () => {
+  // El `id` va al final como desempate: los gastos que se cargan juntos (un solo INSERT) comparten fecha y created_at.
+  const ORDEN = 'fecha.desc,created_at.desc,id.asc';
+  const signal = () => new AbortController().signal;
+
+  it('fetchGastosDelRango: GET a /gastos con order=fecha.desc,created_at.desc,id.asc, el rango de fechas y 501 filas', async () => {
+    await fetchGastosDelRango({ desde: '2026-06-01', hasta: '2026-07-01', categoriaId: null, signal: signal() });
+
+    const pedido = unico();
+    expect(pedido.metodo).toBe('GET');
+    expect(pedido.url.pathname).toBe('/rest/v1/gastos');
+    expect(pedido.url.searchParams.get('order')).toBe(ORDEN);
+    expect(pedido.url.searchParams.get('limit')).toBe('501'); // LIST_LIMIT + 1: el de más dice si se alcanzó el tope
+    expect(pedido.url.searchParams.getAll('fecha')).toEqual(['gte.2026-06-01', 'lt.2026-07-01']);
+    sinTransportistaId(pedido);
+  });
+
+  it('fetchGastosDelViaje: GET a /gastos de ESE viaje con order=fecha.desc,created_at.desc,id.asc y 501 filas', async () => {
+    await fetchGastosDelViaje(VIAJE, signal());
+
+    const pedido = unico();
+    expect(pedido.metodo).toBe('GET');
+    expect(pedido.url.pathname).toBe('/rest/v1/gastos');
+    expect(pedido.url.searchParams.get('viaje_id')).toBe(`eq.${VIAJE}`);
+    expect(pedido.url.searchParams.get('order')).toBe(ORDEN);
+    expect(pedido.url.searchParams.get('limit')).toBe('501');
     sinTransportistaId(pedido);
   });
 });

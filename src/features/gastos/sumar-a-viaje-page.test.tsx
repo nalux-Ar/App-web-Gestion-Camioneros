@@ -552,6 +552,7 @@ describe('«Sumar varios a un viaje»: los gastos (primer paso)', () => {
     expect(call.ops.filter((o) => o.m === 'order').map((o) => o.args)).toEqual([
       ['fecha', { ascending: false }],
       ['created_at', { ascending: false }],
+      ['id', { ascending: true }],
     ]);
     expect(argDe(call, 'limit')).toEqual([LIST_LIMIT + 1]);
     expect(argDe(call, 'eq', 'categoria_id')).toBeUndefined();
