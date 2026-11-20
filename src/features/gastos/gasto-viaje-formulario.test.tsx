@@ -237,7 +237,8 @@ const buttonByText = (text: string) => buttons().find((b) => b.textContent?.incl
 const selectViaje = () => byId<HTMLSelectElement>('gasto-viaje')!;
 const opcionesDelSelect = () => [...selectViaje().options].map((o) => ({ value: o.value, label: o.textContent ?? '' }));
 const seleccionado = () => selectViaje().selectedOptions[0]?.textContent ?? null;
-const radioOf = (categoriaId: string) => document.querySelector<HTMLInputElement>(`input[type="radio"][value="${categoriaId}"]`)!;
+// La categoría del alta son CASILLAS (se puede marcar más de una).
+const casillaOf = (categoriaId: string) => document.querySelector<HTMLInputElement>(`input[type="checkbox"][value="${categoriaId}"]`)!;
 
 async function click(el: HTMLElement | null | undefined) {
   if (!el) throw new Error('no se encontro el elemento a tocar');
@@ -267,7 +268,7 @@ async function guardar() {
 }
 /** Llena lo minimo de un gasto NUEVO: categoria Peajes y un monto. */
 async function llenarLoMinimo() {
-  await click(radioOf(PEAJES_ID));
+  await click(casillaOf(PEAJES_ID));
   await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
   await selectValue(byId<HTMLSelectElement>('gasto-metodo')!, 'efectivo'); // el método de pago es obligatorio
 }
@@ -434,7 +435,7 @@ describe('formulario de gasto: si la lista de viajes no carga', () => {
     route.recientes = () => (conSenal ? ok(RECIENTES) : sinRed());
     await mount();
     await typeText(byId<HTMLInputElement>('gasto-monto'), '777');
-    await click(radioOf(PEAJES_ID));
+    await click(casillaOf(PEAJES_ID));
     expect(bodyText()).toContain('No pudimos cargar los viajes.');
     const pedidosAntes = recientesCalls().length;
     conSenal = true;
@@ -443,7 +444,7 @@ describe('formulario de gasto: si la lista de viajes no carga', () => {
     expect(bodyText()).not.toContain('No pudimos cargar los viajes.');
     expect(opcionesDelSelect()).toHaveLength(51);
     expect(byId<HTMLInputElement>('gasto-monto')!.value).toBe('777'); // nada de lo tipeado se perdio
-    expect(radioOf(PEAJES_ID).checked).toBe(true);
+    expect(casillaOf(PEAJES_ID).checked).toBe(true);
   });
 
   it('un error de la lista NO tapa el formulario ni bloquea "Guardar gasto"', async () => {
@@ -906,7 +907,7 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
     ['Gastos varios', GASTOS_VARIOS_CATEGORIA_ID],
   ])('%s sin método: error visible, el foco va al método y NO se manda nada', async (_nombre, categoriaId) => {
     await mount();
-    await click(radioOf(categoriaId));
+    await click(casillaOf(categoriaId));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     if (categoriaId === GASTOS_VARIOS_CATEGORIA_ID) {
       const descripcion = byId<HTMLTextAreaElement>('gasto-descripcion')!;
@@ -924,7 +925,7 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
 
   it('al elegir un método el error desaparece y se guarda con ese método', async () => {
     await mount();
-    await click(radioOf(PEAJES_ID));
+    await click(casillaOf(PEAJES_ID));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     await guardar();
     expect(bodyText()).toContain('Elige cómo pagaste.');

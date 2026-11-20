@@ -225,7 +225,8 @@ const byId = <T extends HTMLElement = HTMLElement>(elementId: string) => documen
 const bodyText = () => document.body.textContent ?? '';
 const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('button')];
 const buttonByText = (text: string) => buttons().find((b) => b.textContent?.includes(text));
-const radioOf = (categoriaId: string) => document.querySelector<HTMLInputElement>(`input[type="radio"][value="${categoriaId}"]`)!;
+// La categoría del alta son CASILLAS (se puede marcar más de una). Elegir otra categoría = desmarcar la anterior y marcar la nueva.
+const casillaOf = (categoriaId: string) => document.querySelector<HTMLInputElement>(`input[type="checkbox"][value="${categoriaId}"]`)!;
 const radiosCamion = () => [...document.querySelectorAll<HTMLInputElement>('input[type="radio"][id^="gasto-camion-"]')];
 const radioCamion = (texto: string) => radiosCamion().find((r) => r.closest('label')?.textContent?.includes(texto));
 const errorCamion = () => byId('gasto-camion-error')?.textContent ?? '';
@@ -267,7 +268,7 @@ async function guardar() {
 }
 /** Combustible con monto y litros (lo mínimo de una carga). */
 async function llenarCombustible() {
-  await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+  await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
   await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
   await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
   await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo'); // el método de pago es obligatorio
@@ -314,7 +315,7 @@ afterEach(async () => {
 describe('carga de combustible sin viaje: el camión según los camiones', () => {
   it('otra categoría: no hay camión y se manda camion_id NULL (aunque haya camiones)', async () => {
     await mount();
-    await click(radioOf(PEAJES_ID));
+    await click(casillaOf(PEAJES_ID));
     expect(radiosCamion()).toHaveLength(0);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
@@ -376,7 +377,8 @@ describe('carga de combustible sin viaje: el camión según los camiones', () =>
     await mount();
     await llenarCombustible();
     await click(radioCamion('AB 123 CD'));
-    await click(radioOf(PEAJES_ID));
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID)); // desmarca Combustible
+    await click(casillaOf(PEAJES_ID));
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: null, litros: null });
   });
@@ -390,7 +392,8 @@ describe('carga de combustible sin viaje: el camión según los camiones', () =>
     expect(errorCamion()).toBe(CAMIONES_SIN_CARGAR_MESSAGE);
     expect(document.activeElement).toBe(byId('gasto-camion-bloque'));
     expect(inserts()).toHaveLength(0);
-    await click(radioOf(PEAJES_ID));
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID)); // desmarca Combustible
+    await click(casillaOf(PEAJES_ID));
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBeNull();
   });
@@ -627,7 +630,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
 
   it('otra categoría en un viaje con camión: camion_id NULL (solo los litros llevan camión)', async () => {
     await mount();
-    await click(radioOf(PEAJES_ID));
+    await click(casillaOf(PEAJES_ID));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
     await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
@@ -935,7 +938,7 @@ describe('combustible: el método de pago es obligatorio', () => {
   it('sin método: error, el foco va al método y no se manda nada; con método, se guarda', async () => {
     route.camiones = () => ok([A]);
     await mount();
-    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
     await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
     await guardar();
@@ -958,7 +961,7 @@ describe('carga de combustible: los textos de los campos', () => {
   it('«Kilómetros del camión», con su ayuda en palabras del tablero: ya no «Km del odómetro»', async () => {
     route.camiones = () => ok([A, X]);
     await mount();
-    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
     expect(document.querySelector('label[for="gasto-km"]')!.textContent).toContain('Kilómetros del camión');
     expect(bodyText()).toContain('Los km totales que marca el tablero. Sirven para saber cuánto rinde.');
     expect(bodyText()).not.toMatch(/odómetro/i);
@@ -967,7 +970,7 @@ describe('carga de combustible: los textos de los campos', () => {
   it('«¿Llenaste el tanque?»: Sí / No / No sé (ya no «Sin indicar»)', async () => {
     route.camiones = () => ok([A, X]);
     await mount();
-    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
     expect(tanques()).toEqual(['Sí', 'No', 'No sé']);
     expect(bodyText()).not.toContain('Sin indicar');
   });
@@ -975,7 +978,7 @@ describe('carga de combustible: los textos de los campos', () => {
   it('el precio del litro: «Sale a … el litro» SOLO con monto y litros; sin datos no se muestra nada (ni «—» ni «÷»)', async () => {
     route.camiones = () => ok([A, X]);
     await mount();
-    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
     expect(bodyText()).not.toContain('Sale a');
     expect(bodyText()).not.toMatch(/Precio por litro|Se calcula solo|÷/);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
@@ -990,7 +993,7 @@ describe('carga de combustible: los textos de los campos', () => {
   it('los litros se piden como «Ej.: 40,5. No uses puntos.» y el aviso para lectores de pantalla nombra los kilómetros del camión', async () => {
     route.camiones = () => ok([A, X]);
     await mount();
-    await click(radioOf(COMBUSTIBLE_CATEGORIA_ID));
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
     expect(bodyText()).toContain('Ej.: 40,5. No uses puntos.');
     expect(bodyText()).toContain('Se agregaron los campos de combustible: litros, kilómetros del camión y tanque lleno.');
   });

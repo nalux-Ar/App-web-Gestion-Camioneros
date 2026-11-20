@@ -1253,3 +1253,62 @@ describe('detalle de un viaje: aviso al volver de guardar o borrar', () => {
     expect(bodyText()).not.toContain('Viaje guardado.');
   });
 });
+
+describe('detalle de un viaje: aviso «Guardaste N gastos.» (varios gastos de una vez)', () => {
+  const cajaDelAviso = () => [...document.querySelectorAll('[role="status"]')].find((e) => e.querySelector('button[aria-label="Cerrar aviso"]'));
+  const desmontar = async () => {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+  };
+
+  it('«Guardaste 3 gastos.» con el aviso «gastos-guardados» y la cantidad', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'gastos-guardados', cantidad: 3, volver: '?mes=2025-06' } });
+    expect(cajaDelAviso()!.textContent).toContain('Guardaste 3 gastos.');
+  });
+
+  it('con UNO sigue siendo «Gasto guardado.»', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'gasto-guardado', volver: '' } });
+    expect(cajaDelAviso()!.textContent).toContain('Gasto guardado.');
+  });
+
+  it('la cantidad va de 2 hasta 10; cualquier otra cosa se ignora y NO se muestra ningún aviso', async () => {
+    for (const cantidad of [2, 10]) {
+      await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'gastos-guardados', cantidad } });
+      expect(cajaDelAviso()!.textContent).toContain(`Guardaste ${cantidad} gastos.`);
+      await desmontar();
+    }
+    for (const cantidad of [1, 0, -1, 11, 1000, 2.5, '3', '<b>hack</b>', NaN, Infinity, null, undefined, {}, [3], false]) {
+      await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'gastos-guardados', cantidad } });
+      expect(cajaDelAviso(), JSON.stringify(cantidad)).toBeUndefined();
+      expect(bodyText(), JSON.stringify(cantidad)).not.toContain('Guardaste');
+      expect(bodyText(), JSON.stringify(cantidad)).not.toContain('hack');
+      await desmontar();
+    }
+  });
+
+  it('sin la cantidad no hay aviso; y el aviso de las listas («guardados») no vale en el detalle', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'gastos-guardados' } });
+    expect(cajaDelAviso()).toBeUndefined();
+    await desmontar();
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'guardados', cantidad: 3 } });
+    expect(cajaDelAviso()).toBeUndefined();
+    expect(bodyText()).not.toContain('Guardaste');
+  });
+
+  it('un texto que venga en el state no llega a la pantalla', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'gastos-guardados', cantidad: 4, mensaje: '<b>hack</b>', texto: 'Guardaste 999 gastos.' } });
+    expect(cajaDelAviso()!.textContent).toContain('Guardaste 4 gastos.');
+    expect(bodyText()).not.toContain('999');
+    expect(bodyText()).not.toContain('hack');
+  });
+
+  it('se cierra con la X y conserva el ?mes= para el enlace «Viajes» (la cantidad se va con el aviso)', async () => {
+    await mount({ pathname: `/viajes/${VIAJE_ID}`, state: { aviso: 'gastos-guardados', cantidad: 3, volver: '?mes=2025-06' } });
+    await click(document.querySelector<HTMLButtonElement>('button[aria-label="Cerrar aviso"]')!);
+    expect(bodyText()).not.toContain('Guardaste 3 gastos.');
+    expect(stateOf(byId('estado')!)).toEqual({ volver: '?mes=2025-06' });
+  });
+});

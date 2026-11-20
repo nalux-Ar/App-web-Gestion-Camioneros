@@ -221,14 +221,23 @@ async function mountForm() {
 }
 
 const byId = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T | null;
-const radioOf = (categoriaId: string) => document.querySelector<HTMLInputElement>(`input[type="radio"][value="${categoriaId}"]`)!;
+// La categoría del alta son CASILLAS (se puede marcar más de una).
+const casillaOf = (categoriaId: string) => document.querySelector<HTMLInputElement>(`input[type="checkbox"][value="${categoriaId}"]`)!;
 const labelOf = (controlId: string) => document.querySelector<HTMLLabelElement>(`label[for="${controlId}"]`)!;
 const bodyText = () => document.body.textContent ?? '';
 const guardar = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Guardar gasto'))!;
 
+/** Elegir una categoría = dejar marcada solo esa: desmarca la que estuviera marcada y marca la nueva. */
 async function choose(categoriaId: string) {
+  for (const marcada of document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked')) {
+    if (marcada.value === categoriaId) continue;
+    await act(async () => {
+      marcada.click();
+    });
+  }
+  if (casillaOf(categoriaId).checked) return; // ya estaba elegida: no cambia nada, como con una opción única
   await act(async () => {
-    radioOf(categoriaId).click();
+    casillaOf(categoriaId).click();
   });
 }
 async function typeText(el: HTMLInputElement | HTMLTextAreaElement, value: string) {

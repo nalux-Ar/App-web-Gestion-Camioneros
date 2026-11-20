@@ -36,9 +36,8 @@ import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { isUuid } from '@/lib/uuid';
 import { useViajeVista } from './use-viajes';
 import {
-  DETALLE_AVISO_MENSAJES,
   estadoDesdeViaje,
-  leerAvisoDetalle,
+  mensajeDelAvisoDetalle,
   rutaNuevaDevolucion,
   rutaQuitarGastos,
   rutaSumarGastos,
@@ -99,7 +98,8 @@ export function ViajeDetallePage() {
   const categoriasPorId = useMemo(() => new Map((categorias ?? []).map((categoria) => [categoria.id, categoria])), [categorias]);
 
   // Aviso de "Gasto guardado / eliminado" o "Viaje guardado" que llega desde el formulario en `location.state`.
-  const aviso = leerAvisoDetalle(location.state);
+  // El texto ya validado (lista blanca; «Guardaste N gastos.» con la cantidad del estado validada), o null si no hay aviso.
+  const aviso = mensajeDelAvisoDetalle(location.state);
   const cerrarAviso = useCallback(() => {
     // Se conservan el `volver` y el cliente (releídos y saneados del estado de ahora): sin ellos, el enlace de volver
     // perdería el mes de la lista o el cliente.
@@ -195,7 +195,7 @@ export function ViajeDetallePage() {
         <Alert role="status" className="border-primary/50 bg-primary/10">
           <CheckCircle2 aria-hidden="true" className="text-primary" />
           <div className="flex items-center gap-2">
-            <AlertDescription className="flex-1 font-medium">{DETALLE_AVISO_MENSAJES[aviso]}</AlertDescription>
+            <AlertDescription className="flex-1 font-medium">{aviso}</AlertDescription>
             <button
               type="button"
               onClick={cerrarAviso}

@@ -22,15 +22,25 @@ import { AVISO_MENSAJES, LIST_LIMIT, type GastoAviso } from './constants';
 import { buscarCamion, etiquetaCamion } from '@/features/camiones/camion';
 import { useCamiones } from '@/features/camiones/use-camiones';
 import { GastoItem } from './gasto-item';
+import { mensajeDeGastosGuardados } from './gasto-varios-avisos';
 import { filtroToParams, filtroToSearch, readFiltro, type GastosFiltro } from './gastos-filters';
 import { sumMontos } from './gastos-list';
 import { hayGastosSinViaje } from './sumar-a-viaje';
 import { BOTON_ENTRADA_SUMAR_A_VIAJE } from './sumar-a-viaje-textos';
 import { useCategorias, useGastosDelMes } from './use-gastos';
 
-function leerAviso(state: unknown): GastoAviso | null {
+/**
+ * El aviso del `state` ya validado y con su texto. Lista blanca: solo `guardado`, `eliminado` y `guardados` (este último con una
+ * cantidad válida, ver `leerCantidadDeGastosGuardados`); cualquier otra cosa no muestra nada. El texto sale de acá, nunca del estado.
+ */
+function leerAviso(state: unknown): { aviso: GastoAviso; mensaje: string } | null {
   const aviso = (state as { aviso?: unknown } | null)?.aviso;
-  return aviso === 'guardado' || aviso === 'eliminado' ? aviso : null;
+  if (aviso === 'guardado' || aviso === 'eliminado') return { aviso, mensaje: AVISO_MENSAJES[aviso] };
+  if (aviso === 'guardados') {
+    const mensaje = mensajeDeGastosGuardados(state);
+    return mensaje === null ? null : { aviso, mensaje };
+  }
+  return null;
 }
 
 /**
@@ -83,7 +93,8 @@ export function GastosPage() {
   const volver = filtroToSearch(filtro);
 
   // Aviso de "Gasto guardado/eliminado" que llega desde el formulario en `location.state`.
-  const aviso = leerAviso(location.state);
+  const avisoLeido = leerAviso(location.state);
+  const aviso = avisoLeido?.aviso ?? null;
   const cerrarAviso = useCallback(() => {
     navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null });
   }, [navigate, location.pathname, location.search]);
@@ -199,11 +210,11 @@ export function GastosPage() {
     <div className="space-y-5">
       <PageHeader title="Gastos" ayuda={AYUDA_GASTOS} action={nuevoGasto} actionDesktopOnly />
 
-      {aviso ? (
+      {avisoLeido ? (
         <Alert role="status" className="border-primary/50 bg-primary/10">
           <CheckCircle2 aria-hidden="true" className="text-primary" />
           <div className="flex items-center gap-2">
-            <AlertDescription className="flex-1 font-medium">{AVISO_MENSAJES[aviso]}</AlertDescription>
+            <AlertDescription className="flex-1 font-medium">{avisoLeido.mensaje}</AlertDescription>
             <button
               type="button"
               onClick={cerrarAviso}

@@ -4,6 +4,7 @@ import {
   rutaDelCliente,
   type DesdeCliente,
 } from '@/features/clientes/cliente-navegacion';
+import { leerCantidadDeGastosGuardados, mensajeDeGastosGuardados } from '@/features/gastos/gasto-varios-avisos';
 import { isUuid } from '@/lib/uuid';
 import { AVISO_MENSAJES, type ViajeAviso } from './constants';
 import { sanitizeVolver, searchEnVista } from './viajes-filters';
@@ -95,15 +96,22 @@ export function rutaEditarDevolucion(viajeId: string, devolucionId: string): str
   return `/viajes/${viajeId}/devoluciones/${devolucionId}/editar`;
 }
 
-/** Avisos breves que el detalle muestra al volver de guardar o borrar algo (viajan en `location.state`). */
-export type DetalleAviso =
+/** Los avisos del detalle de texto fijo. */
+export type DetalleAvisoFijo =
   | 'gasto-guardado'
   | 'gasto-eliminado'
   | 'viaje-guardado'
   | 'devolucion-guardada'
   | 'devolucion-eliminada';
 
-export const DETALLE_AVISO_MENSAJES: Record<DetalleAviso, string> = {
+/**
+ * Avisos breves que el detalle muestra al volver de guardar o borrar algo (viajan en `location.state`). `gastos-guardados` es
+ * «Guardaste N gastos.» (se guardaron varios de una vez desde este viaje): lleva la cantidad en el `state`, validada (ver
+ * `gasto-varios-avisos.ts`), y su texto no es fijo.
+ */
+export type DetalleAviso = DetalleAvisoFijo | 'gastos-guardados';
+
+export const DETALLE_AVISO_MENSAJES: Record<DetalleAvisoFijo, string> = {
   'gasto-guardado': 'Gasto guardado.',
   'gasto-eliminado': 'Gasto eliminado.',
   'viaje-guardado': 'Viaje guardado.',
@@ -118,13 +126,30 @@ const AVISOS_DETALLE: readonly DetalleAviso[] = [
   'viaje-guardado',
   'devolucion-guardada',
   'devolucion-eliminada',
+  'gastos-guardados',
 ];
 
-/** Lista blanca: solo estos valores; cualquier otro (o un estado que no es un objeto) no muestra nada. */
+/**
+ * Lista blanca: solo estos valores; cualquier otro (o un estado que no es un objeto) no muestra nada. `gastos-guardados` además
+ * exige una cantidad válida (un entero entre 2 y el máximo por carga): sin ella tampoco se muestra.
+ */
 export function leerAvisoDetalle(state: unknown): DetalleAviso | null {
   if (typeof state !== 'object' || state === null) return null;
   const aviso = (state as { aviso?: unknown }).aviso;
-  return AVISOS_DETALLE.find((permitido) => permitido === aviso) ?? null;
+  const leido = AVISOS_DETALLE.find((permitido) => permitido === aviso) ?? null;
+  if (leido === 'gastos-guardados' && leerCantidadDeGastosGuardados(state) === null) return null;
+  return leido;
+}
+
+/**
+ * El texto del aviso del detalle ya validado, o null si no hay ninguno que mostrar. El texto sale SIEMPRE de acá (los fijos de
+ * `DETALLE_AVISO_MENSAJES`, o «Guardaste N gastos.» con la cantidad validada): nunca de lo que traiga el estado.
+ */
+export function mensajeDelAvisoDetalle(state: unknown): string | null {
+  const aviso = leerAvisoDetalle(state);
+  if (aviso === null) return null;
+  if (aviso === 'gastos-guardados') return mensajeDeGastosGuardados(state);
+  return DETALLE_AVISO_MENSAJES[aviso];
 }
 
 /** Los avisos de devolución, que llegan al detalle del viaje o a la lista de Devoluciones según de dónde se abrió la edición. */

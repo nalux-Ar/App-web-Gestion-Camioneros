@@ -300,7 +300,7 @@ describe('lo que se abre desde ese detalle devuelve el cliente al volver', () =>
     await mount(DETALLE_DESDE_CLIENTE);
     await click(links().find((a) => a.getAttribute('href') === `/gastos/nuevo?viaje=${VIAJE}`));
     expect(document.querySelector('h1')!.textContent).toBe('Nuevo gasto');
-    await click(document.querySelector<HTMLInputElement>('input[type="radio"][value="' + PEAJES + '"]'));
+    await click(document.querySelector<HTMLInputElement>('input[type="checkbox"][value="' + PEAJES + '"]'));
     const monto = document.getElementById('gasto-monto') as HTMLInputElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(monto, '1500');

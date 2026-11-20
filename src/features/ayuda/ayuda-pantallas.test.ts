@@ -233,3 +233,30 @@ describe('la ayuda de «Sumar varios a un viaje»', () => {
     expect(texto).not.toContain('te avisamos cuál.');
   });
 });
+
+describe('la ayuda de «Nuevo gasto»: se puede marcar más de una categoría', () => {
+  const ayuda = pantallas.AYUDA_GASTO_FORM;
+
+  it('tiene un punto corto que dice que se puede marcar más de una categoría y que cada una se guarda como un gasto', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('más de una categoría'));
+    expect(punto).toBeDefined();
+    expect(punto).toContain('cada una se guarda como un gasto');
+    expect(punto!.length).toBeLessThanOrEqual(100);
+  });
+
+  it('sigue siendo UNA sola ayuda, con su título de siempre y entre 3 y 5 puntos (no cambia la cantidad de pantallas de ayuda)', () => {
+    expect(ayuda.titulo).toBe('Ayuda para anotar un gasto');
+    expect(ayuda.puntos.length).toBeGreaterThanOrEqual(3);
+    expect(ayuda.puntos.length).toBeLessThanOrEqual(5);
+    expect(TODAS).toHaveLength(17);
+  });
+
+  it('lo de siempre sigue: categoría, monto y fecha, cómo se pagó, combustible, viaje y «Gastos varios»', () => {
+    const texto = ayuda.puntos.join(' ');
+    expect(texto).toContain('Elige la categoría, anota el monto y la fecha.');
+    expect(texto).toContain('cómo pagaste');
+    expect(texto).toContain('combustible');
+    expect(texto).toContain('viaje');
+    expect(texto).toContain('«Gastos varios»');
+  });
+});

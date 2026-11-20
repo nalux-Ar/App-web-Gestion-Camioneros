@@ -10,6 +10,7 @@ import {
   estadoEditarDesdeCliente,
   estadoEditarDesdeLista,
   leerAvisoDetalle,
+  mensajeDelAvisoDetalle,
   leerAvisoLista,
   leerDesdeViaje,
   leerOrigenDevolucion,
@@ -399,5 +400,42 @@ describe('destinoTrasDevolucion con cliente', () => {
       const { to } = destinoTrasDevolucion({ viajeId: ID, volver: '//evil.com', origen, aviso: 'devolucion-guardada', cliente: CL });
       expect(to).toMatch(/^\/(viajes(\?vista=devoluciones)?(\/[0-9a-f-]{36})?|clientes\/[0-9a-f-]{36})$/);
     }
+  });
+});
+
+describe('aviso «gastos-guardados» (varios gastos de una vez): la cantidad viaja en el state y se valida', () => {
+  it('entra en la lista blanca SOLO con una cantidad entera entre 2 y 10', () => {
+    for (let cantidad = 2; cantidad <= 10; cantidad++) {
+      expect(leerAvisoDetalle({ aviso: 'gastos-guardados', cantidad }), String(cantidad)).toBe('gastos-guardados');
+    }
+    for (const cantidad of [1, 0, -2, 11, 1e9, 2.5, NaN, Infinity, '3', null, undefined, {}, [3], true]) {
+      expect(leerAvisoDetalle({ aviso: 'gastos-guardados', cantidad }), JSON.stringify(cantidad)).toBeNull();
+    }
+    expect(leerAvisoDetalle({ aviso: 'gastos-guardados' })).toBeNull();
+  });
+
+  it('los avisos de siempre siguen sin cantidad', () => {
+    expect(leerAvisoDetalle({ aviso: 'gasto-guardado' })).toBe('gasto-guardado');
+    expect(leerAvisoDetalle({ aviso: 'gasto-guardado', cantidad: 5 })).toBe('gasto-guardado');
+  });
+
+  it('mensajeDelAvisoDetalle: el texto fijo de cada aviso, o «Guardaste N gastos.» con la cantidad validada; nada si no sirve', () => {
+    expect(mensajeDelAvisoDetalle({ aviso: 'gasto-guardado' })).toBe('Gasto guardado.');
+    expect(mensajeDelAvisoDetalle({ aviso: 'viaje-guardado' })).toBe('Viaje guardado.');
+    expect(mensajeDelAvisoDetalle({ aviso: 'gastos-guardados', cantidad: 3 })).toBe('Guardaste 3 gastos.');
+    expect(mensajeDelAvisoDetalle({ aviso: 'gastos-guardados', cantidad: 1 })).toBeNull();
+    expect(mensajeDelAvisoDetalle({ aviso: 'gastos-guardados', cantidad: '3' })).toBeNull();
+    expect(mensajeDelAvisoDetalle({ aviso: 'otro', cantidad: 3 })).toBeNull();
+    expect(mensajeDelAvisoDetalle(null)).toBeNull();
+    expect(mensajeDelAvisoDetalle('gastos-guardados')).toBeNull();
+  });
+
+  it('el texto sale siempre de la cantidad validada, nunca de otra clave del state', () => {
+    expect(mensajeDelAvisoDetalle({ aviso: 'gastos-guardados', cantidad: 2, mensaje: 'hack', texto: 'Guardaste 99 gastos.' })).toBe('Guardaste 2 gastos.');
+  });
+
+  it('los avisos de las listas no cambian (el nuevo es solo del detalle)', () => {
+    expect(leerAvisoLista({ aviso: 'gastos-guardados', cantidad: 3 })).toBeNull();
+    expect(leerAvisoLista({ aviso: 'guardados', cantidad: 3 })).toBeNull();
   });
 });

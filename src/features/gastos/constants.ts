@@ -107,10 +107,14 @@ export const ELIMINAR_GASTO_CONTEXT: DataErrorContext = {
   foreignKey: 'No se pudo eliminar. Prueba de nuevo.',
 };
 
-/** Avisos breves que la lista muestra al volver de guardar o eliminar (viajan en `location.state`). */
-export type GastoAviso = 'guardado' | 'eliminado';
+/**
+ * Avisos breves que la lista muestra al volver de guardar o eliminar (viajan en `location.state`). `guardados` es «Guardaste N
+ * gastos.» (se guardaron varios de una vez): lleva la cantidad en el `state` y su texto no es fijo (ver `gasto-varios-avisos.ts`).
+ */
+export type GastoAviso = 'guardado' | 'eliminado' | 'guardados';
 
-export const AVISO_MENSAJES: Record<GastoAviso, string> = {
+/** Los avisos de texto fijo. «guardados» no está acá: su texto lleva la cantidad. */
+export const AVISO_MENSAJES: Record<Exclude<GastoAviso, 'guardados'>, string> = {
   guardado: 'Gasto guardado.',
   eliminado: 'Gasto eliminado.',
 };

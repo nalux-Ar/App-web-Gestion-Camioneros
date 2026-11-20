@@ -108,10 +108,10 @@ export const AYUDA_GASTO_FORM: AyudaPantalla = {
   titulo: 'Ayuda para anotar un gasto',
   puntos: [
     'Elige la categoría, anota el monto y la fecha.',
+    'Puedes marcar más de una categoría: cada una se guarda como un gasto, con su monto.',
     'Elige siempre cómo pagaste: efectivo, tarjeta o transferencia.',
     'En el combustible suma los litros y los kilómetros que marca el tablero: así calculamos cuánto rinde tu camión.',
-    'Si el gasto fue de un viaje, puedes unirlo a ese viaje.',
-    'En «Gastos varios» cuéntanos en qué fue.',
+    'Si fue de un viaje, únelo a ese viaje. En «Gastos varios» cuéntanos en qué fue.',
   ],
 };
 

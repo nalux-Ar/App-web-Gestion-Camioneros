@@ -373,3 +373,120 @@ describe('lista de gastos: el botón «Sumar varios a un viaje»', () => {
     expect(items()).toHaveLength(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Avisos al volver de «Nuevo gasto»: «Gasto guardado.» (uno) y «Guardaste N gastos.» (varios, con la cantidad en el state)
+// ---------------------------------------------------------------------------
+describe('lista de gastos: aviso al volver de guardar', () => {
+  const avisoVisible = () => [...document.querySelectorAll('[role="status"]')].find((e) => e.querySelector('button[aria-label="Cerrar aviso"]'));
+
+  it('«Gasto guardado.» con UNO (el de siempre) y «Gasto eliminado.»', async () => {
+    await mount({ pathname: '/gastos', state: { aviso: 'guardado' } });
+    expect(avisoVisible()!.textContent).toContain('Gasto guardado.');
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+    await mount({ pathname: '/gastos', state: { aviso: 'eliminado' } });
+    expect(avisoVisible()!.textContent).toContain('Gasto eliminado.');
+  });
+
+  it('«Guardaste 3 gastos.» con el aviso «guardados» y la cantidad', async () => {
+    await mount({ pathname: '/gastos', state: { aviso: 'guardados', cantidad: 3 } });
+    expect(avisoVisible()!.textContent).toContain('Guardaste 3 gastos.');
+  });
+
+  it('la cantidad va de 2 hasta el máximo por carga (10)', async () => {
+    for (const cantidad of [2, 10]) {
+      await mount({ pathname: '/gastos', state: { aviso: 'guardados', cantidad } });
+      expect(avisoVisible()!.textContent).toContain(`Guardaste ${cantidad} gastos.`);
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      queryClient.clear();
+    }
+  });
+
+  it('una cantidad que no es un entero entre 2 y 10 se IGNORA: no se muestra ningún aviso (nunca un texto armado con lo que traiga el estado)', async () => {
+    for (const cantidad of [1, 0, -3, 11, 99, 2.5, '3', '<b>hack</b>', NaN, null, undefined, {}, [3], true]) {
+      await mount({ pathname: '/gastos', state: { aviso: 'guardados', cantidad } });
+      expect(avisoVisible(), JSON.stringify(cantidad)).toBeUndefined();
+      expect(document.body.textContent, JSON.stringify(cantidad)).not.toContain('Guardaste');
+      expect(document.body.textContent, JSON.stringify(cantidad)).not.toContain('hack');
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      queryClient.clear();
+    }
+  });
+
+  it('«guardados» sin cantidad no muestra nada, y la cantidad sola (sin el aviso) tampoco', async () => {
+    await mount({ pathname: '/gastos', state: { aviso: 'guardados' } });
+    expect(avisoVisible()).toBeUndefined();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    queryClient.clear();
+    await mount({ pathname: '/gastos', state: { cantidad: 3 } });
+    expect(avisoVisible()).toBeUndefined();
+  });
+
+  it('lista blanca: cualquier otro valor del aviso no se muestra', async () => {
+    for (const raro of ['gasto-guardado', 'gastos-guardados', 'toString', '<b>hack</b>', 42, { x: 1 }, 'Guardaste 3 gastos.']) {
+      await mount({ pathname: '/gastos', state: { aviso: raro, cantidad: 3 } });
+      expect(avisoVisible(), JSON.stringify(raro)).toBeUndefined();
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      queryClient.clear();
+    }
+  });
+
+  it('un texto que venga en el state NO llega a la pantalla: solo sale el texto armado con la cantidad', async () => {
+    await mount({ pathname: '/gastos', state: { aviso: 'guardados', cantidad: 4, mensaje: '<b>hack</b>', texto: 'Guardaste 999 gastos.' } });
+    expect(avisoVisible()!.textContent).toContain('Guardaste 4 gastos.');
+    expect(document.body.textContent).not.toContain('999');
+    expect(document.body.textContent).not.toContain('hack');
+  });
+
+  it('se cierra con la X y el aviso viejo no reaparece al refrescar la lista', async () => {
+    await mount({ pathname: '/gastos', state: { aviso: 'guardados', cantidad: 3 } });
+    const cerrar = document.querySelector<HTMLButtonElement>('button[aria-label="Cerrar aviso"]')!;
+    expect(cerrar.className).toContain('h-12');
+    await act(async () => {
+      cerrar.click();
+    });
+    await settle(4);
+    expect(document.body.textContent).not.toContain('Guardaste 3 gastos.');
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: gastosKeys.all('tenant-a') });
+    });
+    await settle(4);
+    expect(document.body.textContent).not.toContain('Guardaste 3 gastos.');
+  });
+
+  it('se cierra solo a los 10 segundos', async () => {
+    const real = window.setTimeout.bind(window);
+    let pendiente: (() => void) | null = null;
+    vi.spyOn(window, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms === 10_000) {
+        pendiente = fn;
+        return 12345 as never;
+      }
+      return real(fn, ms, ...(rest as []));
+    }) as never);
+    await mount({ pathname: '/gastos', state: { aviso: 'guardados', cantidad: 5 } });
+    expect(document.body.textContent).toContain('Guardaste 5 gastos.');
+    expect(pendiente).not.toBeNull();
+    await act(async () => {
+      pendiente!();
+    });
+    await settle(3);
+    expect(document.body.textContent).not.toContain('Guardaste 5 gastos.');
+  });
+});

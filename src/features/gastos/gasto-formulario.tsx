@@ -5,6 +5,7 @@ import { ChoiceGroup } from '@/components/shared/choice-group';
 import { ConfirmDelete } from '@/components/shared/confirm-delete';
 import { DateField } from '@/components/shared/date-field';
 import { InlineError } from '@/components/shared/inline-error';
+import { MultiChoiceGroup } from '@/components/shared/multi-choice-group';
 import { NumberField } from '@/components/shared/number-field';
 import { SelectField } from '@/components/shared/select-field';
 import { SubmitBar } from '@/components/shared/submit-bar';
@@ -16,6 +17,7 @@ import {
   decidirCamion,
   domIdDelCamion,
   resolverCamion,
+  type DecisionCamion,
   type ResolucionCamion,
 } from '@/features/camiones/camion-seleccion';
 import { CamionSelector } from '@/features/camiones/camion-selector';
@@ -32,53 +34,143 @@ import { todayLocal } from '@/lib/dates';
 import { formatNumber } from '@/lib/numbers';
 import { charLength } from '@/lib/text';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
-import { categoriasParaElegir, nombreParaMostrar, type Categoria } from './categorias';
-import { generateClientRef } from './client-ref';
+import {
+  categoriasParaElegir,
+  isCombustible,
+  isGastosVarios,
+  nombreParaMostrar,
+  sortCategorias,
+  type Categoria,
+} from './categorias';
 import {
   DESCRIPCION_COUNTER_FROM,
   ELIMINAR_GASTO_CONTEXT,
   GUARDAR_GASTO_CONTEXT,
   MAX_DESCRIPCION,
+  MAX_GASTOS_POR_CARGA,
   METODO_PAGO_LABELS,
   MIN_FECHA,
   METODO_PAGO_ORDER,
   type GastoAviso,
 } from './constants';
+import { EmpezarDeNuevo } from './empezar-de-nuevo';
+import { claveDeCategoria, nuevoEnvio, reiniciarEnvio, type EnvioDeLaCarga } from './gasto-envio';
 import {
-  DESCRIPCION_OBLIGATORIA_MESSAGE,
   emptyGastoValues,
-  esCombustibleElegida,
-  esGastosVariosElegida,
   previewPrecioPorLitro,
   validateGastoForm,
   valuesFromGasto,
-  type GastoFormErrors,
-  type GastoFormField,
   type GastoFormValues,
   type TanqueLlenoChoice,
 } from './gasto-form';
+import { validateLoteDeGastos, type BloqueDeGasto } from './gasto-lote';
+import { LoteDeGastosDistintoError } from './gasto-lote-errores';
+import type { GastoParaGuardar } from './gasto-lote-save';
+import { GUARDAR_LOTE_CONTEXT } from './gasto-lote-textos';
 import { GastoNoEncontrado } from './gasto-no-encontrado';
 import { textoPreguntaEliminar } from './gasto-textos';
+import {
+  SIN_ERRORES,
+  erroresDelLote,
+  erroresDeUnGasto,
+  primerErrorVisual,
+  sinErrorCompartido,
+  sinErrorDeCategoria,
+  sinErrorDelBloque,
+  sinErroresDeBloques,
+  type ErroresDeCarga,
+  type PuestoDeCampo,
+} from './gasto-varios-errores';
+import {
+  CARGA_VACIA,
+  SIN_CATEGORIA,
+  alternarCategoria,
+  bloqueDe,
+  cambiarCampo,
+  cargaConUna,
+  elegirUnica,
+  type CampoDelBloque,
+  type CamposDelBloque,
+  type CargaDeGastos,
+} from './gasto-varios-estado';
+import {
+  AVISO_CATEGORIA_CAMBIABLE,
+  AVISO_CATEGORIAS_FIJAS,
+  AVISO_TOPE_DE_CATEGORIAS,
+  AYUDA_VARIAS_CATEGORIAS,
+  TITULO_COMO_PAGASTE,
+  TITULO_DATOS_DEL_COMBUSTIBLE,
+  anuncioDeGastos,
+  botonGuardarGastos,
+  etiquetaMetodoDePago,
+} from './gasto-varios-textos';
 import type { GastoDetalle } from './gastos-api';
 import { searchDelMesDeFecha } from './gastos-filters';
-import { useActualizarGasto, useCrearGasto, useEliminarGasto } from './use-gasto-mutations';
+import { useActualizarGasto, useCrearGasto, useCrearGastos, useEliminarGasto } from './use-gasto-mutations';
 
-/** ids de los campos en el DOM: a dónde va el foco cuando falla la validación. */
-const FIELD_DOM_IDS: Record<GastoFormField, string> = {
-  categoriaId: 'gasto-categoria-0', // primera opción del grupo de botones
+/** Los ids base de los campos en el DOM: a dónde va el foco cuando falla la validación. */
+const IDS = {
+  categoria: 'gasto-categoria', // el grupo; la primera opción es `gasto-categoria-0`
+  descripcion: 'gasto-descripcion',
   monto: 'gasto-monto',
   // Prefijo: el control real depende de la decisión (botones `gasto-camion-0`, lista `gasto-camion` o bloque
   // `gasto-camion-bloque`; la línea "Camión: …" es `gasto-camion-linea` y nunca recibe el foco de un error); ver
   // `domIdDelCamion`.
-  camionId: 'gasto-camion',
+  camion: 'gasto-camion',
   litros: 'gasto-litros',
-  kmOdometro: 'gasto-km',
-  tanqueLleno: 'gasto-tanque-0',
+  km: 'gasto-km',
+  tanque: 'gasto-tanque', // el grupo; la primera opción es `gasto-tanque-0`
   fecha: 'gasto-fecha',
-  viajeId: 'gasto-viaje',
-  metodoPago: 'gasto-metodo',
-  descripcion: 'gasto-descripcion',
-};
+  viaje: 'gasto-viaje',
+  metodo: 'gasto-metodo',
+} as const;
+
+/**
+ * Los ids de los campos de UN bloque. Con una sola categoría (o ninguna, o editando) son los de siempre; con varias llevan al final el
+ * id de su categoría, para que no se repitan entre bloques. La fecha y el viaje no son de ningún bloque: nunca llevan sufijo.
+ */
+function idsDelBloque(categoriaId: string | null) {
+  const sufijo = categoriaId === null ? '' : `-${categoriaId}`;
+  return {
+    descripcion: `${IDS.descripcion}${sufijo}`,
+    monto: `${IDS.monto}${sufijo}`,
+    camion: `${IDS.camion}${sufijo}`,
+    litros: `${IDS.litros}${sufijo}`,
+    km: `${IDS.km}${sufijo}`,
+    tanque: `${IDS.tanque}${sufijo}`,
+    metodo: `${IDS.metodo}${sufijo}`,
+    titulo: `gasto-bloque${sufijo}`,
+  };
+}
+
+/** El id del DOM del control al que va el foco de un error. Con varios bloques cada campo lleva el sufijo de su bloque. */
+function idDelPuesto(puesto: PuestoDeCampo, conSufijo: boolean, decision: DecisionCamion | null): string {
+  if (puesto.clave === null) {
+    if (puesto.campo === 'fecha') return IDS.fecha;
+    if (puesto.campo === 'viajeId') return IDS.viaje;
+    return `${IDS.categoria}-0`;
+  }
+  const ids = idsDelBloque(conSufijo ? puesto.clave : null);
+  switch (puesto.campo) {
+    case 'descripcion':
+      return ids.descripcion;
+    case 'monto':
+      return ids.monto;
+    case 'camionId':
+      // El camión no tiene un único control: el foco va al que se está mostrando (botón, lista o bloque).
+      return domIdDelCamion(ids.camion, decision);
+    case 'litros':
+      return ids.litros;
+    case 'kmOdometro':
+      return ids.km;
+    case 'tanqueLleno':
+      return `${ids.tanque}-0`; // la primera opción del grupo
+    case 'metodoPago':
+      return ids.metodo;
+    default:
+      return `${IDS.categoria}-0`;
+  }
+}
 
 const METODO_PAGO_OPTIONS = METODO_PAGO_ORDER.map((value) => ({ value, label: METODO_PAGO_LABELS[value] }));
 
@@ -89,6 +181,15 @@ const TANQUE_OPTIONS: ReadonlyArray<{ value: TanqueLlenoChoice; label: string }>
 ];
 
 type ResultadoGuardado = 'listo' | 'no-encontrado';
+
+/** Lo del combustible: solo existe un bloque de Combustible, así que esto es de TODA la carga y se conserva si se cambia de categoría y se vuelve. */
+interface DatosDeCombustible {
+  /** El camión elegido EN PANTALLA ('' = no se tocó: vale el precompletado de la decisión, si lo hay). */
+  camionId: string;
+  litros: string;
+  kmOdometro: string;
+  tanqueLleno: TanqueLlenoChoice;
+}
 
 interface GastoFormularioProps {
   /** Todas las categorías (activas e inactivas). */
@@ -109,12 +210,23 @@ interface GastoFormularioProps {
 /**
  * Formulario de gasto (alta y edición, el mismo componente).
  *
+ * Alta con VARIAS categorías (cargar varios gastos de una vez): la categoría son casillas, se puede marcar más de una y cada una es un
+ * BLOQUE con su monto, su descripción y su método de pago (y, en Combustible, el camión, los litros, los km y el tanque lleno). La
+ * fecha y el viaje son uno solo para toda la carga. Con UNA categoría marcada (o ninguna) la pantalla es la de siempre: mismo orden,
+ * mismos textos, mismos ids y el mismo guardado de UN gasto (`useCrearGasto`); con dos o más se guardan todos juntos en UN solo pedido
+ * (`useCrearGastos`: quedan todos o ninguno), cada uno con su propia clave de idempotencia. La edición sigue siendo de UNA categoría.
+ *
  * Resiliencia (patrón de src/lib/use-submit-feedback.ts):
  *  - El estado de los campos vive acá, en memoria, y NO se limpia si el guardado falla.
  *  - "Reintentar" reenvía el formulario con los mismos valores. En el ALTA el INSERT es
- *    idempotente: un `client_ref` generado al abrir el formulario, igual en cada reintento
- *    (ver `crearGasto`), así que un reintento tras una respuesta perdida no duplica el gasto.
+ *    idempotente: un `client_ref` generado al abrir el formulario (uno por categoría si son varias), igual en cada reintento
+ *    (ver `crearGasto` y `crearGastos`), así que un reintento tras una respuesta perdida no duplica el gasto.
  *  - Tras guardar, la pantalla queda bloqueada ("Guardando…") hasta que se navega a la lista.
+ *  - Tras un intento de guardar VARIOS gastos que NO terminó bien (sin señal, un error), las categorías marcadas quedan FIJAS: si se
+ *    pudiera destildar una después, un gasto que sí llegó a guardarse quedaría escondido. Tras un intento de UN gasto se puede CAMBIAR
+ *    la categoría (como siempre: el reintento usa la misma clave y `crearGasto` corrige lo ya mandado con un UPDATE, sin duplicar), pero
+ *    no sumar otra. Lo escrito se puede seguir corrigiendo y reintentar; la salida para sumar categorías, o en un callejón sin salida,
+ *    es "Empezar de nuevo" (claves nuevas y lo mandado olvidado, SIEMPRE juntos: ver `gasto-envio.ts`).
  *
  * Viaje (opcional): el selector ofrece "Sin viaje" y los viajes más recientes (ver `opcionesDeViaje`), y siempre
  * incluye el viaje ya vinculado al gasto que se edita y el preseleccionado. Si la lista no carga, el error con
@@ -131,7 +243,8 @@ interface GastoFormularioProps {
  * precompletado se elige con un toque; y sin ninguno activo se carga uno ahí mismo ("+ Nuevo camión", solo el
  * administrador). Un gasto que ya tenía un camión archivado lo conserva. Si la lista de camiones no carga, la carga de
  * combustible no se guarda. Al pasar a "Sin viaje" queda elegido el camión del viaje que tenía (B3 de la auditoría de la
- * 5b: va como valor del formulario, así que gana sobre el precompletado).
+ * 5b: va como valor del formulario, así que gana sobre el precompletado). Con varias categorías, al validar va SIEMPRE el camión ya
+ * resuelto del bloque de Combustible: sin él, la carga iría sin camión.
  */
 export function GastoFormulario({
   categorias,
@@ -144,18 +257,52 @@ export function GastoFormulario({
   const tenantId = useTenantId();
   const editando = gasto !== undefined;
 
-  const [values, setValues] = useState<GastoFormValues>(() =>
+  // Lo que se escribe, repartido según de quién es: lo de cada categoría (`carga`), lo de toda la carga (fecha y viaje) y lo del
+  // combustible. Los valores de partida son los de siempre (`valuesFromGasto` al editar, `emptyGastoValues` en un alta).
+  const [valoresIniciales] = useState<GastoFormValues>(() =>
     gasto ? valuesFromGasto(gasto) : emptyGastoValues(todayLocal(), viajePreseleccionado?.id ?? ''),
   );
-  const [errors, setErrors] = useState<GastoFormErrors>({});
-  // `domId`: el id del DOM ya resuelto cuando depende de lo que se ve (el control del camión cambia según la decisión).
-  const [focusRequest, setFocusRequest] = useState<{ field: GastoFormField; n: number; domId?: string } | null>(null);
+  const [carga, setCarga] = useState<CargaDeGastos>(() =>
+    gasto
+      ? cargaConUna(valoresIniciales.categoriaId, {
+          monto: valoresIniciales.monto,
+          descripcion: valoresIniciales.descripcion,
+          metodoPago: valoresIniciales.metodoPago,
+        })
+      : CARGA_VACIA,
+  );
+  const [fecha, setFecha] = useState(valoresIniciales.fecha);
+  const [viajeId, setViajeId] = useState(valoresIniciales.viajeId);
+  const [combustible, setCombustible] = useState<DatosDeCombustible>({
+    camionId: valoresIniciales.camionId,
+    litros: valoresIniciales.litros,
+    kmOdometro: valoresIniciales.kmOdometro,
+    tanqueLleno: valoresIniciales.tanqueLleno,
+  });
+  const [errores, setErrores] = useState<ErroresDeCarga>(SIN_ERRORES);
+  // El id del DOM al que llevar el foco, ya resuelto (depende de lo que se ve): se pide con un contador nuevo cada vez.
+  const [focusRequest, setFocusRequest] = useState<{ domId: string; n: number } | null>(null);
   const [gone, setGone] = useState(false);
 
-  // Clave de idempotencia del ALTA: una vez al abrir, igual en cada reintento, nueva tras guardar.
-  const [clientRef, setClientRef] = useState(() => (editando ? '' : generateClientRef()));
-  // Huellas de todo lo ya mandado con ese `clientRef` (ver `crearGasto`).
-  const sentRef = useRef(new Set<string>());
+  // Lo ya mandado a la base y las claves de idempotencia del ALTA (la del gasto único y una por categoría), siempre juntos: ver
+  // `gasto-envio.ts`. Se crea la primera vez que hace falta y se REEMPLAZA entero (`reiniciarEnvio`) tras guardar bien y en
+  // "Empezar de nuevo": nunca se vacía una parte sin la otra. Solo se toca en manejadores de eventos, nunca al dibujar.
+  const envioRef = useRef<EnvioDeLaCarga | null>(null);
+  function envio(): EnvioDeLaCarga {
+    envioRef.current ??= nuevoEnvio();
+    return envioRef.current;
+  }
+
+  // Un intento de guardar empezó y NO terminó bien (cualquier error): las categorías quedan limitadas hasta "Empezar de nuevo".
+  // Qué se limita depende de qué intento fue:
+  //  - 'una': el intento fue de UN gasto. Su clave es una sola y `crearGasto` corrige lo ya mandado con un UPDATE por clave, así que
+  //    se puede CAMBIAR la categoría (desmarcar y marcar otra) y reintentar sin duplicar. Lo que no se puede es sumar una segunda:
+  //    pasaría al camino de varios, con otras claves, y el gasto del intento anterior (que pudo guardarse) quedaría escondido.
+  //  - 'varias': el intento fue el de varios. Las categorías quedan totalmente fijas.
+  const [bloqueo, setBloqueo] = useState<'una' | 'varias' | null>(null);
+  // Además, lo que falló no se arregla reintentando (el intento anterior fue con otras categorías, o uno de los gastos ya guardados
+  // ya no está): guardar de nuevo daría lo mismo y la única salida es "Empezar de nuevo".
+  const [sinSalida, setSinSalida] = useState(false);
 
   // ¿Sigue montada la pantalla? Si el usuario se va (o se cierra la sesión) mientras la escritura está en
   // vuelo, al llegar la respuesta NO se navega: lo arrastraría a Gastos desde donde esté. La invalidación de
@@ -170,9 +317,26 @@ export function GastoFormulario({
   }, []);
 
   const crear = useCrearGasto();
+  const crearVarios = useCrearGastos();
   const actualizar = useActualizarGasto();
   const eliminar = useEliminarGasto();
-  const { run, pending, error, retryable } = useSubmitFeedback({ context: GUARDAR_GASTO_CONTEXT });
+
+  // Qué categorías están marcadas y cómo se ve la pantalla: con 0 o 1 es la de siempre (UN juego de campos, `claveUnica`); con 2 o más
+  // (solo en el alta) hay un bloque por categoría. Los bloques van en el orden de la lista de categorías, no en el de los toques.
+  const cantidad = carga.elegidas.length;
+  const varias = !editando && cantidad >= 2;
+  const claveUnica = cantidad === 1 ? carga.elegidas[0]! : SIN_CATEGORIA;
+  const categoriasEnOrden = useMemo(() => sortCategorias(categorias), [categorias]);
+  const categoriasElegidas = useMemo(
+    () => categoriasEnOrden.filter((categoria) => carga.elegidas.includes(categoria.id)),
+    [categoriasEnOrden, carga.elegidas],
+  );
+  const categoriaUnica = categorias.find((categoria) => categoria.id === claveUnica);
+
+  // Con `run` de una vez: el contexto de errores es el de UN gasto o el de varios (que además sabe de "las categorías de antes").
+  const { run, pending, error, retryable, clearError } = useSubmitFeedback({
+    context: varias ? GUARDAR_LOTE_CONTEXT : GUARDAR_GASTO_CONTEXT,
+  });
 
   // Viajes que se pueden elegir: los recientes + los que tienen que estar sí o sí (el vinculado al gasto, el preseleccionado
   // y el que se acaba de elegir, para que una actualización de la lista no le saque la opción al valor elegido).
@@ -190,7 +354,10 @@ export function GastoFormulario({
     [viajes, today],
   );
 
-  const fuel = esCombustibleElegida(values.categoriaId, categorias);
+  // Solo existe UN bloque de Combustible (una categoría, una vez por carga): `idCombustible` es la clave de sus errores.
+  const categoriaCombustible = categoriasElegidas.find((categoria) => isCombustible(categoria));
+  const fuel = categoriaCombustible !== undefined;
+  const idCombustible = categoriaCombustible?.id ?? null;
 
   // Camión de la carga de combustible: la lista de camiones (en caché) + los cargados o reactivados acá mismo, que la lista
   // todavía no trae (se refresca en segundo plano). El camión del viaje elegido manda (la base exige que coincidan).
@@ -213,7 +380,7 @@ export function GastoFormulario({
         : null,
     [camionesCargados, camionesCreados, listaAl],
   );
-  const viajeElegidoOpcion = values.viajeId === '' ? null : (viajes.find((viaje) => viaje.id === values.viajeId) ?? null);
+  const viajeElegidoOpcion = viajeId === '' ? null : (viajes.find((viaje) => viaje.id === viajeId) ?? null);
   const camionDelViaje = viajeElegidoOpcion?.camion_id ?? null;
   // El camión activo de la persona (Etapa 5c) precompleta solo una carga NUEVA; `decidirCamion` lo valida contra la lista.
   const decisionCamion =
@@ -230,69 +397,189 @@ export function GastoFormulario({
   const resolucionCamion: ResolucionCamion = !fuel
     ? { ok: true, camionId: null }
     : decisionCamion
-      ? resolverCamion(decisionCamion, values.camionId)
+      ? resolverCamion(decisionCamion, combustible.camionId)
       : { ok: false, message: CAMIONES_SIN_CARGAR_MESSAGE };
 
   function usarCamionNuevo(camion: CamionDeLista, mensaje: string) {
     setCamionesCreados((previos) => [...previos.filter((previo) => previo.camion.id !== camion.id), { camion, listaAl }]);
-    setField('camionId', camion.id);
+    setDatoDelCombustible('camionId', camion.id);
     setMensajeCamion(mensaje);
   }
-  // "Gastos varios": la descripción es obligatoria (ver `validateGastoForm`).
-  const gastosVarios = esGastosVariosElegida(values.categoriaId, categorias);
+
   const opcionesCategoria = categoriasParaElegir(categorias, gasto?.categoria_id).map((categoria) => ({
     value: categoria.id,
     label: nombreParaMostrar(categoria),
   }));
-  const precioPorLitro = fuel ? previewPrecioPorLitro(values.monto, values.litros) : null;
-  // Con tope: un texto enorme pegado no se recorre entero en cada render.
-  const descripcionLength = charLength(values.descripcion, MAX_DESCRIPCION);
 
   // Foco al primer campo con error, después de que se pinte el error. Es un efecto que
   // solo toca el DOM (no hay setState adentro).
   useEffect(() => {
     if (!focusRequest) return;
-    const element = document.getElementById(focusRequest.domId ?? FIELD_DOM_IDS[focusRequest.field]);
+    const element = document.getElementById(focusRequest.domId);
     if (!element) return;
     element.focus({ preventScroll: true });
     element.scrollIntoView({ block: 'center' }); // centrado: no queda bajo el header fijo
   }, [focusRequest]);
 
-  function setField<K extends GastoFormField>(field: K, value: GastoFormValues[K]) {
-    setValues((previous) => ({ ...previous, [field]: value }));
-    setErrors((previous) => (previous[field] === undefined ? previous : { ...previous, [field]: undefined }));
+  function pedirFoco(domId: string) {
+    setFocusRequest((previous) => ({ domId, n: (previous?.n ?? 0) + 1 }));
   }
 
-  function handleViajeChange(viajeId: string) {
-    setField('viajeId', viajeId);
-    setViajeElegido(viajes.find((viaje) => viaje.id === viajeId) ?? null);
+  // --- lo que se escribe ---
+
+  function setCampoDelBloque<K extends CampoDelBloque>(clave: string, campo: K, valor: CamposDelBloque[K]) {
+    setCarga((previa) => cambiarCampo(previa, clave, campo, valor));
+    setErrores((previos) => sinErrorDelBloque(previos, clave, campo));
+  }
+
+  function setDatoDelCombustible<K extends keyof DatosDeCombustible>(campo: K, valor: DatosDeCombustible[K]) {
+    setCombustible((previo) => ({ ...previo, [campo]: valor }));
+    if (idCombustible !== null) setErrores((previos) => sinErrorDelBloque(previos, idCombustible, campo));
+  }
+
+  function handleFechaChange(valor: string) {
+    setFecha(valor);
+    setErrores((previos) => sinErrorCompartido(previos, 'fecha'));
+  }
+
+  function handleViajeChange(id: string) {
+    setViajeId(id);
+    setErrores((previos) => sinErrorCompartido(previos, 'viajeId'));
+    setViajeElegido(viajes.find((viaje) => viaje.id === id) ?? null);
     // Se deja el viaje que tenía camión: el camión queda elegido (editable), con el valor que tenía.
-    if (camionDelViaje) setField('camionId', camionDelViaje);
+    if (camionDelViaje) setDatoDelCombustible('camionId', camionDelViaje);
   }
 
-  function handleCategoriaChange(categoriaId: string) {
-    setField('categoriaId', categoriaId);
-    // El aviso de "descripción obligatoria" solo vale para "Gastos varios": al cambiar de categoría se descarta
-    // (si la nueva también la exige, se vuelve a validar al guardar).
-    setErrors((previous) =>
-      previous.descripcion === DESCRIPCION_OBLIGATORIA_MESSAGE ? { ...previous, descripcion: undefined } : previous,
-    );
+  // Marcar o desmarcar una categoría (alta): los errores de los bloques que cambian y el del grupo ya no valen (el aviso de
+  // "descripción obligatoria" solo vale para "Gastos varios"; si la nueva también la exige, se vuelve a validar al guardar).
+  function handleCategoriaToggle(categoriaId: string) {
+    // Las casillas ya vienen apagadas en estos casos; esto es por si algo llegara hasta acá igual (defensa en profundidad).
+    if (pending || bloqueo === 'varias') return;
+    // Tras un intento de UN gasto se puede cambiar la categoría, pero no llegar a 2 o más marcadas.
+    if (bloqueo === 'una' && !carga.elegidas.includes(categoriaId) && carga.elegidas.length >= 1) return;
+    setCarga((previa) => alternarCategoria(previa, categoriaId));
+    setErrores((previos) => sinErroresDeBloques(sinErrorDeCategoria(previos), [categoriaId, SIN_CATEGORIA]));
+  }
+
+  // Cambiar la categoría de un gasto que se edita (una sola): lo escrito pasa a la nueva.
+  function handleCategoriaUnica(categoriaId: string) {
+    setCarga((previa) => elegirUnica(previa, categoriaId));
+    setErrores((previos) => sinErroresDeBloques(sinErrorDeCategoria(previos), [categoriaId, SIN_CATEGORIA, ...carga.elegidas]));
+  }
+
+  // --- guardar ---
+
+  function mostrarErrores(nuevos: ErroresDeCarga, disposicion: 'una' | 'varias', claves: readonly string[]) {
+    setErrores(nuevos);
+    // El foco va al PRIMER error en el orden en que se ven los campos (con varias categorías, los métodos de pago van al final).
+    const puesto = primerErrorVisual(nuevos, disposicion, claves);
+    if (puesto) pedirFoco(idDelPuesto(puesto, disposicion === 'varias', decisionCamion));
+  }
+
+  /** Tras guardar bien: UN solo reinicio (lo mandado y las claves, juntos) y recién ahí se navega. */
+  function terminarBien(fechaDeLaCarga: string, cantidadGuardada: number) {
+    envioRef.current = reiniciarEnvio();
+    if (desdeViaje) {
+      // Se abrió desde el detalle de un viaje: se vuelve a ESE viaje. La ruta se arma acá con un uuid ya validado.
+      navigate(rutaDelViaje(desdeViaje.id), {
+        replace: true,
+        state: {
+          ...(cantidadGuardada >= 2
+            ? { aviso: 'gastos-guardados' satisfies DetalleAviso, cantidad: cantidadGuardada }
+            : { aviso: 'gasto-guardado' satisfies DetalleAviso }),
+          volver: desdeViaje.volver,
+          ...estadoDesdeCliente(desdeViaje.cliente),
+        },
+      });
+      return;
+    }
+    // A la lista del mes del gasto (si es de otro mes, así se ve que quedó guardado).
+    navigate(`/gastos${searchDelMesDeFecha(fechaDeLaCarga)}`, {
+      replace: true,
+      state:
+        cantidadGuardada >= 2
+          ? { aviso: 'guardados' satisfies GastoAviso, cantidad: cantidadGuardada }
+          : { aviso: 'guardado' satisfies GastoAviso },
+    });
+  }
+
+  /** Varios gastos de una vez (alta con 2 o más categorías): UN solo pedido, una clave por categoría. */
+  async function guardarVarios() {
+    // La pantalla no deja llegar acá sin 2 a `MAX_GASTOS_POR_CARGA` categorías distintas (el grupo se apaga en el tope y cada
+    // categoría se marca una vez): `validateLoteDeGastos` lo rechazaría con una excepción.
+    if (categoriasElegidas.length < 2 || categoriasElegidas.length > MAX_GASTOS_POR_CARGA) return;
+
+    const bloques: BloqueDeGasto[] = categoriasElegidas.map((categoria) => {
+      const bloque = bloqueDe(carga, categoria.id);
+      return {
+        categoriaId: categoria.id,
+        monto: bloque.monto,
+        descripcion: bloque.descripcion,
+        metodoPago: bloque.metodoPago,
+        litros: combustible.litros,
+        kmOdometro: combustible.kmOdometro,
+        tanqueLleno: combustible.tanqueLleno,
+        // SIEMPRE el camión ya resuelto: sin él, la carga de combustible iría sin camión (solo la usa el bloque de Combustible).
+        camion: resolucionCamion,
+      };
+    });
+    const validacion = validateLoteDeGastos({ fecha, viajeId }, bloques, { categorias, today: todayLocal(), viajes });
+    if (!validacion.ok) {
+      mostrarErrores(erroresDelLote(validacion), 'varias', categoriasElegidas.map((categoria) => categoria.id));
+      return;
+    }
+    setErrores(SIN_ERRORES);
+
+    const envioActual = envio();
+    const items: GastoParaGuardar[] = validacion.gastos.map(({ categoriaId, columns }) => ({
+      columns,
+      clientRef: claveDeCategoria(envioActual, categoriaId),
+    }));
+
+    const intento = { empezo: false, sinSalida: false };
+    const result = await run<ResultadoGuardado>(async () => {
+      intento.empezo = true;
+      try {
+        await crearVarios.mutateAsync({ tenantId, items, sent: envioActual.sent });
+      } catch (failure) {
+        // Lo que no se arregla reintentando: el intento anterior fue con otras categorías, o uno de los gastos ya guardados ya no está.
+        if (failure instanceof LoteDeGastosDistintoError || failure instanceof RecordNotFoundError) intento.sinSalida = true;
+        throw failure;
+      }
+      return 'listo';
+    });
+
+    if (!result.ok) {
+      // El intento empezó y no terminó bien (el error ya se muestra en la SubmitBar, sin tocar los campos). Con 'varias' las categorías
+      // quedan totalmente fijas; con 'una' se puede cambiar la categoría (desmarcar la actual y marcar otra) pero no sumar otra.
+      if (intento.empezo) setBloqueo('varias');
+      if (intento.sinSalida) setSinSalida(true);
+      return;
+    }
+    if (!mountedRef.current) return; // se fue de la pantalla mientras guardaba: no arrastrarlo a la lista
+    terminarBien(validacion.gastos[0]!.columns.fecha, validacion.gastos.length);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const validation = validateGastoForm(values, { categorias, today: todayLocal(), viajes, camion: resolucionCamion });
-    if (!validation.ok) {
-      setErrors(validation.errors);
-      // El camión no tiene un único control: el foco va al que se está mostrando (botón, lista o bloque).
-      const domId = validation.firstField === 'camionId' ? domIdDelCamion(FIELD_DOM_IDS.camionId, decisionCamion) : undefined;
-      setFocusRequest((previous) => ({ field: validation.firstField, n: (previous?.n ?? 0) + 1, domId }));
+    if (varias) {
+      await guardarVarios();
       return;
     }
-    setErrors({});
+
+    // UN solo gasto (la edición, o un alta con una categoría o ninguna): el camino de siempre.
+    const values: GastoFormValues = { categoriaId: claveUnica, ...bloqueDe(carga, claveUnica), fecha, viajeId, ...combustible };
+    const validation = validateGastoForm(values, { categorias, today: todayLocal(), viajes, camion: resolucionCamion });
+    if (!validation.ok) {
+      mostrarErrores(erroresDeUnGasto(claveUnica, validation.errors), 'una', [claveUnica]);
+      return;
+    }
+    setErrores(SIN_ERRORES);
     const { columns } = validation;
 
+    const envioActual = envio();
+    const intento = { empezo: false };
     const result = await run<ResultadoGuardado>(async () => {
       if (gasto) {
         try {
@@ -304,86 +591,106 @@ export function GastoFormulario({
         }
         return 'listo';
       }
+      intento.empezo = true;
       // `crearGasto` trata "ya estaba guardado" (23505 del client_ref) como éxito.
-      await crear.mutateAsync({ tenantId, columns, clientRef, sent: sentRef.current });
+      await crear.mutateAsync({ tenantId, columns, clientRef: envioActual.clave, sent: envioActual.sent });
       return 'listo';
     });
 
-    if (!result.ok) return; // el error ya se muestra en la SubmitBar, sin tocar los campos
+    if (!result.ok) {
+      // El intento empezó y no terminó bien (el error ya se muestra en la SubmitBar, sin tocar los campos). Con 'varias' las categorías
+      // quedan totalmente fijas; con 'una' se puede cambiar la categoría (desmarcar la actual y marcar otra) pero no sumar otra.
+      if (intento.empezo) setBloqueo('una');
+      return;
+    }
     if (!mountedRef.current) return; // se fue de la pantalla mientras guardaba: no arrastrarlo a la lista
     if (result.data === 'no-encontrado') {
       setGone(true);
       return;
     }
 
-    if (!editando) {
-      sentRef.current.clear();
-      setClientRef(generateClientRef());
-    }
-    if (desdeViaje) {
-      // Se abrió desde el detalle de un viaje: se vuelve a ESE viaje. La ruta se arma acá con un uuid ya validado.
-      navigate(rutaDelViaje(desdeViaje.id), {
-        replace: true,
-        state: { aviso: 'gasto-guardado' satisfies DetalleAviso, volver: desdeViaje.volver, ...estadoDesdeCliente(desdeViaje.cliente) },
-      });
+    if (editando) {
+      if (desdeViaje) {
+        // Se abrió desde el detalle de un viaje: se vuelve a ESE viaje. La ruta se arma acá con un uuid ya validado.
+        navigate(rutaDelViaje(desdeViaje.id), {
+          replace: true,
+          state: { aviso: 'gasto-guardado' satisfies DetalleAviso, volver: desdeViaje.volver, ...estadoDesdeCliente(desdeViaje.cliente) },
+        });
+        return;
+      }
+      // A la lista del mes del gasto (si es de otro mes, así se ve que quedó guardado).
+      navigate(`/gastos${searchDelMesDeFecha(columns.fecha)}`, { replace: true, state: { aviso: 'guardado' satisfies GastoAviso } });
       return;
     }
-    // A la lista del mes del gasto (si es de otro mes, así se ve que quedó guardado).
-    navigate(`/gastos${searchDelMesDeFecha(columns.fecha)}`, { replace: true, state: { aviso: 'guardado' satisfies GastoAviso } });
+    terminarBien(columns.fecha, 1);
+  }
+
+  /** «Empezar de nuevo»: UN solo reinicio (lo mandado y las claves, juntos); las categorías se pueden volver a elegir y lo escrito se conserva. */
+  function empezarDeNuevo() {
+    if (pending) return; // el botón ya está apagado mientras guarda; esto es por si algo llegara hasta acá igual
+    envioRef.current = reiniciarEnvio();
+    setBloqueo(null);
+    setSinSalida(false);
+    clearError();
+    pedirFoco(`${IDS.categoria}-0`);
   }
 
   if (gone) return <GastoNoEncontrado volver={volver} />;
 
-  return (
-    <div className="space-y-8">
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-5">
-        <ChoiceGroup
-          id="gasto-categoria"
-          legend="Categoría"
-          value={values.categoriaId}
-          onChange={handleCategoriaChange}
-          options={opcionesCategoria}
-          error={errors.categoriaId}
-        />
+  // --- lo que se ve ---
 
+  /** Descripción, monto y, en Combustible, su recuadro: lo que lleva cada bloque (o la pantalla de siempre, con una categoría). */
+  function camposDelBloque(clave: string, categoria: Categoria | undefined, enVarias: boolean) {
+    const ids = idsDelBloque(enVarias ? clave : null);
+    const bloque = bloqueDe(carga, clave);
+    const delBloque = Object.hasOwn(errores.bloques, clave) ? errores.bloques[clave]! : {};
+    const esCombustible = categoria !== undefined && isCombustible(categoria);
+    // "Gastos varios": la descripción es obligatoria (ver `validateGastoForm`).
+    const esVarios = categoria !== undefined && isGastosVarios(categoria);
+    // Con tope: un texto enorme pegado no se recorre entero en cada render.
+    const descripcionLength = charLength(bloque.descripcion, MAX_DESCRIPCION);
+    const precioPorLitro = esCombustible ? previewPrecioPorLitro(bloque.monto, combustible.litros) : null;
+
+    return (
+      <>
         {/* Justo debajo de la categoría: es lo que dice de qué se trata el gasto. En "Gastos varios" (la
             categoría más ambigua) es obligatoria; en las demás, opcional. */}
         <TextareaField
-          id="gasto-descripcion"
+          id={ids.descripcion}
           label="Descripción"
-          optional={!gastosVarios}
-          value={values.descripcion}
-          onChange={(value) => setField('descripcion', value)}
+          optional={!esVarios}
+          value={bloque.descripcion}
+          onChange={(value) => setCampoDelBloque(clave, 'descripcion', value)}
           hint={
             descripcionLength > MAX_DESCRIPCION
               ? `Más de ${MAX_DESCRIPCION} caracteres: acórtala.`
               : descripcionLength >= DESCRIPCION_COUNTER_FROM
                 ? `${descripcionLength} de ${MAX_DESCRIPCION} caracteres`
-                : gastosVarios
+                : esVarios
                   ? 'Obligatoria en Gastos varios: escribe de qué se trata.'
                   : undefined
           }
-          error={errors.descripcion}
+          error={delBloque.descripcion}
         />
 
         <NumberField
-          id="gasto-monto"
+          id={ids.monto}
           label="Monto"
           kind="dinero"
-          value={values.monto}
-          onChange={(value) => setField('monto', value)}
-          error={errors.monto}
+          value={bloque.monto}
+          onChange={(value) => setCampoDelBloque(clave, 'monto', value)}
+          error={delBloque.monto}
         />
 
-        {fuel ? (
+        {esCombustible ? (
           <div className="space-y-5 rounded-lg border border-border bg-card p-4">
-            <p className="text-base font-semibold">Combustible</p>
+            <p className="text-base font-semibold">{enVarias ? TITULO_DATOS_DEL_COMBUSTIBLE : 'Combustible'}</p>
             <CamionSelector
-              id={FIELD_DOM_IDS.camionId}
+              id={ids.camion}
               decision={decisionCamion}
-              value={values.camionId}
-              onChange={(camionId) => setField('camionId', camionId)}
-              error={errors.camionId}
+              value={combustible.camionId}
+              onChange={(camionId) => setDatoDelCombustible('camionId', camionId)}
+              error={delBloque.camionId}
               carga={{
                 estado: camionesCargados ? 'listo' : camionesQuery.isError ? 'error' : 'cargando',
                 error: camionesQuery.error,
@@ -399,13 +706,13 @@ export function GastoFormulario({
               {mensajeCamion ?? ''}
             </p>
             <NumberField
-              id="gasto-litros"
+              id={ids.litros}
               label="Litros"
               kind="litros"
               unit="L"
-              value={values.litros}
-              onChange={(value) => setField('litros', value)}
-              error={errors.litros}
+              value={combustible.litros}
+              onChange={(value) => setDatoDelCombustible('litros', value)}
+              error={delBloque.litros}
             />
             {/* Solo con datos (monto y litros válidos): sin ellos no se muestra nada, en vez de un "—" con una explicación. */}
             {precioPorLitro !== null ? (
@@ -414,85 +721,191 @@ export function GastoFormulario({
               </p>
             ) : null}
             <NumberField
-              id="gasto-km"
+              id={ids.km}
               label="Kilómetros del camión"
               kind="km"
               allowZero
               optional
               unit="km"
               hint="Los km totales que marca el tablero. Sirven para saber cuánto rinde."
-              value={values.kmOdometro}
-              onChange={(value) => setField('kmOdometro', value)}
-              error={errors.kmOdometro}
+              value={combustible.kmOdometro}
+              onChange={(value) => setDatoDelCombustible('kmOdometro', value)}
+              error={delBloque.kmOdometro}
             />
             <ChoiceGroup
-              id="gasto-tanque"
+              id={ids.tanque}
               legend="¿Llenaste el tanque?"
               optional
               columns={3}
-              value={values.tanqueLleno}
-              onChange={(value) => setField('tanqueLleno', value as TanqueLlenoChoice)}
+              value={combustible.tanqueLleno}
+              onChange={(value) => setDatoDelCombustible('tanqueLleno', value as TanqueLlenoChoice)}
               options={TANQUE_OPTIONS}
               hint="Con tanque lleno se puede calcular el rendimiento (km por litro)."
-              error={errors.tanqueLleno}
+              error={delBloque.tanqueLleno}
             />
           </div>
         ) : null}
+      </>
+    );
+  }
 
-        <DateField
-          id="gasto-fecha"
-          label="Fecha"
-          min={MIN_FECHA}
-          max={today}
-          value={values.fecha}
-          onChange={(value) => setField('fecha', value)}
-          error={errors.fecha}
+  /** El método de pago de un bloque. Con una categoría es "Método de pago"; con varias lleva el nombre de la categoría. */
+  function campoMetodoDePago(clave: string, rotulo: string, enVarias: boolean) {
+    const delBloque = Object.hasOwn(errores.bloques, clave) ? errores.bloques[clave]! : {};
+    return (
+      <SelectField
+        id={idsDelBloque(enVarias ? clave : null).metodo}
+        label={rotulo}
+        placeholder="Elige una opción"
+        options={METODO_PAGO_OPTIONS}
+        value={bloqueDe(carga, clave).metodoPago}
+        onChange={(value) => setCampoDelBloque(clave, 'metodoPago', value as CamposDelBloque['metodoPago'])}
+        error={delBloque.metodoPago}
+      />
+    );
+  }
+
+  const campoFecha = (
+    <DateField
+      id={IDS.fecha}
+      label="Fecha"
+      min={MIN_FECHA}
+      max={today}
+      value={fecha}
+      onChange={handleFechaChange}
+      error={errores.compartidos.fecha}
+    />
+  );
+
+  const campoViaje = (
+    <div className="space-y-2">
+      <SelectField
+        id={IDS.viaje}
+        label="Viaje"
+        optional
+        placeholder="Sin viaje"
+        options={opcionesViaje}
+        value={viajeId}
+        onChange={handleViajeChange}
+        hint={
+          viajesQuery.isPending
+            ? 'Cargando viajes…'
+            : (recientes?.length ?? 0) >= RECIENTES_LIMIT
+              ? `Se muestran los ${RECIENTES_LIMIT} viajes más recientes.`
+              : undefined
+        }
+        error={errores.compartidos.viajeId}
+      />
+      {/* Solo si NO hay lista: un refresco fallido con la lista ya cargada no molesta. No bloquea el guardado. */}
+      {viajesQuery.isError && recientes === undefined ? (
+        <InlineError
+          message={`No pudimos cargar los viajes. ${mapDataError(viajesQuery.error)}`}
+          onRetry={() => void viajesQuery.refetch()}
+          retrying={viajesQuery.isFetching}
         />
+      ) : null}
+    </div>
+  );
 
-        <div className="space-y-2">
-          <SelectField
-            id={FIELD_DOM_IDS.viajeId}
-            label="Viaje"
-            optional
-            placeholder="Sin viaje"
-            options={opcionesViaje}
-            value={values.viajeId}
-            onChange={handleViajeChange}
-            hint={
-              viajesQuery.isPending
-                ? 'Cargando viajes…'
-                : (recientes?.length ?? 0) >= RECIENTES_LIMIT
-                  ? `Se muestran los ${RECIENTES_LIMIT} viajes más recientes.`
-                  : undefined
-            }
-            error={errors.viajeId}
-          />
-          {/* Solo si NO hay lista: un refresco fallido con la lista ya cargada no molesta. No bloquea el guardado. */}
-          {viajesQuery.isError && recientes === undefined ? (
-            <InlineError
-              message={`No pudimos cargar los viajes. ${mapDataError(viajesQuery.error)}`}
-              onRetry={() => void viajesQuery.refetch()}
-              retrying={viajesQuery.isFetching}
-            />
+  // La categoría: en la edición, UNA opción (como siempre); en el alta, casillas (una o más).
+  const grupoDeCategorias = editando ? (
+    <ChoiceGroup
+      id={IDS.categoria}
+      legend="Categoría"
+      value={claveUnica}
+      onChange={handleCategoriaUnica}
+      options={opcionesCategoria}
+      error={errores.categoria}
+    />
+  ) : (
+    <MultiChoiceGroup
+      id={IDS.categoria}
+      legend="Categoría"
+      value={carga.elegidas}
+      onToggle={(categoriaId) => handleCategoriaToggle(categoriaId)}
+      options={opcionesCategoria}
+      error={errores.categoria}
+      // Mientras guarda y, tras un intento de VARIOS que no terminó bien, hasta "Empezar de nuevo". Tras un intento de UN gasto no se
+      // apaga todo: el grupo queda "una sola a la vez" (`max={1}`: con una marcada se apagan las demás; al desmarcarla vuelven).
+      disabled={pending || bloqueo === 'varias'}
+      max={bloqueo === 'una' ? 1 : MAX_GASTOS_POR_CARGA}
+      // El aviso del tope de 10 es solo del tope de 10: con `max={1}` lo explica la línea de abajo.
+      maxMessage={bloqueo === 'una' ? undefined : AVISO_TOPE_DE_CATEGORIAS}
+      hint={
+        <>
+          {AYUDA_VARIAS_CATEGORIAS}
+          {bloqueo !== null ? (
+            <span className="mt-1 block font-medium">{bloqueo === 'una' ? AVISO_CATEGORIA_CAMBIABLE : AVISO_CATEGORIAS_FIJAS}</span>
           ) : null}
-        </div>
+        </>
+      }
+    />
+  );
 
-        <SelectField
-          id="gasto-metodo"
-          label="Método de pago"
-          placeholder="Elige una opción"
-          options={METODO_PAGO_OPTIONS}
-          value={values.metodoPago}
-          onChange={(value) => setField('metodoPago', value as GastoFormValues['metodoPago'])}
-          error={errors.metodoPago}
-        />
+  return (
+    <div className="space-y-8">
+      <form onSubmit={(event) => void handleSubmit(event)} noValidate className="space-y-5">
+        {grupoDeCategorias}
+
+        {varias ? (
+          <>
+            {/* Un bloque por categoría marcada, en el orden de la lista de categorías. */}
+            {categoriasElegidas.map((categoria) => {
+              const ids = idsDelBloque(categoria.id);
+              return (
+                <div key={categoria.id} role="group" aria-labelledby={ids.titulo} className="space-y-5 border-t border-border pt-5">
+                  <h2 id={ids.titulo} className="break-words text-lg font-semibold">
+                    {nombreParaMostrar(categoria)}
+                  </h2>
+                  {camposDelBloque(categoria.id, categoria, true)}
+                </div>
+              );
+            })}
+
+            {/* La fecha y el viaje son uno solo para todos los gastos. */}
+            <div className="space-y-5 border-t border-border pt-5">
+              {campoFecha}
+              {campoViaje}
+            </div>
+
+            {/* El método de pago es de cada gasto: al final, uno por categoría. */}
+            <div role="group" aria-labelledby="gasto-metodos-titulo" className="space-y-5 border-t border-border pt-5">
+              <h2 id="gasto-metodos-titulo" className="text-lg font-semibold">
+                {TITULO_COMO_PAGASTE}
+              </h2>
+              {categoriasElegidas.map((categoria) => (
+                <div key={categoria.id}>{campoMetodoDePago(categoria.id, etiquetaMetodoDePago(nombreParaMostrar(categoria)), true)}</div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            {camposDelBloque(claveUnica, categoriaUnica, false)}
+            {campoFecha}
+            {campoViaje}
+            {campoMetodoDePago(claveUnica, 'Método de pago', false)}
+          </>
+        )}
 
         {/* Avisa a lectores de pantalla que aparecieron los campos de combustible. */}
         <p role="status" className="sr-only">
           {fuel ? 'Se agregaron los campos de combustible: litros, kilómetros del camión y tanque lleno.' : ''}
         </p>
 
-        <SubmitBar pending={pending} error={error} retryable={retryable} label="Guardar gasto" />
+        {/* Avisa a lectores de pantalla cuántos gastos se van a guardar y de qué categorías, al marcar o desmarcar. */}
+        <p role="status" aria-live="polite" className="sr-only">
+          {editando ? '' : anuncioDeGastos(categoriasElegidas.map((categoria) => nombreParaMostrar(categoria)))}
+        </p>
+
+        {!editando && bloqueo !== null ? <EmpezarDeNuevo onConfirmar={empezarDeNuevo} deshabilitado={pending} /> : null}
+
+        <SubmitBar
+          pending={pending}
+          error={error}
+          retryable={retryable}
+          label={varias ? botonGuardarGastos(cantidad) : 'Guardar gasto'}
+          disabled={sinSalida}
+        />
       </form>
 
       {gasto ? (
