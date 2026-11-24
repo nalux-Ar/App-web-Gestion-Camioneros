@@ -14,7 +14,7 @@ import { useViajesDelMes } from '@/features/viajes/use-viajes';
 import type { ViajeDeLista } from '@/features/viajes/viajes-list';
 import { mapDataError } from '@/lib/data-errors';
 import { formatDateShort, formatMonthLabel, type YearMonth } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { cn } from '@/lib/utils';
 import type { GastoDeFila } from './gastos-api';
@@ -251,7 +251,7 @@ export function ElegirElViaje({ marcados, total, mesInicial, camiones, ocupado, 
           {TITULO_A_QUE_VIAJE}
         </h2>
         <p className="text-base font-medium tabular-nums [overflow-wrap:anywhere]">
-          {hayMarcados ? textoResumenDeMarcados(marcados.length, formatNumber(total, { decimales: 2 })) : YA_NO_HAY_MARCADOS}
+          {hayMarcados ? textoResumenDeMarcados(marcados.length, formatMoney(total)) : YA_NO_HAY_MARCADOS}
         </p>
         {/* Un `fieldset` apagado apaga también los botones de adentro (las flechas del mes): no hace falta tocar el selector de mes. */}
         <fieldset disabled={ocupado} className="min-w-0">

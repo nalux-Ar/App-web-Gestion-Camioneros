@@ -445,6 +445,22 @@ describe('formulario de viaje: estructura', () => {
     }
   });
 
+  it('«Lo que cobraste» y los km (inicial, final y recorridos) aceptan 0: «Se lee» lo muestra y no hay error', async () => {
+    await mount();
+    await typeById('viaje-ingreso', '0');
+    expect(bodyText().replace(/\s/g, ' ')).toContain('Se lee: $ 0');
+    expect(byId<HTMLInputElement>('viaje-ingreso')!.getAttribute('aria-invalid')).toBeNull();
+    for (const id of ['viaje-km-inicial', 'viaje-km-final']) {
+      await typeById(id, '0');
+      expect(byId<HTMLInputElement>(id)!.getAttribute('aria-describedby') ?? '', id).toContain('lectura');
+      expect(byId<HTMLInputElement>(id)!.getAttribute('aria-invalid'), id).toBeNull();
+    }
+    await click(radio('Recorridos'));
+    await typeById('viaje-km-recorridos', '0');
+    expect(byId<HTMLInputElement>('viaje-km-recorridos')!.getAttribute('aria-describedby') ?? '').toContain('lectura');
+    expect(byId<HTMLInputElement>('viaje-km-recorridos')!.getAttribute('aria-invalid')).toBeNull();
+  });
+
   it('no manda nada a la base al abrirse, salvo la lista de clientes (y no hay "no encontrado")', async () => {
     await mount();
     expect(crearCalls()).toHaveLength(0);

@@ -1,7 +1,7 @@
 import { Check } from 'lucide-react';
 
 import { formatDateWithYear } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney } from '@/lib/numbers';
 import { cn } from '@/lib/utils';
 import { nombreParaMostrar, type Categoria } from './categorias';
 import type { GastoDeFila } from './gastos-api';
@@ -38,7 +38,7 @@ function DatosDelGasto({ gasto, categoria }: DatosDelGastoProps) {
           <span className="line-clamp-2 text-base text-muted-foreground [overflow-wrap:anywhere]">{gasto.descripcion}</span>
         ) : null}
       </span>
-      <span className="shrink-0 text-right text-base font-semibold tabular-nums">{formatNumber(gasto.monto, { decimales: 2 })}</span>
+      <span className="shrink-0 text-right text-base font-semibold tabular-nums">{formatMoney(gasto.monto)}</span>
     </>
   );
 }

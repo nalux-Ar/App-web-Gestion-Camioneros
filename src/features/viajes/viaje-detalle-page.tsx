@@ -31,7 +31,7 @@ import {
 import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { formatDateWithYear } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney, formatNumber } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { isUuid } from '@/lib/uuid';
 import { useViajeVista } from './use-viajes';
@@ -244,7 +244,7 @@ function DatosDelViaje({ viaje, volver, desdeCliente, camiones }: DatosDelViajeP
         <div>
           <dt className="text-base text-muted-foreground">Lo que cobraste</dt>
           <dd className="text-base font-semibold tabular-nums [overflow-wrap:anywhere]">
-            {viaje.ingreso !== null ? formatNumber(viaje.ingreso, { decimales: 2 }) : 'Sin anotar'}
+            {viaje.ingreso !== null ? formatMoney(viaje.ingreso) : 'Sin anotar'}
           </dd>
         </div>
         {camiones !== undefined && camiones.length > 0 ? (
@@ -437,7 +437,7 @@ function GastosDelViaje({ viajeId, volver, desdeCliente, gastosQuery, categorias
         <div className="rounded-lg border border-border bg-card p-4">
           <p className="text-base font-medium text-muted-foreground">Total de gastos del viaje</p>
           <p className="mt-1 text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]">
-            {formatNumber(total, { decimales: 2 })}
+            {formatMoney(total)}
           </p>
           <p className="mt-1 text-base text-muted-foreground">{textoCantidadGastos(items.length, truncado)}</p>
         </div>

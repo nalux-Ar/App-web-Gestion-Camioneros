@@ -31,7 +31,7 @@ import { rutaDelViaje, type DesdeViaje, type DetalleAviso } from '@/features/via
 import { etiquetaDeViaje, opcionesDeViaje, type ViajeOpcion } from '@/features/viajes/viaje-opciones';
 import { mapDataError, RecordNotFoundError } from '@/lib/data-errors';
 import { todayLocal } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney } from '@/lib/numbers';
 import { charLength } from '@/lib/text';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
 import {
@@ -717,7 +717,7 @@ export function GastoFormulario({
             {/* Solo con datos (monto y litros válidos): sin ellos no se muestra nada, en vez de un "—" con una explicación. */}
             {precioPorLitro !== null ? (
               <p className="text-base">
-                Sale a <span className="font-semibold tabular-nums">{formatNumber(precioPorLitro, { decimales: 2 })}</span> el litro
+                Sale a <span className="font-semibold tabular-nums">{formatMoney(precioPorLitro)}</span> el litro
               </p>
             ) : null}
             <NumberField

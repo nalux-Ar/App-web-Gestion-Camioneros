@@ -526,28 +526,28 @@ describe('Resumen, vista Año: gastos del año y promedio por mes', () => {
   it('año en curso: total, cantidad y promedio de los 10 meses transcurridos (no /12)', async () => {
     await mount();
     expect(byId('resumen-gastos')!.querySelector('h2')!.textContent).toBe('Gastos del año');
-    expect(textoDe('resumen-gastos')).toContain('55.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
     expect(textoDe('resumen-gastos')).toContain('55 gastos');
-    expect(promedio()).toBe('Promedio por mes 5.500,00 promedio de los 10 meses transcurridos');
+    expect(promedio()).toBe('Promedio por mes $ 5.500 promedio de los 10 meses transcurridos');
   });
 
   it('año pasado: promedio de los 12 meses', async () => {
     await mount('/resumen?vista=anio&anio=2025');
-    expect(textoDe('resumen-gastos')).toContain('78.000,00');
-    expect(promedio()).toBe('Promedio por mes 6.500,00 promedio de los 12 meses del año');
+    expect(textoDe('resumen-gastos')).toContain('$ 78.000');
+    expect(promedio()).toBe('Promedio por mes $ 6.500 promedio de los 12 meses del año');
   });
 
   it('en enero, el único mes transcurrido: el promedio es el total', async () => {
     vi.setSystemTime(new Date(2026, 0, 20, 10, 0));
     await mount();
-    expect(promedio()).toBe('Promedio por mes 55.000,00 promedio del único mes transcurrido');
+    expect(promedio()).toBe('Promedio por mes $ 55.000 promedio del único mes transcurrido');
   });
 
-  it('el promedio va a centavos (10.000 en 3 meses = 3.333,33)', async () => {
+  it('el promedio va a centavos (10.000 en 3 meses = $ 3.333,33)', async () => {
     vi.setSystemTime(new Date(2026, 2, 5, 10, 0));
     route.gastos = () => ok(gastosDelAnio(10000, 12));
     await mount();
-    expect(promedio()).toBe('Promedio por mes 3.333,33 promedio de los 3 meses transcurridos');
+    expect(promedio()).toBe('Promedio por mes $ 3.333,33 promedio de los 3 meses transcurridos');
   });
 
   it('sin gastos en el año en curso: "Todavía no anotaste gastos en 2026", sin promedio ni desgloses', async () => {
@@ -575,11 +575,11 @@ describe('Resumen, vista Año: gastos del año y promedio por mes', () => {
   it('los desgloses del año: por categoría, por método de pago y por camión (los mismos del Mes)', async () => {
     await mount();
     expect(barras('resumen-por-categoria')).toEqual([
-      ['Combustible', '44.000,00', '50 gastos · 80 % del total'],
-      ['Peajes', '11.000,00', '5 gastos · 20 % del total'],
+      ['Combustible', '$ 44.000', '50 gastos · 80 % del total'],
+      ['Peajes', '$ 11.000', '5 gastos · 20 % del total'],
     ]);
-    expect(barras('resumen-por-metodo')).toEqual([['Efectivo', '55.000,00', '55 gastos · 100 % del total']]);
-    expect(barras('resumen-por-camion')).toEqual([['AB 123 CD', '55.000,00', '55 gastos · 100 % del total']]);
+    expect(barras('resumen-por-metodo')).toEqual([['Efectivo', '$ 55.000', '55 gastos · 100 % del total']]);
+    expect(barras('resumen-por-camion')).toEqual([['AB 123 CD', '$ 55.000', '55 gastos · 100 % del total']]);
   });
 
   it('mientras cargan los gastos: `aria-busy` y filas grises; el gasto por mes ya se ve', async () => {
@@ -604,7 +604,7 @@ describe('Resumen, vista Año: gastos del año y promedio por mes', () => {
     await click(botonEn('resumen-gastos', 'Reintentar'));
     expect(rpcs('resumen_gastos')).toHaveLength(gastos + 1);
     expect(h.calls.length - rpcs('resumen_gastos').length).toBe(otros);
-    expect(textoDe('resumen-gastos')).toContain('55.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
   });
 });
 
@@ -632,8 +632,8 @@ describe('Resumen, vista Año: gasto por mes', () => {
 
   it('cada mes con su nombre, monto y cantidad en texto', async () => {
     await mount();
-    expect(fila(filasPorMes()[0]!)).toEqual(['enero', '1.000,00', '1 gasto']);
-    expect(fila(filasPorMes()[9]!)).toEqual(['octubre', '10.000,00', '10 gastos']);
+    expect(fila(filasPorMes()[0]!)).toEqual(['enero', '$ 1.000', '1 gasto']);
+    expect(fila(filasPorMes()[9]!)).toEqual(['octubre', '$ 10.000', '10 gastos']);
   });
 
   it('el ancho de la barra es relativo al MES DE MAYOR GASTO (octubre = 100 %), no al total del año', async () => {
@@ -680,7 +680,7 @@ describe('Resumen, vista Año: gasto por mes', () => {
     await mount('/resumen?vista=anio&anio=2025');
     expect(filasPorMes()).toHaveLength(12);
     expect(filasPorMes()[11]!.querySelector('a')!.getAttribute('href')).toBe('/resumen?mes=2025-12');
-    expect(fila(filasPorMes()[11]!)).toEqual(['diciembre', '12.000,00', '12 gastos']);
+    expect(fila(filasPorMes()[11]!)).toEqual(['diciembre', '$ 12.000', '12 gastos']);
   });
 
   it('un año sin gastos en ningún mes: lo dice, sin filas', async () => {
@@ -707,7 +707,7 @@ describe('Resumen, vista Año: gasto por mes', () => {
     route.mensual = () => new Promise<Resp>(() => {});
     await mount();
     expect(byId('resumen-gasto-por-mes')!.getAttribute('aria-busy')).toBe('true');
-    expect(textoDe('resumen-gastos')).toContain('55.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
   });
 
   it('si falla la serie mensual: error con "Reintentar" que pide SOLO esa serie; los gastos del año se siguen viendo', async () => {
@@ -716,7 +716,7 @@ describe('Resumen, vista Año: gasto por mes', () => {
     route.mensual = (call) => (falla ? sinRed() : normal(call));
     await mount();
     expect(textoDe('resumen-gasto-por-mes')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('55.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
     const mensuales = rpcs('resumen_mensual').length;
     const otros = h.calls.length - mensuales;
     falla = false;
@@ -754,10 +754,10 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
 
   it('suma los meses: Ganancia, ingresos, gastos, viajes y km del año, y qué es el resultado', async () => {
     await mount();
-    expect(resultado()).toBe('Ganancia 27.500,00');
+    expect(resultado()).toBe('Ganancia $ 27.500');
     expect(datos()).toEqual([
-      'Lo que cobraste 82.500,00 20 viajes con cobro anotado',
-      'Gastos del año 55.000,00',
+      'Lo que cobraste $ 82.500 20 viajes con cobro anotado',
+      'Gastos del año $ 55.000',
       'Viajes 20 viajes',
       'Km recorridos 4.000 km',
     ]);
@@ -767,8 +767,8 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
 
   it('año pasado: los 12 meses', async () => {
     await mount('/resumen?vista=anio&anio=2025');
-    expect(resultado()).toBe('Ganancia 39.000,00');
-    expect(datos()[0]).toBe('Lo que cobraste 117.000,00 24 viajes con cobro anotado');
+    expect(resultado()).toBe('Ganancia $ 39.000');
+    expect(datos()[0]).toBe('Lo que cobraste $ 117.000 24 viajes con cobro anotado');
     expect(datos()[3]).toBe('Km recorridos 4.800 km');
   });
 
@@ -776,9 +776,9 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
     porMes = (_anio, m) => ({ viajes_ingreso: m * 500, resultado: m * -500 });
     await mount();
     // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
-    expect(resultado()).toBe('Pérdida -27.500,00');
+    expect(resultado()).toBe('Pérdida -$ 27.500');
     // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
-    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u221227.500,00');
+    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u2212$\u00a027.500');
   });
 
   it('ningún viaje del año con cobro anotado: NO hay resultado; invita a anotarlos (como el Mes, con "año")', async () => {
@@ -789,35 +789,35 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
       'Ninguno de tus 20 viajes del año tiene anotado lo que cobraste. Anótalo para ver si el año dio ganancia o pérdida.',
     );
     expect(textoDe('resumen-resultado')).not.toMatch(/Ganancia|Pérdida|El resultado es lo que cobraste/); // ni la explicación de cómo se calcula
-    expect(datos()[0]).toBe('Lo que cobraste 0,00 0 de 20 viajes con cobro anotado');
+    expect(datos()[0]).toBe('Lo que cobraste $ 0 0 de 20 viajes con cobro anotado');
   });
 
   it('sin viajes en el año: "No hay viajes en el año…"', async () => {
     porMes = () => ({ viajes_cantidad: 0, viajes_km: 0, viajes_con_ingreso: 0, viajes_sin_ingreso: 0, viajes_ingreso: 0, resultado: null });
     await mount();
     expect(textoDe('resumen-resultado')).toContain('No hay viajes en el año. Anota tus viajes con lo que cobraste para ver si el año dio ganancia o pérdida.');
-    expect(datos()).toEqual(['Lo que cobraste 0,00', 'Gastos del año 55.000,00', 'Viajes 0 viajes', 'Km recorridos 0 km']);
+    expect(datos()).toEqual(['Lo que cobraste $ 0', 'Gastos del año $ 55.000', 'Viajes 0 viajes', 'Km recorridos 0 km']);
   });
 
   it('con viajes sin ingreso en el año: el resultado CON el aviso de que puede estar incompleto', async () => {
     porMes = (_anio, m) => (m <= 3 ? { viajes_con_ingreso: 1, viajes_sin_ingreso: 1 } : {});
     await mount();
-    expect(resultado()).toBe('Ganancia 27.500,00 3 viajes sin cobro anotado: el resultado puede estar incompleto.');
-    expect(datos()[0]).toBe('Lo que cobraste 82.500,00 17 de 20 viajes con cobro anotado');
+    expect(resultado()).toBe('Ganancia $ 27.500 3 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    expect(datos()[0]).toBe('Lo que cobraste $ 82.500 17 de 20 viajes con cobro anotado');
   });
 
   it('meses con y sin ingreso: el resultado resta TODOS los gastos del año (no suma solo los meses con ingreso)', async () => {
     porMes = (_anio, m) => (m > 5 ? sinIngreso : {});
     await mount();
     // Ingresos de enero a mayo: 1.500 × (1+2+3+4+5) = 22.500; gastos del año: 55.000. Sumar los resultados de los meses con
-    // ingreso daría "Ganancia 7.500,00".
-    expect(resultado()).toBe('Pérdida -32.500,00 10 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    // ingreso daría "Ganancia $ 7.500".
+    expect(resultado()).toBe('Pérdida -$ 32.500 10 viajes sin cobro anotado: el resultado puede estar incompleto.');
   });
 
   it('un ingreso 0 cuenta como cargado: hay resultado (los gastos, como pérdida)', async () => {
     porMes = (_anio, m) => (m === 4 ? { viajes_con_ingreso: 1, viajes_sin_ingreso: 1, viajes_ingreso: 0, resultado: -4000 } : sinIngreso);
     await mount();
-    expect(resultado()).toBe('Pérdida -55.000,00 19 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Pérdida -$ 55.000 19 viajes sin cobro anotado: el resultado puede estar incompleto.');
   });
 
   it('no hay lista de viajes: una línea lo explica y lleva a la vista Mes (el mes actual / diciembre de un año pasado)', async () => {
@@ -846,12 +846,12 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
     route.mensual = (call) => (falla ? sinRed() : normal(call));
     await mount();
     expect(textoDe('resumen-resultado')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('55.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
     const mensuales = rpcs('resumen_mensual').length;
     falla = false;
     await click(botonEn('resumen-resultado', 'Reintentar'));
     expect(rpcs('resumen_mensual')).toHaveLength(mensuales + 1);
-    expect(resultado()).toBe('Ganancia 27.500,00');
+    expect(resultado()).toBe('Ganancia $ 27.500');
   });
 });
 
@@ -878,18 +878,18 @@ describe('Resumen, vista Año: resultado por mes', () => {
   it('cada mes: ingresos, gastos y Ganancia / Pérdida escritas', async () => {
     porMes = (_anio, m) => (m === 2 ? { viajes_ingreso: 1700, resultado: -300 } : {});
     await mount();
-    expect(fila(filasResultado()[0]!)).toEqual(['enero', 'Cobraste 1.500,00 · Gastaste 1.000,00', 'Ganancia 500,00']);
+    expect(fila(filasResultado()[0]!)).toEqual(['enero', 'Cobraste $ 1.500 · Gastaste $ 1.000', 'Ganancia $ 500']);
     // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
-    expect(fila(filasResultado()[1]!)).toEqual(['febrero', 'Cobraste 1.700,00 · Gastaste 2.000,00', 'Pérdida -300,00']);
+    expect(fila(filasResultado()[1]!)).toEqual(['febrero', 'Cobraste $ 1.700 · Gastaste $ 2.000', 'Pérdida -$ 300']);
     // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion; y la ganancia no lleva signo.
-    expect(filasResultado()[1]!.querySelector('.text-destructive-text')!.textContent).toBe('\u2212300,00');
+    expect(filasResultado()[1]!.querySelector('.text-destructive-text')!.textContent).toBe('\u2212$\u00a0300');
     expect(filasResultado()[0]!.querySelector('[data-resultado-del-mes]')!.textContent).not.toMatch(/-|\u2212/);
   });
 
   it('un mes sin ingresos (resultado null): "Sin cobros anotados", nunca "Pérdida"', async () => {
     porMes = (_anio, m) => (m === 3 ? { viajes_con_ingreso: 0, viajes_sin_ingreso: 2, viajes_ingreso: 0, resultado: null } : {});
     await mount();
-    expect(fila(filasResultado()[2]!)).toEqual(['marzo', 'Cobraste 0,00 · Gastaste 3.000,00', 'Sin cobros anotados']);
+    expect(fila(filasResultado()[2]!)).toEqual(['marzo', 'Cobraste $ 0 · Gastaste $ 3.000', 'Sin cobros anotados']);
   });
 
   /** Un mes sin ningún viaje (la base da resultado null también, pero NO es que falten ingresos). */
@@ -902,9 +902,9 @@ describe('Resumen, vista Año: resultado por mes', () => {
       return {};
     };
     await mount();
-    expect(fila(filasResultado()[0]!)).toEqual(['enero', 'Cobraste 0,00 · Gastaste 1.000,00', 'Sin viajes']);
-    expect(fila(filasResultado()[1]!)).toEqual(['febrero', 'Cobraste 0,00 · Gastaste 2.000,00', 'Sin cobros anotados']);
-    expect(fila(filasResultado()[2]!)).toEqual(['marzo', 'Cobraste 4.500,00 · Gastaste 3.000,00', 'Ganancia 1.500,00']);
+    expect(fila(filasResultado()[0]!)).toEqual(['enero', 'Cobraste $ 0 · Gastaste $ 1.000', 'Sin viajes']);
+    expect(fila(filasResultado()[1]!)).toEqual(['febrero', 'Cobraste $ 0 · Gastaste $ 2.000', 'Sin cobros anotados']);
+    expect(fila(filasResultado()[2]!)).toEqual(['marzo', 'Cobraste $ 4.500 · Gastaste $ 3.000', 'Ganancia $ 1.500']);
     // "Sin viajes" con el mismo estilo atenuado que "Sin cobros anotados".
     const [enero, febrero] = filasResultado().map((li) => li.querySelector('[data-resultado-del-mes]')!.className);
     expect(enero).toBe(febrero);
@@ -933,7 +933,7 @@ describe('Resumen, vista Año: resultado por mes', () => {
     porMes = (_anio, m) => (m === 5 ? {} : { ...SIN_VIAJES_EN_EL_MES, gastos_monto: 0, gastos_cantidad: 0 });
     await mount();
     expect(filasResultado()).toHaveLength(10);
-    expect(fila(filasResultado()[4]!)).toEqual(['mayo', 'Cobraste 7.500,00 · Gastaste 5.000,00', 'Ganancia 2.500,00']);
+    expect(fila(filasResultado()[4]!)).toEqual(['mayo', 'Cobraste $ 7.500 · Gastaste $ 5.000', 'Ganancia $ 2.500']);
     for (const [i, li] of filasResultado().entries()) {
       if (i === 4) continue;
       expect(fila(li)[2], li.getAttribute('data-mes')!).toBe('Sin viajes');
@@ -955,21 +955,21 @@ describe('Resumen, vista Año: resultado por mes', () => {
     await mount();
     expect(byId('resumen-resultado')!.querySelector('[data-resultado-por-mes]')).not.toBeNull();
     expect(filasResultado()).toHaveLength(10);
-    expect(fila(filasResultado()[5]!)).toEqual(['junio', 'Cobraste 9.000,00 · Gastaste 6.000,00', 'Ganancia 3.000,00']);
+    expect(fila(filasResultado()[5]!)).toEqual(['junio', 'Cobraste $ 9.000 · Gastaste $ 6.000', 'Ganancia $ 3.000']);
     otrosMesesSinViajes();
     await desmontar();
     // El mismo viaje, sin ingreso cargado.
     porMes = (_anio, m) => (m === 6 ? { viajes_cantidad: 1, viajes_km: 400, viajes_con_ingreso: 0, viajes_sin_ingreso: 1, viajes_ingreso: 0, resultado: null } : sinNada);
     await mount();
     expect(filasResultado()).toHaveLength(10);
-    expect(fila(filasResultado()[5]!)).toEqual(['junio', 'Cobraste 0,00 · Gastaste 6.000,00', 'Sin cobros anotados']);
+    expect(fila(filasResultado()[5]!)).toEqual(['junio', 'Cobraste $ 0 · Gastaste $ 6.000', 'Sin cobros anotados']);
     otrosMesesSinViajes();
   });
 
-  it('un mes con resultado 0: "Resultado 0,00"', async () => {
+  it('un mes con resultado 0: "Resultado $ 0"', async () => {
     porMes = (_anio, m) => (m === 1 ? { viajes_ingreso: 1000, resultado: 0 } : {});
     await mount();
-    expect(fila(filasResultado()[0]!)[2]).toBe('Resultado 0,00');
+    expect(fila(filasResultado()[0]!)[2]).toBe('Resultado $ 0');
   });
 
   it('un mes futuro no aparece', async () => {
@@ -982,7 +982,7 @@ describe('Resumen, vista Año: resultado por mes', () => {
   it('año pasado: los 12 meses', async () => {
     await mount('/resumen?vista=anio&anio=2025');
     expect(filasResultado()).toHaveLength(12);
-    expect(fila(filasResultado()[11]!)).toEqual(['diciembre', 'Cobraste 18.000,00 · Gastaste 12.000,00', 'Ganancia 6.000,00']);
+    expect(fila(filasResultado()[11]!)).toEqual(['diciembre', 'Cobraste $ 18.000 · Gastaste $ 12.000', 'Ganancia $ 6.000']);
   });
 
   it('cada fila lleva al Mes de ese mes; tocarla lo abre (y "atrás" vuelve al año)', async () => {
@@ -1030,10 +1030,10 @@ describe('Resumen, vista Año: combustible por camión', () => {
     expect(pares(camion!.querySelector('dl:not([data-rendimiento])'))).toEqual([
       'Cargas: 30 cargas',
       'Litros: 3.000,5 L',
-      'Gasto: 70.000,00',
-      'Precio promedio: 23,33 por litro',
+      'Gasto: $ 70.000',
+      'Precio promedio: $ 23,33 por litro',
     ]);
-    expect(pares(camion!.querySelector('dl[data-rendimiento]'))).toEqual(['Rinde: 3,0 km por litro', 'Gasta: 33,3 litros cada 100 km', 'Cada km te cuesta: 7,67']);
+    expect(pares(camion!.querySelector('dl[data-rendimiento]'))).toEqual(['Rinde: 3,0 km por litro', 'Gasta: 33,3 litros cada 100 km', 'Cada km te cuesta: $ 7,67']);
     expect(plano(camion!.querySelector('[data-tramos]')!.textContent)).toBe('20 tramos usados (9.000 km, 3.000,0 L), ninguno descartado.');
     const details = byId('resumen-combustible')!.querySelector('details')!;
     expect(details.open).toBe(false);
@@ -1068,8 +1068,8 @@ describe('Resumen, vista Año: combustible por camión', () => {
     estado = 'falla';
     await mount();
     expect(textoDe('resumen-combustible')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('55.000,00');
-    expect(textoDe('resumen-resultado')).toContain('27.500,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
+    expect(textoDe('resumen-resultado')).toContain('$ 27.500');
     const pedidos = rpcs('resumen_combustible').length;
     const otros = h.calls.length - pedidos;
     estado = 'ok';
@@ -1133,8 +1133,8 @@ describe('Resumen, vista Año: la pantalla entera', () => {
       details.open = true;
     });
     await click(buttonByLabel('Año anterior'));
-    expect(textoDe('resumen-gastos')).toContain('78.000,00');
-    expect(textoDe('resumen-gastos')).not.toContain('55.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 78.000');
+    expect(textoDe('resumen-gastos')).not.toContain('$ 55.000');
     expect(byId('resumen-gasto-por-mes')!.querySelectorAll('li[data-mes]')).toHaveLength(12);
     expect(byId('resumen-combustible')!.querySelector('details')!.open).toBe(false);
   });
@@ -1151,7 +1151,7 @@ describe('Resumen, vista Año: la pantalla entera', () => {
     h.calls.length = 0;
     await click(buttonByLabel('Año anterior'));
     expect(rpcs('resumen_gastos')).toHaveLength(0); // vino de la caché
-    expect(textoDe('resumen-gastos')).toContain('78.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 78.000');
     expect(byId('resumen-combustible')!.querySelector('details')!.open).toBe(false);
   });
 

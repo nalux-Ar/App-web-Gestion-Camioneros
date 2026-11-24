@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatNumber } from '@/lib/numbers';
 import { textoPreguntaEliminar } from './gasto-textos';
 
-// La pregunta de eliminar un gasto dice CUÁL es (categoría, monto y fecha corta), sin símbolo de moneda.
+// La pregunta de eliminar un gasto dice CUÁL es (categoría, monto con «$» y fecha corta).
 const CATEGORIAS = [
   { id: 'c-peajes', nombre: 'Peajes' },
   { id: 'c-comb', nombre: 'Combustible' },
@@ -12,18 +11,18 @@ const CATEGORIAS = [
 describe('textoPreguntaEliminar', () => {
   it('«¿Eliminar el gasto de Peajes por … del 12 oct? Esto no se puede deshacer.»', () => {
     const texto = textoPreguntaEliminar({ categoria_id: 'c-peajes', monto: 5000, fecha: '2026-10-12' }, CATEGORIAS);
-    expect(texto).toBe(`¿Eliminar el gasto de Peajes por ${formatNumber(5000, { decimales: 2 })} del 12 oct? Esto no se puede deshacer.`);
+    expect(texto).toBe(`¿Eliminar el gasto de Peajes por $\u00a05.000 del 12 oct? Esto no se puede deshacer.`);
   });
 
-  it('el monto va con sus decimales y sin símbolo de moneda', () => {
+  it('el monto va con «$», sin centavos si es entero y con 2 decimales si no', () => {
     const texto = textoPreguntaEliminar({ categoria_id: 'c-comb', monto: 123456.5, fecha: '2026-01-03' }, CATEGORIAS);
-    expect(texto).toContain(`por ${formatNumber(123456.5, { decimales: 2 })} del 3 ene?`);
-    expect(texto).not.toContain('$');
+    expect(texto).toContain(`por $\u00a0123.456,50 del 3 ene?`);
+    expect(texto.match(/\$/g)).toHaveLength(1); // un solo «$»: el del monto
   });
 
   it('sin la categoría a mano (todavía no llegó, o ya no existe) la frase sigue completa, sin «de»', () => {
     const texto = textoPreguntaEliminar({ categoria_id: 'otra', monto: 800, fecha: '2026-10-12' }, CATEGORIAS);
-    expect(texto).toBe(`¿Eliminar el gasto por ${formatNumber(800, { decimales: 2 })} del 12 oct? Esto no se puede deshacer.`);
+    expect(texto).toBe(`¿Eliminar el gasto por $\u00a0800 del 12 oct? Esto no se puede deshacer.`);
     expect(textoPreguntaEliminar({ categoria_id: 'c-peajes', monto: 800, fecha: '2026-10-12' }, [])).not.toContain(' de Peajes');
   });
 

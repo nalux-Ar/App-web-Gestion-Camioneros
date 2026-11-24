@@ -170,8 +170,8 @@ export function valuesFromViaje(viaje: ViajeEditable, newKey: () => string = gen
     destino: viaje.destino,
     camionId: viaje.camion_id ?? '',
     kmModo: kmModoDe(viaje),
-    // Km (1 decimal) e ingreso (2) con el separador del dispositivo: un solo separador se lee como decimal
-    // y nunca caen en la regla de ambigüedad (solo aplica a litros).
+    // Km (1 decimal) e ingreso (2) siempre con coma y sin separador de miles: así nunca caen en la regla de los
+    // miles con punto ("12.500") ni en la de ambigüedad (que solo aplica a litros).
     kmInicial: formatForInput(fromDbNumber(viaje.km_inicial)),
     kmFinal: formatForInput(fromDbNumber(viaje.km_final)),
     kmRecorridos: formatForInput(fromDbNumber(viaje.km_recorridos)),

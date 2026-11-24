@@ -113,11 +113,10 @@ export function valuesFromGasto(gasto: GastoEditable): GastoFormValues {
     descripcion: gasto.descripcion ?? '',
     metodoPago: gasto.metodo_pago ?? '',
     camionId: gasto.camion_id ?? '',
-    // Litros SIEMPRE con coma: con el punto decimal de es-MX/es-US/es-419, 40,125 L quedaría "40.125", que
-    // las reglas de litros rechazan como ambiguo (¿40,125 o 40125?). La coma se lee igual en cualquier idioma.
-    litros: formatForInput(fromDbNumber(gasto.litros), ','),
-    // Monto y km: con el separador del dispositivo; "15000.5" y "15000,5" se leen igual (un solo separador =
-    // decimal) y tienen a lo sumo 2 y 1 decimales, así que nunca caen en la regla de ambigüedad.
+    // Todos los números se precargan SIEMPRE con coma y sin separador de miles (`formatForInput`): con punto, 40,125 L
+    // quedaría "40.125", que las reglas de litros rechazan como ambiguo (¿40,125 o 40125?), y "12.500" en un monto o en
+    // los km se leería como miles. La coma se lee igual en cualquier idioma.
+    litros: formatForInput(fromDbNumber(gasto.litros)),
     kmOdometro: formatForInput(fromDbNumber(gasto.km_odometro)),
     tanqueLleno: gasto.tanque_lleno === true ? 'si' : gasto.tanque_lleno === false ? 'no' : '',
   };

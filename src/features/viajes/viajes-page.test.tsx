@@ -161,6 +161,8 @@ const links = () => [...document.querySelectorAll<HTMLAnchorElement>('a')];
 const items = () => [...document.querySelectorAll<HTMLAnchorElement>('ul li a[href^="/viajes/"]')];
 const buttonByText = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(text));
 const nums = (n: number | null, decimales: number, fijos = true) => formatNumber(n, { decimales, fijos });
+/** Dinero como se ve: «$ 1.250,50», sin centavos si es entero y con el espacio que no corta línea entre el «$» y la cifra. */
+const plata = (n: number) => `$\u00a0${formatNumber(n, { decimales: Number.isInteger(n) ? 0 : 2 })}`;
 async function click(el: HTMLElement | null | undefined) {
   if (!el) throw new Error('no se encontró el elemento a tocar');
   await act(async () => {
@@ -202,7 +204,7 @@ describe('lista de viajes: resumen del mes', () => {
     expect([...resumen.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual(['Km totales', 'Lo que cobraste']);
     expect(resumen.textContent).toContain(nums(750.5, 1, false));
     // Ingresos: 1000,1 + 0,2 + 0 = 1000,3 (en floats daría 1000.3000000000001 o similar).
-    expect(resumen.textContent).toContain(nums(1000.3, 2));
+    expect(resumen.textContent).toContain(plata(1000.3));
   });
 
   it('con un solo viaje dice "1 viaje"; sin km ni ingresos los totales quedan en "—" (no en 0)', async () => {
@@ -230,7 +232,7 @@ describe('lista de viajes: cada ítem', () => {
     expect(v1!.textContent).toContain('1 oct');
     expect(v1!.textContent).toContain('2 entregas');
     expect(v1!.textContent).toContain(`${nums(500, 1, false)} km`); // recorridos
-    expect(v1!.textContent).toContain(nums(1000.1, 2)); // ingreso
+    expect(v1!.textContent).toContain(plata(1000.1)); // ingreso
 
     expect(v2!.textContent).toContain('1 entrega');
     expect(v2!.textContent).not.toContain('1 entregas');
@@ -243,8 +245,8 @@ describe('lista de viajes: cada ítem', () => {
     expect(v4!.textContent).toContain('Sin entregas');
     expect(v4!.textContent).not.toContain(' km');
     expect(v4!.textContent).not.toContain('Falta el km de llegada.'); // sin km no se muestra nada
-    expect(v4!.textContent).toContain(nums(0, 2)); // el ingreso 0 se muestra; sin ingreso (v3) no
-    expect(v3!.textContent).not.toContain(nums(0, 2));
+    expect(v4!.textContent).toContain(plata(0)); // el ingreso 0 se muestra; sin ingreso (v3) no
+    expect(v3!.textContent).not.toContain(plata(0));
   });
 
   it('la flecha es decorativa y el lector de pantalla oye "a" entre origen y destino', async () => {
@@ -461,5 +463,36 @@ describe('lista de viajes: aviso al volver de guardar o eliminar', () => {
     });
     await settle(3);
     expect(bodyText()).not.toContain('Viaje guardado.');
+  });
+});
+
+describe('lista de viajes: el dinero lleva «$» y los kilómetros no', () => {
+  it('en el resumen del mes, «Lo que cobraste» lleva «$» y «Km totales» no', async () => {
+    await mount();
+    const resumen = document.querySelector('section[aria-labelledby="viajes-resumen-titulo"]')!;
+    const [km, cobro] = [...resumen.querySelectorAll('dd')].map((d) => d.textContent ?? '');
+    expect(cobro).toBe(plata(1000.3));
+    expect(km).toBe(nums(750.5, 1, false));
+    expect(km).not.toContain('$');
+    expect(resumen.textContent!.match(/\$/g)).toHaveLength(1);
+  });
+
+  it('cada viaje con ingreso dice «Cobraste $ …» (también el de 0); sin ingreso no hay «Cobraste» ni «$»', async () => {
+    await mount();
+    const [v1, v2, v3, v4] = items();
+    expect(v1!.textContent).toContain(`Cobraste ${plata(1000.1)}`);
+    expect(v2!.textContent).toContain(`Cobraste ${plata(0.2)}`);
+    expect(v4!.textContent).toContain(`Cobraste ${plata(0)}`);
+    expect(v3!.textContent).not.toContain('Cobraste');
+    expect(v3!.textContent).not.toContain('$');
+  });
+
+  it('los km de cada viaje no llevan «$»: un solo «$» por fila, el del cobro', async () => {
+    await mount();
+    const [v1, v2] = items();
+    expect(v1!.textContent).toContain(`${nums(500, 1, false)} km`);
+    expect(v2!.textContent).toContain(`${nums(250.5, 1, false)} km`);
+    expect(v1!.textContent!.match(/\$/g)).toHaveLength(1);
+    expect(v2!.textContent!.match(/\$/g)).toHaveLength(1);
   });
 });

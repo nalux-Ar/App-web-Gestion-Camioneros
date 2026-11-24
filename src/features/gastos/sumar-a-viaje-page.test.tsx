@@ -58,7 +58,6 @@ import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { LIST_LIMIT as LIST_LIMIT_VIAJES } from '@/features/viajes/constants';
 import { formatMonthLabel, todayLocal } from '@/lib/dates';
 import { limpiarErroresRecientes } from '@/lib/errores-recientes';
-import { formatNumber } from '@/lib/numbers';
 import { queryClient } from '@/lib/query-client';
 
 // ---------------------------------------------------------------------------
@@ -566,14 +565,14 @@ describe('«Sumar varios a un viaje»: los gastos (primer paso)', () => {
     expect(bodyText()).toContain('Los gastos que ya están en un viaje no aparecen aquí. Para sacarlos, entra al viaje.');
   });
 
-  it('los más nuevos primero, y cada fila muestra la categoría, la fecha (con año), el monto (sin símbolo de moneda) y la descripción si tiene', async () => {
+  it('los más nuevos primero, y cada fila muestra la categoría, la fecha (con año), el monto (con «$») y la descripción si tiene', async () => {
     await mount();
     expect(filas().map((f) => f.match(/peaje norte|Combustible|lavado del acoplado/)![0])).toEqual(['peaje norte', 'Combustible', 'lavado del acoplado']);
     const primera = textoDeFila(casillas()[0]!);
     expect(primera).toContain('Peajes');
     expect(primera).toContain('16 jun 2026');
-    expect(primera).toContain(formatNumber(1000, { decimales: 2 }));
-    expect(primera).not.toContain('$');
+    expect(primera).toContain('$\u00a01.000');
+    expect(primera.match(/\$/g)).toHaveLength(1);
   });
 
   it('NINGUNO viene marcado: «Elegir el viaje» apagado (dos copias) y, en lugar del total, el motivo', async () => {
@@ -591,7 +590,7 @@ describe('«Sumar varios a un viaje»: los gastos (primer paso)', () => {
     await tocar(casillas()[0]!);
     await tocar(casillas()[1]!);
     expect(botonElegir().disabled).toBe(false);
-    expect(bodyText()).toContain(`Suman ${formatNumber(0.3, { decimales: 2 })}`);
+    expect(bodyText()).toContain(`Suman $\u00a00,30`);
     expect(bodyText()).not.toContain('0,30000000000000004');
   });
 
@@ -1007,13 +1006,13 @@ describe('«Sumar varios a un viaje»: ¿a qué viaje? (segundo paso)', () => {
     expect(estaEnElPaso1()).toBe(false);
     expect(casillas()).toHaveLength(0);
     expect(document.querySelector('h1')!.textContent).toBe('Sumar gastos a un viaje');
-    expect(bodyText()).toContain(`Vas a sumar 2 gastos. Suman ${formatNumber(3500.5, { decimales: 2 })}.`);
+    expect(bodyText()).toContain(`Vas a sumar 2 gastos. Suman $\u00a03.500,50.`);
   });
 
   it('un solo gasto marcado: «Vas a sumar 1 gasto. Suma …» (singular)', async () => {
     await mount();
     await marcarYElegirViaje('peaje norte');
-    expect(bodyText()).toContain(`Vas a sumar 1 gasto. Suma ${formatNumber(1000, { decimales: 2 })}.`);
+    expect(bodyText()).toContain(`Vas a sumar 1 gasto. Suma $\u00a01.000.`);
   });
 
   it('en el segundo paso el «Volver» de arriba es un botón (no un enlace) que vuelve al primero SIN perder lo marcado', async () => {
@@ -1535,7 +1534,7 @@ describe('«Sumar varios a un viaje»: la selección y los viajes siguen a la li
     await marcarYElegirViaje('peaje norte', 'Combustible');
     db.gastos.find((g) => g.id === G(2))!.viaje_id = V(2); // otro dispositivo
     await invalidarLosGastos();
-    expect(bodyText()).toContain(`Vas a sumar 1 gasto. Suma ${formatNumber(1000, { decimales: 2 })}.`);
+    expect(bodyText()).toContain(`Vas a sumar 1 gasto. Suma $\u00a01.000.`);
     await tocar(opcion('Rosario'));
     expect(botonSumar().textContent).toBe('Sumar 1 gasto a este viaje');
     await tocar(botonSumar());
@@ -1979,7 +1978,7 @@ describe('«Sumar varios a un viaje»: tamaños, colores y accesibilidad', () =>
     expect(tarjeta.className).toContain('bg-card');
     expect(tarjeta.className).toContain('border-border');
     const total = tarjeta.querySelector('p')!;
-    expect(total.textContent).toBe(`Suman ${formatNumber(1000, { decimales: 2 })}`);
+    expect(total.textContent).toBe(`Suman $\u00a01.000`);
     expect(total.className).toContain('tabular-nums');
     expect(total.compareDocumentPosition(botonElegir()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

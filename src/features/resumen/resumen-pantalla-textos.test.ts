@@ -62,10 +62,12 @@ import {
 const plano = (texto: string) => texto.replace(/\u00a0/g, ' ').replace(/\u2212/g, '-');
 
 describe('textos de la pantalla Resumen: números', () => {
-  it('formatMonto: siempre 2 decimales, separador de miles, sin símbolo', () => {
-    expect(formatMonto(1234.5)).toBe('1.234,50');
-    expect(formatMonto(0)).toBe('0,00');
-    expect(formatMonto(-1500)).toBe('-1.500,00');
+  it('formatMonto: con «$», sin centavos si es entero y con 2 decimales si no, y separador de miles', () => {
+    expect(plano(formatMonto(12500))).toBe('$ 12.500');
+    expect(plano(formatMonto(1234.5))).toBe('$ 1.234,50');
+    expect(formatMonto(1234.5)).toBe('$\u00a01.234,50'); // el espacio entre el «$» y la cifra no corta línea
+    expect(plano(formatMonto(0))).toBe('$ 0');
+    expect(plano(formatMonto(-1500))).toBe('-$ 1.500');
   });
 
   it('textoCantidadGastos: singular, plural y miles', () => {
@@ -95,21 +97,21 @@ describe('textos de la pantalla Resumen: comparación', () => {
   });
 
   it('textoDiferencia: más / menos con el monto y el % con signo; igual = "Lo mismo"', () => {
-    expect(plano(textoDiferencia({ sentido: 'mas', diferencia: 2000, porcentaje: 25 }))).toBe('2.000,00 más (+25 %)');
-    expect(plano(textoDiferencia({ sentido: 'menos', diferencia: 2000, porcentaje: 25 }))).toBe('2.000,00 menos (-25 %)');
+    expect(plano(textoDiferencia({ sentido: 'mas', diferencia: 2000, porcentaje: 25 }))).toBe('$ 2.000 más (+25 %)');
+    expect(plano(textoDiferencia({ sentido: 'menos', diferencia: 2000, porcentaje: 25 }))).toBe('$ 2.000 menos (-25 %)');
     expect(textoDiferencia({ sentido: 'menos', diferencia: 1, porcentaje: 3 })).toContain('\u22123\u00a0%');
     expect(textoDiferencia({ sentido: 'igual', diferencia: 0, porcentaje: 0 })).toBe('Lo mismo');
   });
 
   it('textoDiferencia: menos de 1 % se dice así (no "+0 %"); sin % posible, solo el monto; % de miles con separador', () => {
-    expect(plano(textoDiferencia({ sentido: 'mas', diferencia: 40, porcentaje: 0 }))).toBe('40,00 más (menos de 1 %)');
-    expect(textoDiferencia({ sentido: 'mas', diferencia: 5000, porcentaje: null })).toBe('5.000,00 más');
-    expect(plano(textoDiferencia({ sentido: 'mas', diferencia: 99000, porcentaje: 9900 }))).toBe('99.000,00 más (+9.900 %)');
+    expect(plano(textoDiferencia({ sentido: 'mas', diferencia: 40, porcentaje: 0 }))).toBe('$ 40 más (menos de 1 %)');
+    expect(plano(textoDiferencia({ sentido: 'mas', diferencia: 5000, porcentaje: null }))).toBe('$ 5.000 más');
+    expect(plano(textoDiferencia({ sentido: 'mas', diferencia: 99000, porcentaje: 9900 }))).toBe('$ 99.000 más (+9.900 %)');
   });
 
   it('textoVs, sin gastos para comparar y el prefijo del error', () => {
-    expect(textoVs('los mismos días de septiembre', 8000)).toBe('vs. los mismos días de septiembre (8.000,00)');
-    expect(textoVs('septiembre', 8000)).toBe('vs. septiembre (8.000,00)');
+    expect(plano(textoVs('los mismos días de septiembre', 8000))).toBe('vs. los mismos días de septiembre ($ 8.000)');
+    expect(plano(textoVs('septiembre', 8000))).toBe('vs. septiembre ($ 8.000)');
     expect(textoSinGastosParaComparar('septiembre')).toBe('Sin gastos en septiembre para comparar');
     expect(textoErrorComparacion('septiembre')).toBe('No pudimos comparar con septiembre.');
   });
@@ -151,10 +153,10 @@ describe('textos de la pantalla Resumen: ingresos y resultado', () => {
   });
 
   it('formatResultado: la pérdida lleva el signo menos tipográfico delante; la ganancia y el 0, sin signo', () => {
-    expect(formatResultado(-2000)).toBe('\u22122.000,00');
-    expect(formatResultado(-0.01)).toBe('\u22120,01');
-    expect(formatResultado(12000)).toBe('12.000,00');
-    expect(formatResultado(0)).toBe('0,00');
+    expect(formatResultado(-2000)).toBe('\u2212$\u00a02.000');
+    expect(formatResultado(-0.01)).toBe('\u2212$\u00a00,01');
+    expect(plano(formatResultado(12000))).toBe('$ 12.000');
+    expect(plano(formatResultado(0))).toBe('$ 0');
     // El guion ASCII no: no se lee como signo menos.
     expect(formatResultado(-5)).not.toContain('-');
     // Va siempre de la mano de la palabra: hay signo si y solo si dice "Pérdida".
@@ -197,7 +199,7 @@ describe('textos de la pantalla Resumen: combustible', () => {
     expect(textoKmPorLitro(2.851)).toBe('2,85 km por litro');
     expect(textoLitrosCada100(33.333)).toBe('33,3 litros cada 100 km');
     expect(textoLitrosCada100(35)).toBe('35,0 litros cada 100 km');
-    expect(textoPrecioPorLitro(23.29)).toBe('23,29 por litro');
+    expect(plano(textoPrecioPorLitro(23.29))).toBe('$ 23,29 por litro');
     expect(textoCantidadCargas(1)).toBe('1 carga');
     expect(textoCantidadCargas(12)).toBe('12 cargas');
   });
@@ -237,11 +239,11 @@ describe('textos de la pantalla Resumen: viajes', () => {
     expect(textoSinViajes({ year: 2026, month: 10 }, true)).toBe('Todavía no hay viajes este mes');
     expect(textoSinViajes({ year: 2026, month: 8 }, false)).toBe('No hubo viajes en agosto 2026');
     expect(textoIngresoDelViaje(null)).toBeNull();
-    expect(textoIngresoDelViaje(0)).toBe('Cobraste 0,00');
-    expect(textoIngresoDelViaje(15000)).toBe('Cobraste 15.000,00');
+    expect(plano(textoIngresoDelViaje(0) ?? '')).toBe('Cobraste $ 0');
+    expect(plano(textoIngresoDelViaje(15000) ?? '')).toBe('Cobraste $ 15.000');
     expect(textoGastosDelViaje(0, 0)).toBe('Sin gastos');
-    expect(textoGastosDelViaje(1, 500)).toBe('1 gasto: 500,00');
-    expect(textoGastosDelViaje(2, 3000)).toBe('2 gastos: 3.000,00');
+    expect(plano(textoGastosDelViaje(1, 500))).toBe('1 gasto: $ 500');
+    expect(plano(textoGastosDelViaje(2, 3000))).toBe('2 gastos: $ 3.000');
     expect(SIN_INGRESO).toBe('Sin cobro anotado');
   });
 });
@@ -280,8 +282,8 @@ describe('textos de la pantalla Resumen: vista Año (resultado)', () => {
   });
 
   it('textoIngresosYGastos y los textos fijos del Año', () => {
-    expect(textoIngresosYGastos(1500, 1000)).toBe('Cobraste 1.500,00 · Gastaste 1.000,00');
-    expect(textoIngresosYGastos(0, 0)).toBe('Cobraste 0,00 · Gastaste 0,00');
+    expect(plano(textoIngresosYGastos(1500, 1000))).toBe('Cobraste $ 1.500 · Gastaste $ 1.000');
+    expect(plano(textoIngresosYGastos(0, 0))).toBe('Cobraste $ 0 · Gastaste $ 0');
     expect(SIN_INGRESOS_CARGADOS).toBe('Sin cobros anotados');
     expect(SIN_VIAJES).toBe('Sin viajes');
     expect(TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO).toContain('del año menos todos los gastos del año');

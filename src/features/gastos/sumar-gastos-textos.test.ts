@@ -146,7 +146,7 @@ describe('el idioma de los textos', () => {
     }
   });
 
-  it('sin símbolo de moneda (los montos van sin «$» en toda la app)', () => {
+  it('ningún texto fijo trae un «$» escrito a mano (el «$» lo pone `formatMoney` en el monto que se les pasa)', () => {
     for (const texto of todosLosTextos()) expect(texto).not.toMatch(/\$/);
   });
 });

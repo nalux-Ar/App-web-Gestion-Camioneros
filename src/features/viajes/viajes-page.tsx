@@ -15,7 +15,7 @@ import { DevolucionesDelMes } from '@/features/devoluciones/devoluciones-del-mes
 import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { formatMonthLabel } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney, formatNumber } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { LIST_LIMIT } from './constants';
 import { useViajesDelMes } from './use-viajes';
@@ -164,7 +164,7 @@ function ViajesDelMes({ filtro, nuevoViaje }: { filtro: ViajesFiltro; nuevoViaje
           </div>
           <div>
             <dt className="text-base text-muted-foreground">Lo que cobraste</dt>
-            <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatNumber(totales.ingreso, { decimales: 2 })}</dd>
+            <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMoney(totales.ingreso)}</dd>
           </div>
         </dl>
       </section>

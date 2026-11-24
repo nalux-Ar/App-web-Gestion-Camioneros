@@ -2,7 +2,6 @@ import { act, type ComponentProps, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { formatNumber } from '@/lib/numbers';
 import type { Categoria } from './categorias';
 import type { GastoDeFila } from './gastos-api';
 import { GastosParaElegir, GastosQueNoSeEligen } from './gastos-para-elegir';
@@ -79,9 +78,9 @@ describe('GastosParaElegir', () => {
     expect(casillas()).toHaveLength(3);
     expect(casillas().every((c) => !c.checked)).toBe(true);
     expect(casillas().map((c) => c.closest('label')!.textContent)).toEqual([
-      `Peajes15 jun 2026${formatNumber(1000, { decimales: 2 })}`,
-      `Peajes15 jun 2026peaje norte${formatNumber(2500.5, { decimales: 2 })}`,
-      `Lavado (inactiva)15 jun 2026${formatNumber(1000, { decimales: 2 })}`,
+      `Peajes15 jun 2026$\u00a01.000`,
+      `Peajes15 jun 2026peaje norte$\u00a02.500,50`,
+      `Lavado (inactiva)15 jun 2026$\u00a01.000`,
     ]);
   });
 
@@ -209,10 +208,10 @@ describe('GastosParaElegir', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('el monto va sin símbolo de moneda, con decimales y en cifras alineadas (`tabular-nums`)', async () => {
+  it('el monto va con «$» (con centavos si los hay) y en cifras alineadas (`tabular-nums`)', async () => {
     await dibujar(<GastosParaElegir {...props({ gastos: [gasto(A, { monto: 12345.5 })] })} />);
-    const monto = [...container.querySelectorAll('label span')].find((s) => s.textContent === formatNumber(12345.5, { decimales: 2 }))!;
-    expect(monto.textContent).not.toContain('$');
+    const monto = [...container.querySelectorAll('label span')].find((s) => s.textContent === '$\u00a012.345,50')!;
+    expect(monto.textContent!.match(/\$/g)).toHaveLength(1);
     expect(monto.className).toContain('tabular-nums');
     expect(monto.className).toContain('shrink-0'); // el monto no se parte: lo que cede es el texto de al lado
   });
@@ -276,7 +275,7 @@ describe('GastosQueNoSeEligen', () => {
     expect(items[0]!.textContent).toContain('Peajes');
     expect(items[0]!.textContent).toContain('15 jun 2026');
     expect(items[0]!.textContent).toContain('del otro camión');
-    expect(items[0]!.textContent).toContain(formatNumber(1000, { decimales: 2 }));
+    expect(items[0]!.textContent).toContain('$\u00a01.000');
     expect(items[0]!.querySelector('p')!.textContent).toBe('Motivo de a');
     expect(items[1]!.textContent).toContain('Lavado (inactiva)');
     expect(items[1]!.querySelector('p')!.textContent).toBe('Motivo de b');

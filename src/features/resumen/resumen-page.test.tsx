@@ -422,9 +422,9 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
 
   it('el total (monto y cantidad) y la comparación con los mismos días del mes anterior (mes en curso)', async () => {
     await mount();
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     expect(textoDe('resumen-gastos')).toContain('8 gastos');
-    expect(comparacion()).toBe('2.000,00 más (+25 %) vs. los mismos días de septiembre (8.000,00)');
+    expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. los mismos días de septiembre ($ 8.000)');
     // Del 1 al 14 de septiembre (hoy es 14 de octubre).
     expect(rpcs('resumen_gastos').map(argsDe)).toContainEqual({ p_desde: '2026-09-01', p_hasta: '2026-09-14' });
     expect(byId('resumen-gastos')!.getAttribute('aria-busy')).toBe('false');
@@ -433,33 +433,33 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
   it('mes cerrado: contra el mes anterior COMPLETO, y lo dice ("vs. julio")', async () => {
     MES_DESDE = '2026-08-01';
     await mount('/resumen?mes=2026-08');
-    expect(comparacion()).toBe('2.000,00 más (+25 %) vs. julio (8.000,00)');
+    expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. julio ($ 8.000)');
     expect(rpcs('resumen_gastos').map(argsDe)).toContainEqual({ p_desde: '2026-07-01', p_hasta: '2026-07-31' });
   });
 
   it('enero se compara con diciembre del año anterior (con el año en el texto)', async () => {
     MES_DESDE = '2026-01-01';
     await mount('/resumen?mes=2026-01');
-    expect(comparacion()).toBe('2.000,00 más (+25 %) vs. diciembre 2025 (8.000,00)');
+    expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. diciembre 2025 ($ 8.000)');
     expect(rpcs('resumen_gastos').map(argsDe)).toContainEqual({ p_desde: '2025-12-01', p_hasta: '2025-12-31' });
   });
 
   it('menos que antes: "menos" y el % con signo menos', async () => {
     comparacionDa(() => ok([total(12000, 9)]));
     await mount();
-    expect(comparacion()).toBe('2.000,00 menos (-17 %) vs. los mismos días de septiembre (12.000,00)');
+    expect(comparacion()).toBe('$ 2.000 menos (-17 %) vs. los mismos días de septiembre ($ 12.000)');
   });
 
   it('igual que antes: "Lo mismo"', async () => {
     comparacionDa(() => ok([total(10000, 5)]));
     await mount();
-    expect(comparacion()).toBe('Lo mismo vs. los mismos días de septiembre (10.000,00)');
+    expect(comparacion()).toBe('Lo mismo vs. los mismos días de septiembre ($ 10.000)');
   });
 
   it('una diferencia de menos de 1 % lo dice así (no "+0 %")', async () => {
     comparacionDa(() => ok([total(9990, 5)]));
     await mount();
-    expect(comparacion()).toBe('10,00 más (menos de 1 %) vs. los mismos días de septiembre (9.990,00)');
+    expect(comparacion()).toBe('$ 10 más (menos de 1 %) vs. los mismos días de septiembre ($ 9.990)');
   });
 
   it('el período anterior sin gastos: SIN porcentaje, y lo dice (en curso y cerrado)', async () => {
@@ -503,7 +503,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
   it('la comparación cargando: el total ya se ve, y la comparación tiene SU línea gris', async () => {
     comparacionDa(() => new Promise<Resp>(() => {}));
     await mount();
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     expect(byId('resumen-gastos')!.getAttribute('aria-busy')).toBe('false');
     expect(document.querySelector('[data-comparacion] [data-cargando]')).not.toBeNull();
     expect(byId('resumen-por-categoria')).not.toBeNull();
@@ -530,7 +530,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     expect(pedidosDeGastos('2026-09-01')).toBe(deComparacion);
     expect(rpcs('resumen_mensual')).toHaveLength(mensuales);
     expect(byId('resumen-gastos')!.querySelector('[role="alert"]')).toBeNull();
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     expect(byId('resumen-por-categoria')).not.toBeNull();
   });
 
@@ -554,14 +554,14 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     await mount();
     expect(textoDe('resumen-gastos')).toContain(RESUMEN_ERROR_INESPERADO);
     expect(botonEn('resumen-gastos', 'Reintentar')).toBeDefined();
-    expect(textoDe('resumen-gastos')).not.toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).not.toContain('$ 10.000');
   });
 
   it('falla SOLO la comparación: el total y los desgloses se ven; la comparación tiene su error y su "Reintentar"', async () => {
     let falla = true;
     comparacionDa(() => (falla ? sinRed() : ok([total(8000, 6)])));
     await mount();
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     expect(byId('resumen-por-categoria')).not.toBeNull();
     const aviso = document.querySelector('[data-comparacion] [role="alert"]')!;
     expect(plano(aviso.textContent)).toContain(`No pudimos comparar con los mismos días de septiembre. ${NETWORK_ERROR_MESSAGE}`);
@@ -569,7 +569,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     falla = false;
     await click(botonEn('resumen-gastos', 'Reintentar'));
     expect(pedidosDeGastos('2026-10-01')).toBe(delMes);
-    expect(comparacion()).toBe('2.000,00 más (+25 %) vs. los mismos días de septiembre (8.000,00)');
+    expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. los mismos días de septiembre ($ 8.000)');
   });
 
   it('sin conexión, lo que falta queda en pausa y se AVISA (visible); al volver la señal, carga', async () => {
@@ -584,7 +584,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     await act(async () => onlineManager.setOnline(true));
     await settle();
     expect(bodyText()).not.toContain(RESUMEN_SIN_CONEXION);
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
   });
 
   /** El `role="status"` de la pantalla (el único que hay). */
@@ -623,7 +623,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     for (const id of ['resumen-gastos', 'resumen-resultado', 'resumen-combustible', 'resumen-viajes']) {
       expect(byId(id)!.getAttribute('aria-busy'), id).toBe('false');
     }
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     expect(document.querySelector('[data-comparacion] [data-cargando]')).not.toBeNull();
     expect(plano(estadoDeLaPantalla().textContent)).toBe(RESUMEN_SIN_CONEXION);
     expect(estadoDeLaPantalla().className).not.toContain('sr-only');
@@ -632,7 +632,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     await settle();
     expect(rpcs('resumen_gastos').map(argsDe)).toEqual([{ p_desde: '2026-08-01', p_hasta: '2026-08-31' }]);
     expect(estadoDeLaPantalla().textContent).toBe('');
-    expect(comparacion()).toBe('2.000,00 más (+25 %) vs. agosto (8.000,00)');
+    expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. agosto ($ 8.000)');
   });
 });
 
@@ -649,9 +649,9 @@ describe('pantalla Resumen: desgloses con barras', () => {
   it('por categoría: nombre (de la respuesta), monto, cantidad y % del total; la barra mide el %', async () => {
     await mount();
     expect(barras('resumen-por-categoria')).toEqual([
-      ['Combustible', '7.000,00', '3 gastos · 70 % del total'],
-      ['Peajes', '2.000,00', '4 gastos · 20 % del total'],
-      ['Comida', '1.000,00', '1 gasto · 10 % del total'],
+      ['Combustible', '$ 7.000', '3 gastos · 70 % del total'],
+      ['Peajes', '$ 2.000', '4 gastos · 20 % del total'],
+      ['Comida', '$ 1.000', '1 gasto · 10 % del total'],
     ]);
     expect(anchos('resumen-por-categoria')).toEqual(['70%', '20%', '10%']);
   });
@@ -665,7 +665,7 @@ describe('pantalla Resumen: desgloses con barras', () => {
         const barra = fila.querySelector('.bg-muted')!;
         expect(barra.getAttribute('aria-hidden'), id).toBe('true');
         expect(barra.textContent).toBe('');
-        expect(plano(fila.textContent)).toMatch(/\d+,\d\d.*gastos? · .*% del total$/);
+        expect(plano(fila.textContent)).toMatch(/\$ \d[\d.]*(?:,\d\d)?.*gastos? · .*% del total$/);
       }
     }
   });
@@ -675,12 +675,12 @@ describe('pantalla Resumen: desgloses con barras', () => {
     gastosDelMes([total(3600, 36), ...filas]);
     await mount();
     expect(barras('resumen-por-categoria')).toEqual([
-      ['Categoría 1', '800,00', '1 gasto · 22 % del total'],
-      ['Categoría 2', '700,00', '2 gastos · 19 % del total'],
-      ['Categoría 3', '600,00', '3 gastos · 17 % del total'],
-      ['Categoría 4', '500,00', '4 gastos · 14 % del total'],
-      ['Categoría 5', '400,00', '5 gastos · 11 % del total'],
-      ['Otras (3 categorías)', '600,00', '21 gastos · 17 % del total'],
+      ['Categoría 1', '$ 800', '1 gasto · 22 % del total'],
+      ['Categoría 2', '$ 700', '2 gastos · 19 % del total'],
+      ['Categoría 3', '$ 600', '3 gastos · 17 % del total'],
+      ['Categoría 4', '$ 500', '4 gastos · 14 % del total'],
+      ['Categoría 5', '$ 400', '5 gastos · 11 % del total'],
+      ['Otras (3 categorías)', '$ 600', '21 gastos · 17 % del total'],
     ]);
   });
 
@@ -701,7 +701,7 @@ describe('pantalla Resumen: desgloses con barras', () => {
     queryClient.clear();
     gastosDelMes([total(100000, 2), cat(CAT_A, 'Grande', 99990), cat(CAT_B, 'Chica', 10)]);
     await mount();
-    expect(barras('resumen-por-categoria')[1]).toEqual(['Chica', '10,00', '1 gasto · menos de 1 % del total']);
+    expect(barras('resumen-por-categoria')[1]).toEqual(['Chica', '$ 10', '1 gasto · menos de 1 % del total']);
   });
 
   it('el nombre de la categoría se muestra como TEXTO (nunca como HTML)', async () => {
@@ -714,23 +714,23 @@ describe('pantalla Resumen: desgloses con barras', () => {
   it('por método de pago, con "Sin especificar"', async () => {
     await mount();
     expect(barras('resumen-por-metodo')).toEqual([
-      ['Efectivo', '6.000,00', '5 gastos · 60 % del total'],
-      ['Sin especificar', '4.000,00', '3 gastos · 40 % del total'],
+      ['Efectivo', '$ 6.000', '5 gastos · 60 % del total'],
+      ['Sin especificar', '$ 4.000', '3 gastos · 40 % del total'],
     ]);
   });
 
   it('por camión: la patente con espacios y "Sin camión"', async () => {
     await mount();
     expect(barras('resumen-por-camion')).toEqual([
-      ['AB 123 CD', '7.500,00', '4 gastos · 75 % del total'],
-      ['Sin camión', '2.500,00', '4 gastos · 25 % del total'],
+      ['AB 123 CD', '$ 7.500', '4 gastos · 75 % del total'],
+      ['Sin camión', '$ 2.500', '4 gastos · 25 % del total'],
     ]);
   });
 
   it('un camión archivado dice "(ya no se usa)"', async () => {
     gastosDelMes([total(1000, 2), cat(CAT_A, 'Peajes', 1000, 2), met('efectivo', 1000, 2), cam('c1000000-0000-4000-8000-000000000002', 'CD456EF', false, 1000, 2)]);
     await mount();
-    expect(barras('resumen-por-camion')).toEqual([['CD 456 EF (ya no se usa)', '1.000,00', '2 gastos · 100 % del total']]);
+    expect(barras('resumen-por-camion')).toEqual([['CD 456 EF (ya no se usa)', '$ 1.000', '2 gastos · 100 % del total']]);
   });
 
   it('sin ningún gasto con camión (solo "Sin camión"), el desglose por camión NO aparece', async () => {
@@ -765,8 +765,8 @@ describe('pantalla Resumen: ingresos y resultado', () => {
 
   it('ganancia: "Ganancia" con el monto, los ingresos y los gastos del mes, y qué es el resultado', async () => {
     await mount();
-    expect(resultado()).toBe('Ganancia15.000,00');
-    expect(datos()).toEqual(['Lo que cobraste25.000,003 viajes con cobro anotado', 'Gastos del mes10.000,00']);
+    expect(resultado()).toBe('Ganancia$ 15.000');
+    expect(datos()).toEqual(['Lo que cobraste$ 25.0003 viajes con cobro anotado', 'Gastos del mes$ 10.000']);
     expect(textoDe('resumen-resultado')).toContain('lo que cobraste por los viajes del mes menos todos los gastos del mes');
     expect(textoDe('resumen-resultado')).not.toContain('incompleto');
     expect(byId('resumen-resultado')!.querySelector('.text-destructive-text')).toBeNull();
@@ -776,16 +776,16 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     mensualCon({ viajes_ingreso: 7000, resultado: -3000 });
     await mount();
     // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
-    expect(resultado()).toBe('Pérdida-3.000,00');
+    expect(resultado()).toBe('Pérdida-$ 3.000');
     expect(textoDe('resumen-resultado')).not.toContain('Ganancia');
     // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
-    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u22123.000,00');
+    expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u2212$\u00a03.000');
   });
 
   it('resultado 0: "Resultado", ni ganancia ni pérdida', async () => {
     mensualCon({ viajes_ingreso: 10000, resultado: 0 });
     await mount();
-    expect(resultado()).toBe('Resultado0,00');
+    expect(resultado()).toBe('Resultado$ 0');
   });
 
   it('resultado null (ningún viaje con cobro anotado): NO hay resultado; invita a anotar lo que cobraste, con enlace a los viajes del mes', async () => {
@@ -799,7 +799,7 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     const enlace = byId('resumen-resultado')!.querySelector<HTMLAnchorElement>('a')!;
     expect(enlace.textContent).toBe('Ver los viajes del mes');
     expect(enlace.getAttribute('href')).toBe('/viajes');
-    expect(datos()).toEqual(['Lo que cobraste0,000 de 3 viajes con cobro anotado', 'Gastos del mes10.000,00']);
+    expect(datos()).toEqual(['Lo que cobraste$ 00 de 3 viajes con cobro anotado', 'Gastos del mes$ 10.000']);
   });
 
   it('resultado null con un solo viaje y sin viajes: el texto que corresponde', async () => {
@@ -812,7 +812,7 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     mensualCon({ viajes_cantidad: 0, viajes_km: 0, viajes_con_ingreso: 0, viajes_sin_ingreso: 0, viajes_ingreso: 0, resultado: null });
     await mount();
     expect(textoDe('resumen-resultado')).toContain('No hay viajes en el mes. Anota tus viajes con lo que cobraste para ver si el mes dio ganancia o pérdida.');
-    expect(datos()[0]).toBe('Lo que cobraste0,00');
+    expect(datos()[0]).toBe('Lo que cobraste$ 0');
   });
 
   it('en un mes cerrado, el enlace lleva a los viajes de ESE mes', async () => {
@@ -825,14 +825,14 @@ describe('pantalla Resumen: ingresos y resultado', () => {
   it('con viajes sin ingreso, el resultado se muestra CON el aviso de que puede estar incompleto', async () => {
     mensualCon({ viajes_con_ingreso: 1, viajes_sin_ingreso: 2, viajes_ingreso: 12000, resultado: 2000 });
     await mount();
-    expect(resultado()).toBe('Ganancia2.000,002 viajes sin cobro anotado: el resultado puede estar incompleto.');
-    expect(datos()[0]).toBe('Lo que cobraste12.000,001 de 3 viajes con cobro anotado');
+    expect(resultado()).toBe('Ganancia$ 2.0002 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    expect(datos()[0]).toBe('Lo que cobraste$ 12.0001 de 3 viajes con cobro anotado');
     await act(async () => root.unmount());
     container.remove();
     queryClient.clear();
     mensualCon({ viajes_con_ingreso: 2, viajes_sin_ingreso: 1, viajes_ingreso: 8000, resultado: -2000 });
     await mount();
-    expect(resultado()).toBe('Pérdida-2.000,001 viaje sin cobro anotado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Pérdida-$ 2.0001 viaje sin cobro anotado: el resultado puede estar incompleto.');
   });
 
   it('pide la fila de ESE mes (un mes) y la valida: un mes que no es el pedido es un error, con "Reintentar"', async () => {
@@ -849,7 +849,7 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     await mount();
     expect(byId('resumen-resultado')!.getAttribute('aria-busy')).toBe('true');
     expect(byId('resumen-resultado')!.querySelector('[data-cargando]')).not.toBeNull();
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
   });
 
   it('si falla, su "Reintentar" pide SOLO el resultado; los gastos se siguen viendo', async () => {
@@ -857,21 +857,21 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     route.mensual = (call) => (falla ? sinRed() : ok([mesFila(String(argsDe(call).p_mes_desde))]));
     await mount();
     expect(textoDe('resumen-resultado')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     const gastos = rpcs('resumen_gastos').length;
     const mensuales = rpcs('resumen_mensual').length;
     falla = false;
     await click(botonEn('resumen-resultado', 'Reintentar'));
     expect(rpcs('resumen_mensual')).toHaveLength(mensuales + 1);
     expect(rpcs('resumen_gastos')).toHaveLength(gastos);
-    expect(resultado()).toBe('Ganancia15.000,00');
+    expect(resultado()).toBe('Ganancia$ 15.000');
   });
 
   it('si fallan los gastos, el resultado se sigue viendo (cada bloque con su consulta)', async () => {
     route.gastos = () => sinRed();
     await mount();
     expect(textoDe('resumen-gastos')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(resultado()).toBe('Ganancia15.000,00');
+    expect(resultado()).toBe('Ganancia$ 15.000');
   });
 });
 
@@ -901,10 +901,10 @@ describe('pantalla Resumen: combustible por camión', () => {
     expect(pares(camion!.querySelector('dl:not([data-rendimiento])'))).toEqual([
       'Cargas: 3 cargas',
       'Litros: 300,5 L',
-      'Gasto: 7.000,00',
-      'Precio promedio: 23,29 por litro',
+      'Gasto: $ 7.000',
+      'Precio promedio: $ 23,29 por litro',
     ]);
-    expect(pares(camion!.querySelector('dl[data-rendimiento]'))).toEqual(['Rinde: 3,0 km por litro', 'Gasta: 33,3 litros cada 100 km', 'Cada km te cuesta: 7,67']);
+    expect(pares(camion!.querySelector('dl[data-rendimiento]'))).toEqual(['Rinde: 3,0 km por litro', 'Gasta: 33,3 litros cada 100 km', 'Cada km te cuesta: $ 7,67']);
     expect(camion!.querySelectorAll('[data-tramos]')).toHaveLength(1);
     expect(plano(camion!.querySelector('[data-tramos]')!.textContent)).toBe('2 tramos usados (900 km, 300,0 L), ninguno descartado.');
     expect(camion!.querySelector('[data-sin-rendimiento]')).toBeNull();
@@ -962,7 +962,7 @@ describe('pantalla Resumen: combustible por camión', () => {
   it('un camión sin cargas en el mes (0): sin precio promedio', async () => {
     combustibleDa({ ...SIN_TRAMOS, cargas: 0, litros: 0, monto: 0, precio_promedio: null, llenas_con_odometro: 0 });
     await mount();
-    expect(pares(camiones()[0]!.querySelector('dl'))).toEqual(['Cargas: 0 cargas', 'Litros: 0,0 L', 'Gasto: 0,00']);
+    expect(pares(camiones()[0]!.querySelector('dl'))).toEqual(['Cargas: 0 cargas', 'Litros: 0,0 L', 'Gasto: $ 0']);
   });
 
   it('sin cargas de combustible en el mes: lo dice (en curso y cerrado)', async () => {
@@ -1010,8 +1010,8 @@ describe('pantalla Resumen: combustible por camión', () => {
     estado = 'falla';
     await mount();
     expect(textoDe('resumen-combustible')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
-    expect(textoDe('resumen-resultado')).toContain('15.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    expect(textoDe('resumen-resultado')).toContain('$ 15.000');
     const pedidos = rpcs('resumen_combustible').length;
     const otros = h.calls.length - pedidos;
     estado = 'ok';
@@ -1058,7 +1058,7 @@ describe('pantalla Resumen: viajes del mes', () => {
 
   it('una fila con todo: recorrido, ganancia, fecha · camión · km, e ingreso · gastos del viaje', async () => {
     await mount();
-    expect(fila(filasDeViajes()[0]!)).toEqual(['Rosario → a Córdoba', 'Ganancia 12.000,00', '12 oct · AB 123 CD · 400 km', 'Cobraste 15.000,00 · 2 gastos: 3.000,00']);
+    expect(fila(filasDeViajes()[0]!)).toEqual(['Rosario → a Córdoba', 'Ganancia $ 12.000', '12 oct · AB 123 CD · 400 km', 'Cobraste $ 15.000 · 2 gastos: $ 3.000']);
   });
 
   it('sin ingreso: "Sin cobro anotado" en vez de ganancia; sin camión ni km, no se inventan; sin gastos lo dice', async () => {
@@ -1071,17 +1071,17 @@ describe('pantalla Resumen: viajes del mes', () => {
     viajesDa({ ingreso: 1000, gastos_monto: 3000, ganancia: -2000 }, { viaje_id: V2, ingreso: 0, gastos_monto: 500, gastos_cantidad: 1, ganancia: -500 });
     await mount();
     // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
-    expect(fila(filasDeViajes()[0]!)[1]).toBe('Pérdida -2.000,00');
+    expect(fila(filasDeViajes()[0]!)[1]).toBe('Pérdida -$ 2.000');
     // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
-    expect(filasDeViajes()[0]!.querySelector('[data-ganancia] .text-destructive-text')!.textContent).toBe('\u22122.000,00');
-    expect(fila(filasDeViajes()[1]!)).toEqual(['Rosario → a Córdoba', 'Pérdida -500,00', '12 oct · AB 123 CD · 400 km', 'Cobraste 0,00 · 1 gasto: 500,00']);
+    expect(filasDeViajes()[0]!.querySelector('[data-ganancia] .text-destructive-text')!.textContent).toBe('\u2212$\u00a02.000');
+    expect(fila(filasDeViajes()[1]!)).toEqual(['Rosario → a Córdoba', 'Pérdida -$ 500', '12 oct · AB 123 CD · 400 km', 'Cobraste $ 0 · 1 gasto: $ 500']);
     expect(filasDeViajes()[0]!.textContent).not.toContain('-2.000');
   });
 
-  it('ganancia 0: "Resultado 0,00"', async () => {
+  it('ganancia 0: "Resultado $ 0"', async () => {
     viajesDa({ ingreso: 3000, gastos_monto: 3000, ganancia: 0, total_viajes: 1 });
     await mount();
-    expect(fila(filasDeViajes()[0]!)[1]).toBe('Resultado 0,00');
+    expect(fila(filasDeViajes()[0]!)[1]).toBe('Resultado $ 0');
   });
 
   it('la cantidad de viajes del mes', async () => {
@@ -1136,7 +1136,7 @@ describe('pantalla Resumen: viajes del mes', () => {
     route.viajes = () => (estado === 'cargando' ? new Promise(() => {}) : estado === 'falla' ? sinRed() : ok([viajeFila({ total_viajes: 1 })]));
     await mount();
     expect(byId('resumen-viajes')!.getAttribute('aria-busy')).toBe('true');
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     await act(async () => root.unmount());
     container.remove();
     queryClient.clear();
@@ -1212,7 +1212,7 @@ describe('pantalla Resumen: todos los bloques', () => {
     expect(rpcs('resumen_mensual').map(argsDe)).toEqual([{ p_mes_desde: '2026-09-01', p_meses: 1 }]);
     expect(rpcs('resumen_combustible').map(argsDe)).toEqual([{ p_desde: '2026-09-01', p_hasta: '2026-09-30' }]);
     expect(rpcs('resumen_viajes').map(argsDe)).toEqual([{ p_desde: '2026-09-01', p_hasta: '2026-09-30' }]);
-    expect(comparacion()).toBe('2.000,00 más (+25 %) vs. agosto (8.000,00)');
+    expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. agosto ($ 8.000)');
   });
 
   it('ningún color fijo en las clases de la pantalla: solo los del tema', async () => {
@@ -1255,20 +1255,20 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
   const detalle = () => byId('resumen-por-categoria')!.querySelector('[data-gastos-varios]');
   const filasDelDetalle = () => [...(detalle()?.querySelectorAll('[data-gasto-vario]') ?? [])].map((li) => plano(li.textContent));
   const estadoSr = () => document.querySelector('[role="status"]')!.textContent;
-  const resultadoOk = () => plano(byId('resumen-resultado')?.querySelector('[data-resultado]')?.textContent) === 'Ganancia15.000,00';
+  const resultadoOk = () => plano(byId('resumen-resultado')?.querySelector('[data-resultado]')?.textContent) === 'Ganancia$ 15.000';
 
   it('fecha corta, descripción y monto de cada gasto, DEBAJO de la barra de "Gastos varios" (y no en otra categoría)', async () => {
     conVarios();
     route.varios = () => ok([gv(G1, '2026-10-12', 'Lavado del camión', 1500), gv(G2, '2026-10-05', 'Propina', 1000.5), gv(G3, '2026-10-02', 'Balanza', 500)]);
     await mount();
     expect(rpcs('resumen_gastos_varios').map(argsDe)).toEqual([{ p_desde: '2026-10-01', p_hasta: '2026-10-31' }]);
-    expect(filasDelDetalle()).toEqual(['12 oct · Lavado del camión1.500,00', '5 oct · Propina1.000,50', '2 oct · Balanza500,00']);
+    expect(filasDelDetalle()).toEqual(['12 oct · Lavado del camión$ 1.500', '5 oct · Propina$ 1.000,50', '2 oct · Balanza$ 500']);
     expect(detalle()!.closest('li')!.getAttribute('data-fila')).toBe(GASTOS_VARIOS_CATEGORIA_ID);
     expect(byId('resumen-por-categoria')!.querySelectorAll('[data-gastos-varios]')).toHaveLength(1);
     expect(detalle()!.querySelector('ul')!.getAttribute('aria-label')).toBe('Detalle de Gastos varios');
     expect(detalle()!.querySelector('[data-gastos-varios-mas]')).toBeNull();
     // Los desgloses de siempre siguen igual (el detalle va después del texto de la barra).
-    expect(barras('resumen-por-categoria')[1]).toEqual(['Gastos varios', '3.000,00', '3 gastos · 30 % del total']);
+    expect(barras('resumen-por-categoria')[1]).toEqual(['Gastos varios', '$ 3.000', '3 gastos · 30 % del total']);
   });
 
   it('sin descripción (null): "Sin descripción" en gris; truncada: termina en "…"', async () => {
@@ -1277,9 +1277,9 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
       ok([gv(G1, '2026-10-12', null, 1500), gv(G2, '2026-10-05', 'x'.repeat(80), 1000, { descripcion_truncada: true }), gv(G3, '2026-10-02', 'Completa', 500)]);
     await mount();
     const [sin, truncada, completa] = [...detalle()!.querySelectorAll('[data-gasto-vario]')];
-    expect(plano(sin!.textContent)).toBe('12 oct · Sin descripción1.500,00');
+    expect(plano(sin!.textContent)).toBe('12 oct · Sin descripción$ 1.500');
     expect([...sin!.querySelectorAll('.text-muted-foreground')].map((el) => el.textContent)).toEqual(['12 oct', 'Sin descripción']);
-    expect(plano(truncada!.textContent)).toBe('5 oct · ' + 'x'.repeat(80) + '…1.000,00');
+    expect(plano(truncada!.textContent)).toBe('5 oct · ' + 'x'.repeat(80) + '…$ 1.000');
     expect(plano(completa!.textContent)).not.toContain('…');
   });
 
@@ -1287,7 +1287,7 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     conVarios(1);
     route.varios = () => ok([gv(G1, '2026-10-12', '<img src=x onerror=alert(1)>', 1500, {}, 1)]);
     await mount();
-    expect(filasDelDetalle()[0]).toBe('12 oct · <img src=x onerror=alert(1)>1.500,00');
+    expect(filasDelDetalle()[0]).toBe('12 oct · <img src=x onerror=alert(1)>$ 1.500');
     expect(document.querySelector('img')).toBeNull();
     const izquierda = detalle()!.querySelector('[data-gasto-vario] > span')!;
     expect(izquierda.className).toContain('break-words');
@@ -1317,7 +1317,7 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     route.varios = () => ok([gv(G1, '2026-08-12', 'A', 100, {}, 1)]);
     await mount('/resumen?mes=2026-08');
     expect(rpcs('resumen_gastos_varios').map(argsDe)).toEqual([{ p_desde: '2026-08-01', p_hasta: '2026-08-31' }]);
-    expect(filasDelDetalle()).toEqual(['12 ago · A100,00']);
+    expect(filasDelDetalle()).toEqual(['12 ago · A$ 100']);
   });
 
   it('el mes sin gastos varios (sin esa categoría): no se pide ni se muestra nada', async () => {
@@ -1340,7 +1340,7 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     route.varios = () => new Promise(() => {});
     await mount();
     expect(detalle()!.querySelector('[data-cargando]')).not.toBeNull();
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     expect(estadoSr()).toBe('');
   });
 
@@ -1349,7 +1349,7 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     route.varios = () => errorBase('PGRST202', 404);
     await mount();
     expect(barras('resumen-por-categoria').map((f) => f[0])).toEqual(['Combustible', 'Gastos varios']);
-    expect(textoDe('resumen-gastos')).toContain('10.000,00');
+    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
     expect(byId('resumen-por-metodo')).not.toBeNull();
     expect(resultadoOk()).toBe(true);
     const aviso = detalle()!.querySelector('[role="alert"]')!;
@@ -1372,7 +1372,7 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     await click(botonEn('resumen-por-categoria', 'Reintentar'));
     expect(rpcs('resumen_gastos_varios')).toHaveLength(varios + 1);
     expect(rpcs('resumen_gastos')).toHaveLength(gastos);
-    expect(filasDelDetalle()).toEqual(['12 oct · A100,00']);
+    expect(filasDelDetalle()).toEqual(['12 oct · A$ 100']);
   });
 
   it('el detalle va DENTRO de "Por categoría": no agrega secciones ni cambia el orden de los h2', async () => {

@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react';
 
 import { estadoDesdeViaje, type DesdeViaje } from '@/features/viajes/viaje-navegacion';
 import { formatDateShort } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney, formatNumber } from '@/lib/numbers';
 import { isCombustible, nombreParaMostrar, type Categoria } from './categorias';
 import type { GastoDeFila, ViajeDeGasto } from './gastos-api';
 
@@ -27,7 +27,7 @@ interface GastoItemProps {
  * Una fila de la lista: toda es un enlace a editar (área táctil ≥ 64 px). Categoría y monto son lo
  * principal; la descripción va truncada a una línea; si es combustible y tiene litros, se muestran
  * junto a la fecha. Si el gasto está vinculado a un viaje, su recorrido va en una línea discreta y truncada.
- * Los números van sin símbolo de moneda.
+ * El monto lleva «$» ("$ 5.000", `formatMoney`); los litros, no.
  */
 export function GastoItem({ gasto, categoria, volver = '', desdeViaje, camion }: GastoItemProps) {
   const nombre = categoria ? nombreParaMostrar(categoria) : 'Gasto';
@@ -57,7 +57,7 @@ export function GastoItem({ gasto, categoria, volver = '', desdeViaje, camion }:
           ) : null}
         </div>
         <p className="shrink-0 text-right text-base font-semibold tabular-nums">
-          {formatNumber(gasto.monto, { decimales: 2 })}
+          {formatMoney(gasto.monto)}
         </p>
         <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
       </Link>

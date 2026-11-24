@@ -18,6 +18,11 @@ interface FieldShellProps {
   /** Se marca "(opcional)" en la etiqueta. Es más claro en el celular que un asterisco. */
   optional?: boolean;
   hint?: ReactNode;
+  /**
+   * Línea de confirmación de lo escrito («Se lee: $ 12.500»). Texto normal, NO una región `aria-live` (sería ruido en cada
+   * tecla): se lee cuando el lector llega al campo, por `aria-describedby`. Va pegada al control, antes de la ayuda y del error.
+   */
+  lectura?: string | null;
   error?: string | null;
   /** El control, recibiendo los atributos de accesibilidad ya armados. */
   children: (control: FieldControlProps) => ReactNode;
@@ -31,18 +36,20 @@ interface FieldShellProps {
  *  - El error lleva ícono + texto (nunca solo color) y vive en una región
  *    `aria-live` que está siempre en el DOM: los lectores de pantalla anuncian
  *    el texto cuando aparece.
- *  - `aria-describedby` apunta a la ayuda y, solo si hay, al error.
+ *  - `aria-describedby` apunta a la línea de lectura («Se lee: …») y a la ayuda, si hay, y, solo si hay, al error.
  *  - Los formularios van con `noValidate`: la validación es nuestra, en
  *    español, y no los globos del navegador. Por eso se usa `aria-required`
  *    y no el atributo `required`.
  */
-export function FieldShell({ id, label, optional = false, hint, error, children }: FieldShellProps) {
+export function FieldShell({ id, label, optional = false, hint, lectura, error, children }: FieldShellProps) {
   const generatedId = useId();
   const controlId = id ?? generatedId;
   const hintId = `${controlId}-hint`;
+  const lecturaId = `${controlId}-lectura`;
   const errorId = `${controlId}-error`;
 
-  const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ');
+  // En el mismo orden en que se ven: lectura, ayuda y error.
+  const describedBy = [lectura ? lecturaId : null, hint ? hintId : null, error ? errorId : null].filter(Boolean).join(' ');
 
   return (
     <div className="space-y-1.5">
@@ -57,6 +64,12 @@ export function FieldShell({ id, label, optional = false, hint, error, children 
         'aria-invalid': error ? true : undefined,
         'aria-required': optional ? undefined : true,
       })}
+
+      {lectura ? (
+        <p id={lecturaId} className="text-base text-muted-foreground tabular-nums">
+          {lectura}
+        </p>
+      ) : null}
 
       {hint ? (
         <p id={hintId} className="text-base text-muted-foreground">

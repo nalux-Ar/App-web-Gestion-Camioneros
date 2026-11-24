@@ -240,6 +240,8 @@ const links = () => [...document.querySelectorAll<HTMLAnchorElement>('a')];
 const linkTo = (href: string) => links().filter((a) => a.getAttribute('href') === href);
 const buttonByText = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(text));
 const nums = (n: number | null, decimales: number, fijos = true) => formatNumber(n, { decimales, fijos });
+/** Dinero como se ve: «$ 1.250,50», sin centavos si es entero y con el espacio que no corta línea entre el «$» y la cifra. */
+const plata = (n: number) => `$\u00a0${formatNumber(n, { decimales: Number.isInteger(n) ? 0 : 2 })}`;
 const section = (titulo: string) => [...document.querySelectorAll('section')].find((s) => s.querySelector('h2')?.textContent?.startsWith(titulo)) as HTMLElement;
 const gastoItems = () => [...document.querySelectorAll<HTMLAnchorElement>('ul li a[href^="/gastos/"]')];
 const stateOf = (el: Element) => JSON.parse((el as HTMLElement).dataset.state ?? 'null') as Record<string, unknown> | null;
@@ -291,7 +293,7 @@ describe('detalle de un viaje: los datos', () => {
     expect(datos.textContent).toContain(`${nums(650.5, 1, false)} km`); // 1850,5 - 1200
     expect(datos.textContent).toContain('Lo que cobraste');
     expect(datos.textContent).not.toMatch(/Ingreso/);
-    expect(datos.textContent).toContain(nums(15000.5, 2));
+    expect(datos.textContent).toContain(plata(15000.5));
     expect(datos.textContent).toContain('Todo bien');
     expect(datos.textContent).toContain('Segunda línea');
   });
@@ -315,13 +317,13 @@ describe('detalle de un viaje: los datos', () => {
     const datos = section('Datos del viaje');
     expect(datos.textContent).toContain('Sin anotar');
     expect(datos.textContent).not.toContain('Observaciones');
-    expect(datos.textContent).not.toContain(nums(0, 2));
+    expect(datos.textContent).not.toContain(plata(0));
   });
 
   it('un ingreso de 0 se muestra como 0 (no como "Sin anotar")', async () => {
     route.viaje = () => ok(vista({ ingreso: 0 }));
     await mount();
-    expect(section('Datos del viaje').textContent).toContain(nums(0, 2));
+    expect(section('Datos del viaje').textContent).toContain(plata(0));
   });
 
   it('el texto del viaje se muestra como texto (sin interpretar HTML)', async () => {
@@ -647,7 +649,7 @@ describe('detalle de un viaje: los gastos', () => {
     await mount();
     const gastos = section('Gastos del viaje');
     expect(gastos.textContent).toContain('Total de gastos del viaje');
-    expect(gastos.textContent).toContain(nums(100.6, 2)); // no 100,60000000000001
+    expect(gastos.textContent).toContain(plata(100.6)); // no 100,60000000000001
     expect(gastos.textContent).toContain('3 gastos');
     const items = gastoItems();
     expect(items).toHaveLength(3);
@@ -669,7 +671,7 @@ describe('detalle de un viaje: los gastos', () => {
     const gastos = section('Gastos del viaje');
     expect(gastos.textContent).toContain('1 gasto');
     expect(gastos.textContent).not.toContain('1 gastos');
-    expect(gastos.textContent).toContain(nums(250, 2));
+    expect(gastos.textContent).toContain(plata(250));
   });
 
   it('pide los gastos por viaje_id: fecha desc, created_at desc, id asc, 501 pedidos, con una key que cuelga de las de gastos', async () => {
@@ -713,7 +715,7 @@ describe('detalle de un viaje: los gastos', () => {
     expect(gastoItems()).toHaveLength(500);
     expect(bodyText()).toContain('Hay más de 500 gastos en este viaje. Se muestran los 500 más recientes y el total solo suma esos.');
     expect(section('Gastos del viaje').textContent).toContain('500 gastos (los más recientes)');
-    expect(section('Gastos del viaje').textContent).toContain(nums(500, 2)); // el 501 no suma
+    expect(section('Gastos del viaje').textContent).toContain(plata(500)); // el 501 no suma
   }, 60_000);
 
   it('exactamente 500 gastos: sin aviso', async () => {
@@ -729,7 +731,7 @@ describe('detalle de un viaje: los gastos', () => {
     const texto = bodyText().toLowerCase();
     for (const palabra of ['resultado', 'ganancia', 'balance', 'neto', 'margen']) expect(texto, palabra).not.toContain(palabra);
     // Ni la resta (15000,5 - 100,6 = 14899,9) aparece en pantalla.
-    expect(bodyText()).not.toContain(nums(14899.9, 2));
+    expect(bodyText()).not.toContain(plata(14899.9));
   });
 
   it('si fallan los gastos: error con "Reintentar" que vuelve a pedirlos; el resto del viaje se ve igual', async () => {
@@ -763,7 +765,7 @@ describe('detalle de un viaje: los gastos', () => {
 
   it('cualquier alta, edicion o borrado de un gasto invalida la lista (la key cuelga de gastosKeys.all) y el total se actualiza', async () => {
     await mount();
-    expect(section('Gastos del viaje').textContent).toContain(nums(100.6, 2));
+    expect(section('Gastos del viaje').textContent).toContain(plata(100.6));
     route.gastos = () => ok([gasto(G_1, 0.1), gasto(G_2, 0.2), gasto(G_3, 100.3), gasto('e0000000-0000-4000-8000-000000000004', 50)]);
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: gastosKeys.all('tenant-a') });
@@ -771,7 +773,7 @@ describe('detalle de un viaje: los gastos', () => {
     await settle(4);
     expect(callsTo('gastos')).toHaveLength(2);
     expect(gastoItems()).toHaveLength(4);
-    expect(section('Gastos del viaje').textContent).toContain(nums(150.6, 2));
+    expect(section('Gastos del viaje').textContent).toContain(plata(150.6));
   });
 });
 
@@ -1310,5 +1312,40 @@ describe('detalle de un viaje: aviso «Guardaste N gastos.» (varios gastos de u
     await click(document.querySelector<HTMLButtonElement>('button[aria-label="Cerrar aviso"]')!);
     expect(bodyText()).not.toContain('Guardaste 3 gastos.');
     expect(stateOf(byId('estado')!)).toEqual({ volver: '?mes=2025-06' });
+  });
+});
+
+describe('detalle de un viaje: el dinero lleva «$» y los kilómetros y los litros no', () => {
+  it('«Lo que cobraste» lleva «$» y el kilometraje no', async () => {
+    await mount();
+    const datos = section('Datos del viaje');
+    const [fecha, cobro] = [...datos.querySelectorAll('dd')].map((d) => d.textContent ?? '');
+    expect(fecha).not.toContain('$');
+    expect(cobro).toBe(plata(15000.5));
+    const kilometraje = [...datos.querySelectorAll('div')].find((d) => d.querySelector('dt')?.textContent === 'Kilometraje')!;
+    expect(kilometraje.textContent).toContain(`${nums(650.5, 1, false)} km`);
+    expect(kilometraje.textContent).not.toContain('$');
+    expect(datos.textContent!.match(/\$/g)).toHaveLength(1);
+  });
+
+  it('el total de gastos lleva «$», y en la lista cada gasto lleva el suyo y los litros no', async () => {
+    await mount();
+    const gastos = section('Gastos del viaje');
+    expect(gastos.textContent).toContain(`Total de gastos del viaje${plata(100.6)}`);
+    const items = gastoItems();
+    expect(items[0]!.textContent).toContain(plata(0.1));
+    expect(items[2]!.textContent).toContain(plata(100.3));
+    expect(items[2]!.textContent).toContain(`${nums(40.5, 3, false)} L`);
+    expect(items[2]!.textContent!.match(/\$/g)).toHaveLength(1);
+    // Total + 3 gastos: 4 «$» en toda la sección.
+    expect(gastos.textContent!.match(/\$/g)).toHaveLength(4);
+  });
+
+  it('sin ingreso dice «Sin anotar» y sin «$»', async () => {
+    route.viaje = () => ok(vista({ ingreso: null }));
+    await mount();
+    const [, cobro] = [...section('Datos del viaje').querySelectorAll('dd')].map((d) => d.textContent ?? '');
+    expect(cobro).toBe('Sin anotar');
+    expect(section('Datos del viaje').textContent).not.toContain('$');
   });
 });

@@ -165,7 +165,7 @@ describe('el idioma de los textos', () => {
     }
   });
 
-  it('con tildes donde corresponden y sin símbolo de moneda ni marcado', () => {
+  it('con tildes donde corresponden y sin «$» ni marcado escritos a mano', () => {
     const sinTilde = /(?<![\p{L}])(categoria|categorias|metodo|cuantos|mas|asi|aqui|despues|maximo)(?![\p{L}])/iu;
     for (const { nombre, texto } of todosLosTextos()) {
       expect(texto, nombre).not.toMatch(sinTilde);

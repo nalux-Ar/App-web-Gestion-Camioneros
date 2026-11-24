@@ -490,3 +490,46 @@ describe('lista de gastos: aviso al volver de guardar', () => {
     expect(document.body.textContent).not.toContain('Guardaste 5 gastos.');
   });
 });
+
+describe('lista de gastos: «Gastaste en …» y el total con «$»', () => {
+  const tarjeta = () => document.querySelector('section[aria-labelledby="gastos-total-titulo"]')!;
+
+  it('el rótulo dice «Gastaste en octubre 2026» (ya no «Total de …») y el total lleva «$»', async () => {
+    await mount('/gastos?mes=2026-10');
+    expect(tarjeta().querySelector('h2')!.textContent).toBe('Gastaste en octubre 2026');
+    expect(tarjeta().textContent).not.toContain('Total de');
+    expect(tarjeta().querySelector('p')!.textContent).toBe('$\u00a02.400'); // 3 gastos de 800
+    expect(tarjeta().textContent).toContain('3 gastos');
+  });
+
+  it('con un filtro por categoría el rótulo sigue con « · Peajes»', async () => {
+    await mount(`/gastos?mes=2026-10&categoria=${PEAJES_ID}`);
+    expect(tarjeta().querySelector('h2')!.textContent).toBe('Gastaste en octubre 2026 · Peajes');
+  });
+
+  it('sin filtro no hay « · …» en el rótulo', async () => {
+    await mount('/gastos?mes=2026-10');
+    expect(tarjeta().querySelector('h2')!.textContent).not.toContain('·');
+  });
+
+  it('con centavos: 2 decimales («$ 4.250,50»); sin ellos, ninguno; la suma es exacta (0,1 + 0,2 = «$ 0,30»)', async () => {
+    gastos = () => ok([fila(G_SIN, { monto: 1250.5 }), fila(G_CON, { monto: 3000 })]);
+    await mount('/gastos?mes=2026-10');
+    expect(tarjeta().querySelector('p')!.textContent).toBe('$\u00a04.250,50');
+    await act(async () => root.unmount());
+    container.remove();
+    queryClient.clear();
+    gastos = () => ok([fila(G_SIN, { monto: 0.1 }), fila(G_CON, { monto: 0.2 })]);
+    await mount('/gastos?mes=2026-10');
+    expect(tarjeta().querySelector('p')!.textContent).toBe('$\u00a00,30');
+  });
+
+  it('en cada fila el monto lleva «$» y los litros no', async () => {
+    await mount('/gastos?mes=2026-10');
+    const combustible = itemOf(G_LARGO);
+    expect(combustible.textContent).toContain('40 L');
+    expect(combustible.textContent).toContain('$\u00a0800');
+    expect(combustible.textContent!.match(/\$/g)).toHaveLength(1);
+    for (const item of items()) expect(item.textContent!.match(/\$/g), item.textContent ?? '').toHaveLength(1);
+  });
+});

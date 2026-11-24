@@ -4,7 +4,7 @@ import type { MotivoNoSumado } from './sumar-gastos';
 
 /**
  * TODOS los textos de «Sumar gastos que ya cargué», juntos para revisarlos de un vistazo. Español neutro, de «tú», en palabras de
- * todos los días (nada de «vincular», «asociar» ni «lote»). Los montos van sin símbolo de moneda, como en toda la app. La ayuda
+ * todos los días (nada de «vincular», «asociar» ni «lote»). Los montos llevan «$» (llegan ya formateados con `formatMoney`), como en toda la app. La ayuda
  * de la pantalla (el botón «Ayuda») está con las demás ayudas, en `src/features/ayuda/ayuda-pantallas.ts`.
  */
 
@@ -78,7 +78,7 @@ export const SUMANDO = 'Sumando…';
  */
 export const UN_MOMENTO = 'Un momento…';
 
-/** «Suman 12.345,00»: `monto` ya viene formateado, sin símbolo de moneda. */
+/** «Suman $ 12.345»: `monto` ya viene formateado, con su «$» (`formatMoney`). */
 export function textoTotalMarcado(monto: string): string {
   return `Suman ${monto}`;
 }

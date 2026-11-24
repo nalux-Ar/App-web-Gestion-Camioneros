@@ -55,7 +55,6 @@ import {
   CAMION_FALTA_MESSAGE,
 } from '@/features/camiones/camion-seleccion';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
-import { formatNumber } from '@/lib/numbers';
 import { queryClient } from '@/lib/query-client';
 
 type Resp = { data: unknown; count?: unknown; error: { message: string; code: string; details?: string; hint?: string } | null; status: number };
@@ -967,6 +966,16 @@ describe('carga de combustible: los textos de los campos', () => {
     expect(bodyText()).not.toMatch(/odómetro/i);
   });
 
+  it('«Kilómetros del camión» acepta 0 (es opcional y 0 es válido): «Se lee: 0 km» y ningún error', async () => {
+    route.camiones = () => ok([A, X]);
+    await mount();
+    await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
+    await typeText(byId<HTMLInputElement>('gasto-km'), '0');
+    expect(bodyText().replace(/\s/g, ' ')).toContain('Se lee: 0 km');
+    expect(byId<HTMLInputElement>('gasto-km')!.getAttribute('aria-invalid')).toBeNull();
+    expect(byId<HTMLInputElement>('gasto-km')!.getAttribute('aria-describedby') ?? '').toContain('lectura');
+  });
+
   it('«¿Llenaste el tanque?»: Sí / No / No sé (ya no «Sin indicar»)', async () => {
     route.camiones = () => ok([A, X]);
     await mount();
@@ -984,8 +993,11 @@ describe('carga de combustible: los textos de los campos', () => {
     await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
     expect(bodyText()).not.toContain('Sale a'); // falta los litros
     await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
-    expect(bodyText()).toContain(`Sale a ${formatNumber(1000, { decimales: 2 })} el litro`);
-    expect(bodyText()).not.toContain('$'); // los montos van sin símbolo de moneda
+    expect(bodyText()).toContain(`Sale a $\u00a01.000 el litro`);
+    // El «$» es del dinero (el precio y la línea «Se lee» del monto): los 40 litros no lo llevan.
+    expect(bodyText().replace(/\s/g, ' ')).toContain('Se lee: $ 40.000');
+    expect(bodyText().match(/\$/g)).toHaveLength(2);
+    expect(byId<HTMLInputElement>('gasto-litros')!.getAttribute('aria-describedby') ?? '').not.toContain('lectura');
     await typeText(byId<HTMLInputElement>('gasto-litros'), '');
     expect(bodyText()).not.toContain('Sale a');
   });

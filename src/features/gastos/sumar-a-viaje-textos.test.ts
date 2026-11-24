@@ -75,7 +75,7 @@ describe('los textos de «Sumar varios a un viaje»', () => {
     expect(textos.textoNoHayViajes('junio 2026')).toBe('No hay viajes en junio 2026.');
   });
 
-  it('el resumen de arriba del segundo paso: cuántos gastos y cuánto suman (singular y plural), sin símbolo de moneda', () => {
+  it('el resumen de arriba del segundo paso: cuántos gastos y cuánto suman (singular y plural), con el monto ya formateado', () => {
     expect(textos.textoResumenDeMarcados(1, '1.500,00')).toBe('Vas a sumar 1 gasto. Suma 1.500,00.');
     expect(textos.textoResumenDeMarcados(3, '4.500,00')).toBe('Vas a sumar 3 gastos. Suman 4.500,00.');
   });
@@ -174,7 +174,7 @@ describe('el idioma de los textos', () => {
     }
   });
 
-  it('sin símbolo de moneda (los montos van sin «$» en toda la app)', () => {
+  it('ningún texto fijo trae un «$» escrito a mano (el «$» lo pone `formatMoney` en el monto que se les pasa)', () => {
     for (const texto of todosLosTextos()) expect(texto).not.toMatch(/\$/);
   });
 });

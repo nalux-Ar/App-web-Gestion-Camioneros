@@ -3,7 +3,7 @@ import { LIST_LIMIT, MAX_GASTOS_POR_VEZ } from './constants';
 
 /**
  * TODOS los textos NUEVOS de «Quitar gastos del viaje», juntos para revisarlos de un vistazo. Español neutro, de «tú», en palabras
- * de todos los días (nada de «vincular», «asociar» ni «lote»). Los montos van sin símbolo de moneda, como en toda la app. Lo que es
+ * de todos los días (nada de «vincular», «asociar» ni «lote»). Los montos llevan «$» (llegan ya formateados con `formatMoney`), como en toda la app. Lo que es
  * idéntico a «Sumar gastos que ya cargué» NO se repite acá: la pantalla lo toma de `sumar-gastos-textos.ts` (`VOLVER_AL_VIAJE`,
  * `NOMBRE_GENERICO_DE_GASTO`, `ERROR_CATEGORIAS`, `MARCAR_TODOS_DESMARCADO`, `UN_MOMENTO`, `textoMarcarTodos`, `textoTotalMarcado`). La ayuda de
  * la pantalla (el botón «Ayuda») está con las demás ayudas, en `src/features/ayuda/ayuda-pantallas.ts`.

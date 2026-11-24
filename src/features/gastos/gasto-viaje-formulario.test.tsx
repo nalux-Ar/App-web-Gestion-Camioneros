@@ -695,7 +695,7 @@ describe('formulario de gasto: abierto desde el detalle de un viaje', () => {
     });
     await click(buttonByText('Eliminar gasto'));
     // La pregunta dice CUÁL gasto se borra (categoría, monto y fecha), no un «¿Seguro?» genérico.
-    expect(bodyText()).toMatch(/¿Eliminar el gasto( de [^?]+)? por [\d.,]+ del \d{1,2} [a-zñ]{3}\? Esto no se puede deshacer\./);
+    expect(bodyText()).toMatch(/¿Eliminar el gasto( de [^?]+)? por \$\s[\d.,]+ del \d{1,2} [a-zñ]{3}\? Esto no se puede deshacer\./);
     expect(bodyText()).not.toContain('¿Seguro?');
     await click(buttonByText('Sí, eliminar'));
     await settle(4);

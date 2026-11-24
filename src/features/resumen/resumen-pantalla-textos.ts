@@ -1,18 +1,19 @@
 import { addMonths, formatMonthLabel, type YearMonth } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney, formatNumber, SIGNO_MENOS } from '@/lib/numbers';
 import type { ComparacionDeGasto, FilaDeBarra } from './resumen-calculos';
 import { MOTIVOS_DESCARTE, type MotivoDescarte } from './resumen-textos';
 
 /**
  * Textos y formatos de la PANTALLA Resumen (vista Mes). Los de la capa de datos (etiquetas de grupos, "Sin camión",
  * motivos de descarte, errores) están en `resumen-textos.ts`. Español neutro, de "tú", frases cortas pensadas para quien
- * maneja. Los montos van sin símbolo de moneda, como en el resto de la app. Lógica pura: se prueban sueltos.
+ * maneja. Los montos llevan «$» («$ 1.234,50», y «$ 12.500» si son enteros: `formatMoney`), como en el resto de la app;
+ * los km, los litros, el rendimiento y las cantidades, no. Lógica pura: se prueban sueltos.
  */
 
 /** Espacio que no corta línea: "25 %" nunca queda partido en dos renglones. */
 const NBSP = '\u00a0';
 /** Signo menos tipográfico (no el guion). */
-const MENOS = '\u2212';
+const MENOS = SIGNO_MENOS;
 
 export const RESUMEN_TITULO = 'Resumen';
 export const TITULO_GASTOS = 'Gastos del mes';
@@ -29,9 +30,9 @@ export function textoCargandoResumen(mesLabel: string): string {
 // Números
 // ---------------------------------------------------------------------------
 
-/** Un monto: siempre con 2 decimales y sin símbolo ("1.234,50"). */
+/** Un monto, con «$»: "$ 1.234,50" y, si es entero, sin centavos ("$ 12.500"). Es `formatMoney`. */
 export function formatMonto(valor: number): string {
-  return formatNumber(valor, { decimales: 2 });
+  return formatMoney(valor);
 }
 
 /** Una cantidad entera con separador de miles ("1.234"). */
@@ -63,7 +64,7 @@ export function periodoDeComparacion(mes: YearMonth, enCurso: boolean): string {
   return enCurso ? `los mismos días de ${nombre}` : nombre;
 }
 
-/** "2.000,00 más (+25 %)", "2.000,00 menos (−25 %)", "Lo mismo". Menos de 1 % de diferencia se dice así. */
+/** "$ 2.000 más (+25 %)", "$ 2.000 menos (−25 %)", "Lo mismo". Menos de 1 % de diferencia se dice así. */
 export function textoDiferencia(comparacion: ComparacionDeGasto): string {
   if (comparacion.sentido === 'igual') return 'Lo mismo';
   const monto = `${formatMonto(comparacion.diferencia)} ${comparacion.sentido === 'mas' ? 'más' : 'menos'}`;
@@ -75,7 +76,7 @@ export function textoDiferencia(comparacion: ComparacionDeGasto): string {
   return `${monto} (${porcentaje})`;
 }
 
-/** "vs. los mismos días de septiembre (8.000,00)". */
+/** "vs. los mismos días de septiembre ($ 8.000)". */
 export function textoVs(periodo: string, montoAnterior: number): string {
   return `vs. ${periodo} (${formatMonto(montoAnterior)})`;
 }
@@ -168,12 +169,13 @@ export function etiquetaResultado(resultado: number): string {
 }
 
 /**
- * El monto de un resultado, con su signo: una pérdida lleva "−" (el signo menos tipográfico, no el guion) delante. Es
+ * El monto de un resultado, con su signo: una pérdida lleva "−" (el signo menos tipográfico, no el guion) delante del «$»
+ * ("−$ 1.200": lo arma `formatMoney`). Es
  * una señal MÁS, junto a la palabra ("Pérdida") y al color: ninguna de las tres es la única (con sol de frente el color
  * no se distingue, y a quien lee rápido le alcanza con ver el signo). Una ganancia y el 0 van sin signo.
  */
 export function formatResultado(resultado: number): string {
-  return resultado < 0 ? `${MENOS}${formatMonto(Math.abs(resultado))}` : formatMonto(resultado);
+  return formatMoney(resultado);
 }
 
 /** Sin resultado (ningún viaje del período tiene ingreso): qué falta para tenerlo. `periodo`: el Mes o el Año. */
@@ -236,7 +238,7 @@ export function textoLitrosCada100(litros100km: number): string {
   return `${formatNumber(litros100km, { decimales: 1 })} litros cada 100 km`;
 }
 
-/** "23,29 por litro". */
+/** "$ 23,29 por litro". */
 export function textoPrecioPorLitro(precio: number): string {
   return `${formatMonto(precio)} por litro`;
 }
@@ -310,12 +312,12 @@ export function textoSinViajes(mes: YearMonth, enCurso: boolean): string {
   return enCurso ? 'Todavía no hay viajes este mes' : `No hubo viajes en ${formatMonthLabel(mes)}`;
 }
 
-/** "Cobraste 15.000,00" (null si no tiene: ya lo dice "Sin cobro anotado"). */
+/** "Cobraste $ 15.000" (null si no tiene: ya lo dice "Sin cobro anotado"). */
 export function textoIngresoDelViaje(ingreso: number | null): string | null {
   return ingreso === null ? null : `Cobraste ${formatMonto(ingreso)}`;
 }
 
-/** Los gastos vinculados al viaje: "Sin gastos" o "2 gastos: 3.000,00". */
+/** Los gastos vinculados al viaje: "Sin gastos" o "2 gastos: $ 3.000". */
 export function textoGastosDelViaje(cantidad: number, monto: number): string {
   return cantidad === 0 ? 'Sin gastos' : `${textoCantidadGastos(cantidad)}: ${formatMonto(monto)}`;
 }
@@ -379,7 +381,7 @@ export const SIN_VIAJES = 'Sin viajes';
 export const TEXTO_VIAJES_EN_EL_ANIO = 'La lista de viajes se ve mes a mes: toca un mes o pasa a la vista Mes.';
 export const IR_A_LA_VISTA_MES = 'Ir a la vista Mes';
 
-/** Debajo de cada mes de "Resultado por mes": "Cobraste 1.500,00 · Gastaste 1.000,00". */
+/** Debajo de cada mes de "Resultado por mes": "Cobraste $ 1.500 · Gastaste $ 1.000". */
 export function textoIngresosYGastos(ingresos: number, gastos: number): string {
   return `Cobraste ${formatMonto(ingresos)} · Gastaste ${formatMonto(gastos)}`;
 }

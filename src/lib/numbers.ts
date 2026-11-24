@@ -10,16 +10,27 @@
  *
  * Reglas de lectura (ver `parseDecimalText`):
  *  - Un solo tipo de separador (coma o punto), una sola vez: es el decimal.
- *    "1.234" es 1,234 (los campos se tipean SIN separador de miles).
+ *    "1.5" y "1,5" son 1,5.
+ *  - EXCEPCIÓN, solo en dinero y kilómetros (ver `leePuntoComoMiles`): sin coma
+ *    y con la forma "12.500" o "1.234.567" (1 a 3 dígitos que no empiezan en 0
+ *    y después uno o más grupos de EXACTAMENTE 3 dígitos), el punto es de
+ *    MILES: 12.500 es doce mil quinientos. Es como se escribe en Argentina, y
+ *    leerlo como decimal ("Usa hasta 2 decimales") no le dice nada a quien
+ *    lo escribió. En litros NO: "1.200" es ambiguo y se rechaza (ver abajo).
  *  - Coma y punto juntos: el ÚLTIMO es el decimal y el otro es el separador
  *    de miles, que se descarta. "1.234,56" y "1,234.56" dan 1234,56.
  *    Además los miles tienen que estar bien agrupados (grupos de 3): "1,2.5"
  *    no se adivina, se rechaza.
- *  - El mismo separador repetido ("1,2,3", "1.234.567") es ambiguo: se
- *    rechaza en vez de adivinar.
+ *  - El mismo separador repetido que no cumple lo de arriba ("1,2,3",
+ *    "1.234.567" en litros, "1.23.456") es ambiguo: se rechaza en vez de
+ *    adivinar.
  *  - Sin letras, sin signos (ni "+" ni notación científica), sin espacios
  *    en el medio. Un "-" delante se reconoce solo para avisar "no puede ser
  *    negativo".
+ *
+ * Formato para MOSTRAR: siempre es-AR (punto de miles, coma decimal),
+ * sea cual sea el idioma del teléfono (ver `formatNumber`). El dinero lleva
+ * "$" (ver `formatMoney`); kilómetros, litros, rendimiento y cantidades no.
  */
 
 // ---------------------------------------------------------------------------
@@ -96,7 +107,19 @@ function build(intRaw: string, fracRaw: string): DecimalParse {
   };
 }
 
-function parseUnsigned(body: string): DecimalParse {
+/**
+ * LA regla de los miles con punto (única, en un solo lugar): sin coma, un grupo inicial de 1 a 3
+ * dígitos que no empieza en 0 y uno o más grupos de EXACTAMENTE 3 dígitos. "12.500" y "1.234.567"
+ * sí; "0.500", "1234.567", "12.50", "12.5000", "1.23.456" y "12.500." no.
+ */
+const PUNTO_DE_MILES = /^[1-9]\d{0,2}(?:\.\d{3})+$/;
+
+export interface DecimalParseOptions {
+  /** Lee "12.500" como 12500 (el punto es de miles) en vez de como 12,5. Ver `leePuntoComoMiles`. */
+  milesConPunto?: boolean;
+}
+
+function parseUnsigned(body: string, milesConPunto: boolean): DecimalParse {
   if (!/^[0-9.,]+$/.test(body) || !/[0-9]/.test(body)) return FAIL_INVALID;
 
   const dots = countChar(body, '.');
@@ -104,6 +127,10 @@ function parseUnsigned(body: string): DecimalParse {
 
   // Sin separadores: solo dígitos.
   if (dots === 0 && commas === 0) return build(body, '');
+
+  // Sin coma y con la forma "12.500" / "1.234.567": el punto es de miles (solo dinero y km).
+  // Con coma ("12.500,50") nunca entra acá: sigue por la regla de coma y punto juntos.
+  if (milesConPunto && commas === 0 && PUNTO_DE_MILES.test(body)) return build(body.replace(/\./g, ''), '');
 
   // Un solo tipo de separador: si aparece más de una vez es ambiguo
   // ("1,2,3" o "1.234.567"); si aparece una vez, es el decimal.
@@ -128,23 +155,41 @@ function parseUnsigned(body: string): DecimalParse {
   return build(groups.join(''), fracRaw);
 }
 
-/** Lee lo que escribió el usuario y explica por qué no se pudo, si no se pudo. */
-export function parseDecimalText(text: string): DecimalParse {
+/**
+ * Lee lo que escribió el usuario y explica por qué no se pudo, si no se pudo. Sin opciones, el punto
+ * solo es decimal ("12.500" → 12,5); con `milesConPunto` ("12.500" → 12500) lo lee como miles cuando
+ * tiene la forma de `PUNTO_DE_MILES`. Los límites de la columna no se miran acá.
+ */
+export function parseDecimalText(text: string, options: DecimalParseOptions = {}): DecimalParse {
+  const milesConPunto = options.milesConPunto === true;
   const raw = text.trim();
   if (raw === '') return FAIL_EMPTY;
 
   if (raw.startsWith('-')) {
-    const rest = parseUnsigned(raw.slice(1));
+    const rest = parseUnsigned(raw.slice(1), milesConPunto);
     return rest.ok ? FAIL_NEGATIVE : rest;
   }
 
-  return parseUnsigned(raw);
+  return parseUnsigned(raw, milesConPunto);
+}
+
+/**
+ * En qué columnas el punto con grupos de 3 dígitos ("12.500") es de MILES: dinero y kilómetros. En
+ * litros no: la columna admite 3 decimales, así que "1.200" puede ser 1,2 o 1200 y se rechaza como
+ * ambiguo (ver `LITROS_AMBIGUOUS`). `precioLitro` no se tipea (lo calcula el formulario).
+ */
+export function leePuntoComoMiles(kind: NumberKind): boolean {
+  return kind === 'dinero' || kind === 'km';
 }
 
 /**
  * Versión simple: el número, o `null` si el texto no se puede leer (vacío,
  * letras, signos, separadores ambiguos, negativo). No aplica límites de
  * columna: para eso están `validateRequiredNumber`/`validateOptionalNumber`.
+ *
+ * NO usarla sobre un campo de dinero ni de kilómetros: no aplica la regla de los miles con
+ * punto, así que "12.500" daría 12,5 y no lo mismo que muestra «Se lee» y se guarda.
+ * Hoy ningún formulario la usa (solo las pruebas).
  */
 export function parseDecimal(text: string): number | null {
   const result = parseDecimalText(text);
@@ -152,41 +197,34 @@ export function parseDecimal(text: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
-// Formato (idioma del dispositivo)
+// Formato para mostrar (siempre es-AR)
 // ---------------------------------------------------------------------------
 
-/** Idioma para formatear: el del dispositivo si es español (es-AR, es-MX…,
- *  cada uno con sus separadores), y `es` de respaldo en cualquier otro caso. */
-function resolveLocale(): string {
-  const language = typeof navigator !== 'undefined' ? navigator.language : '';
-  return language && /^es(-|$)/i.test(language) ? language : 'es';
-}
+/**
+ * Idioma de TODOS los números que se muestran: es-AR (punto de miles, coma decimal), sin mirar el idioma
+ * del teléfono. Con el teléfono en «Español (Latinoamérica/EE. UU.)» se vería "1,234.50" y en otro
+ * español "1.234,50": para quien lee un monto eso es ruido (¿1,2 o 1.234?). El lector de texto
+ * (`parseDecimalText`) sigue aceptando las dos formas al ESCRIBIR.
+ */
+const NUMBER_LOCALE = 'es-AR';
 
 const formatterCache = new Map<string, Intl.NumberFormat>();
 
 function getFormatter(minDecimals: number, maxDecimals: number): Intl.NumberFormat {
-  const locale = resolveLocale();
-  const key = `${locale}|${minDecimals}|${maxDecimals}`;
+  const key = `${minDecimals}|${maxDecimals}`;
   let formatter = formatterCache.get(key);
   if (!formatter) {
-    const options: Intl.NumberFormatOptions = {
-      style: 'decimal', // a propósito: nunca 'currency', los números van sin símbolo
+    formatter = new Intl.NumberFormat(NUMBER_LOCALE, {
+      style: 'decimal', // el "$" lo pone `formatMoney`, no `Intl` (ver ahí)
       minimumFractionDigits: minDecimals,
       maximumFractionDigits: maxDecimals,
-      // `true` (booleano) = agrupar siempre. Sin esto, es-ES no pone el punto
-      // de miles en números de 4 dígitos ("1234" en vez de "1.234").
+      // `true` (booleano) = agrupar siempre. Sin esto, algunos idiomas del español no
+      // ponen el punto de miles en números de 4 dígitos ("1234" en vez de "1.234").
       useGrouping: true,
-      // Dígitos 0-9 siempre: un idioma del dispositivo con dígitos no ASCII
-      // (p.ej. `es-u-nu-arab`) dejaría en los campos un texto que
-      // `parseDecimal` no entiende.
+      // Dígitos 0-9 siempre: un texto con dígitos no ASCII (p.ej. `-u-nu-arab`) dejaría en los
+      // campos un texto que `parseDecimal` no entiende.
       numberingSystem: 'latn',
-    };
-    try {
-      formatter = new Intl.NumberFormat(locale, options);
-    } catch {
-      // Etiqueta de idioma inválida (no debería pasar con navigator.language).
-      formatter = new Intl.NumberFormat('es', options);
-    }
+    });
     formatterCache.set(key, formatter);
   }
   return formatter;
@@ -203,8 +241,14 @@ export interface FormatNumberOptions {
 /** Lo que se muestra cuando no hay valor (campo opcional vacío). */
 export const EMPTY_VALUE = '—';
 
-/** Número con separador de miles y decimales del idioma del dispositivo.
- *  Sin símbolo de moneda ni unidad: eso lo pone la pantalla. */
+/** Signo menos tipográfico (no el guion): el de una pérdida o un monto negativo. */
+export const SIGNO_MENOS = '\u2212';
+
+/** Espacio que no corta línea: "$" nunca queda solo al final de un renglón, lejos de su número. */
+const NBSP = '\u00a0';
+
+/** Número con separador de miles y decimales en es-AR (siempre, sin mirar el idioma del dispositivo).
+ *  Sin símbolo de moneda ni unidad: para dinero está `formatMoney`; la unidad ("km", "L") la pone la pantalla. */
 export function formatNumber(value: number | null | undefined, options: FormatNumberOptions = {}): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return EMPTY_VALUE;
   const { decimales, fijos = true } = options;
@@ -217,28 +261,40 @@ export function formatNumber(value: number | null | undefined, options: FormatNu
   return /^-[0.,\s]*$/.test(formatted) ? formatted.slice(1) : formatted;
 }
 
-/** Separador decimal del idioma del dispositivo ("," en es-AR, "." en es-MX). */
-function decimalSeparator(): string {
-  const separator = getFormatter(1, 1).formatToParts(1.1).find((part) => part.type === 'decimal')?.value;
-  // Solo coma o punto: son los únicos que `parseDecimal` entiende.
-  return separator === '.' || separator === ',' ? separator : ',';
+/** Los centavos de un monto entero ("12.500,00"): `formatMoney` los saca. */
+const CENTAVOS_EN_CERO = ',00';
+
+/**
+ * UN monto de dinero, siempre con "$": "$ 12.500" si es entero y "$ 12.500,50" si tiene centavos (nunca
+ * "$ 12.500,5" ni "$ 12.500,00"). Un negativo lleva el menos tipográfico delante del "$": "−$ 1.200". Redondea
+ * a centavos como `formatNumber` (la mitad hacia arriba: 1,005 → "$ 1,01") y el criterio de "es entero" es el
+ * del valor YA redondeado ("$ 120" para 120,004). Un cero nunca lleva signo ("$ 0"). `null`, `undefined`,
+ * `NaN` e infinitos → "—" (sin "$": no hay monto). Entre el "$" y el número va un espacio que no corta línea.
+ *
+ * Es SOLO para dinero (monto, ingreso, totales, precio por litro, costo por km). Kilómetros, litros, rendimiento,
+ * porcentajes y cantidades siguen con `formatNumber`, sin "$".
+ */
+export function formatMoney(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return EMPTY_VALUE;
+  // Se formatea el valor absoluto con 2 decimales fijos y el signo se decide con lo YA redondeado.
+  const conCentavos = getFormatter(2, 2).format(Math.abs(value));
+  const esCero = /^[0.,]*$/.test(conCentavos);
+  const monto = conCentavos.endsWith(CENTAVOS_EN_CERO) ? conCentavos.slice(0, -CENTAVOS_EN_CERO.length) : conCentavos;
+  return `${value < 0 && !esCero ? SIGNO_MENOS : ''}$${NBSP}${monto}`;
 }
 
 /**
  * Texto para precargar un campo al EDITAR un registro: sin separador de miles
- * (los campos se tipean sin miles y "1.234" se lee como 1,234) y con el
- * decimal del dispositivo. 1234.5 → "1234,5".
- *
- * `separator` fuerza la coma o el punto en vez del del dispositivo. Útil con
- * los litros: con punto, 40,125 daría "40.125", que `validateRequiredNumber`
- * rechaza como ambiguo; con coma se lee igual en cualquier idioma.
+ * (los campos se tipean sin miles) y siempre con COMA decimal, en cualquier idioma del
+ * teléfono: 1234.5 → "1234,5". Con coma se lee igual en todos lados (con punto, 40,125 de
+ * litros daría "40.125", que `validateRequiredNumber` rechaza como ambiguo).
  */
-export function formatForInput(value: number | null | undefined, separator?: ',' | '.'): string {
+export function formatForInput(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '';
   // String(1e-7) da "1e-7": los valores de las columnas nunca son tan chicos,
   // pero si pasara, mejor un decimal plano que una notación que no se puede editar.
   const plain = /e/i.test(String(value)) ? value.toFixed(6).replace(/\.?0+$/, '') : String(value);
-  return (plain === '-0' ? '0' : plain).replace('.', separator ?? decimalSeparator());
+  return (plain === '-0' ? '0' : plain).replace('.', ',');
 }
 
 // ---------------------------------------------------------------------------
@@ -272,16 +328,34 @@ function decimalsLabel(scale: number): string {
   return scale === 1 ? '1 decimal' : `${scale} decimales`;
 }
 
-function failureMessage(reason: DecimalParseFailure): string {
+/** Vacío en un campo de dinero / de kilómetros: dicen QUÉ falta escribir (en los demás, "Escribe un número."). */
+export const DINERO_VACIO_MESSAGE = 'Escribe el monto.';
+export const KM_VACIO_MESSAGE = 'Escribe los kilómetros.';
+/** Texto que no es un número en dinero / kilómetros: con un ejemplo de cómo se escribe. */
+export const DINERO_NO_NUMERICO_MESSAGE = 'Escribe solo números. Ej.: 12500 o 12500,50.';
+export const KM_NO_NUMERICO_MESSAGE = 'Escribe solo números. Ej.: 45230.';
+
+/**
+ * UNA sola fuente del aviso «solo números»: lo usa la validación (texto que no es un número, `failureMessage('invalid')`) y
+ * el campo (`NumberField`) cuando RECHAZA lo que se escribió o se pegó (letras, «%», «-», etc.). Así los dos nunca divergen.
+ * Dinero y km llevan su ejemplo; el resto (litros, precio por litro, campo sin tipo) el mensaje general.
+ */
+export function mensajeSoloNumeros(kind?: NumberKind): string {
+  if (kind === 'dinero') return DINERO_NO_NUMERICO_MESSAGE;
+  if (kind === 'km') return KM_NO_NUMERICO_MESSAGE;
+  return 'Escribe solo números, con coma o punto para los decimales.';
+}
+
+function failureMessage(reason: DecimalParseFailure, kind: NumberKind): string {
   switch (reason) {
     case 'empty':
-      return 'Escribe un número.';
+      return kind === 'dinero' ? DINERO_VACIO_MESSAGE : kind === 'km' ? KM_VACIO_MESSAGE : 'Escribe un número.';
     case 'negative':
       return 'El número no puede ser negativo.';
     case 'ambiguous':
       return 'Revisa el número: usa una sola coma o un solo punto para los decimales.';
     case 'invalid':
-      return 'Escribe solo números, con coma o punto para los decimales.';
+      return mensajeSoloNumeros(kind);
   }
 }
 
@@ -291,13 +365,14 @@ export function validateRequiredNumber(text: string, kind: NumberKind, rules: Nu
   // regla general lo lee como decimal (1,2) y la carga quedaría 1000 veces
   // menor sin avisar. Como litros admite 3 decimales no hay error de
   // "demasiados decimales" que lo frene, así que se rechaza por ambiguo.
-  // (En dinero/km/precio ese texto ya falla con "Usa hasta N decimales".)
+  // (En dinero y km ese texto es de MILES: ver `leePuntoComoMiles`. En precioLitro, que no
+  // se tipea, sigue fallando con "Usa hasta N decimales".)
   if (kind === 'litros' && LITROS_AMBIGUOUS.test(text.trim())) {
     return { ok: false, message: LITROS_AMBIGUOUS_MESSAGE };
   }
 
-  const parsed = parseDecimalText(text);
-  if (!parsed.ok) return { ok: false, message: failureMessage(parsed.reason) };
+  const parsed = parseDecimalText(text, { milesConPunto: leePuntoComoMiles(kind) });
+  if (!parsed.ok) return { ok: false, message: failureMessage(parsed.reason, kind) };
 
   const { precision, scale } = NUMBER_KINDS[kind];
 
@@ -307,7 +382,8 @@ export function validateRequiredNumber(text: string, kind: NumberKind, rules: Nu
   // Se cuenta por dígitos, no comparando floats: 9999999999.999 no puede
   // "redondear" hacia un valor que sí entra.
   if (parsed.integerDigits > precision - scale) {
-    const max = formatNumber(maxValueFor(kind), { decimales: scale });
+    const maximo = maxValueFor(kind);
+    const max = kind === 'dinero' || kind === 'precioLitro' ? formatMoney(maximo) : formatNumber(maximo, { decimales: scale });
     return { ok: false, message: `El número es demasiado grande. El máximo es ${max}.` };
   }
   if (parsed.value === 0 && !rules.allowZero) {
@@ -413,4 +489,37 @@ export function toScaledInt(value: number, kind: NumberKind): number {
 export function fromScaledInt(units: number, kind: NumberKind): number {
   const result = units / 10 ** NUMBER_KINDS[kind].scale;
   return result === 0 ? 0 : result; // normaliza -0
+}
+
+// ---------------------------------------------------------------------------
+// Línea de confirmación «Se lee: …» (dinero y kilómetros)
+// ---------------------------------------------------------------------------
+
+/**
+ * La línea que `NumberField` muestra debajo de un campo de dinero o de kilómetros para confirmar CÓMO se leyó lo
+ * escrito: «Se lee: $ 12.500» (con centavos si los hay: «$ 12.500,50») o «Se lee: 452.310 km».
+ *
+ * Devuelve `null` (no hay línea) si el campo no es de dinero ni de km, si está vacío o si lo escrito NO se lee bien
+ * (no es un número, tiene demasiados decimales, no entra en la columna, es 0 donde no se admite 0, …): ahí manda el
+ * mensaje de error, no una confirmación.
+ *
+ * Es EXACTAMENTE lo que se va a guardar: pasa por la misma validación que el guardado (`validateRequiredNumber`, con las
+ * mismas reglas de cero) y por la misma conversión a la columna (`toDbNumber`: el valor redondeado a los decimales de
+ * la columna). Nunca muestra algo distinto de lo que los formularios mandan a la base.
+ */
+export function textoSeLee(text: string, kind: NumberKind, rules: NumberRules = {}): string | null {
+  if (kind !== 'dinero' && kind !== 'km') return null;
+  if (text.trim() === '') return null;
+
+  const result = validateRequiredNumber(text, kind, rules);
+  if (!result.ok) return null;
+
+  let guardado: number;
+  try {
+    guardado = toDbNumber(result.value, kind);
+  } catch {
+    // La validación ya garantiza que entra en la columna; si no entrara, mejor ninguna línea que una incorrecta.
+    return null;
+  }
+  return kind === 'dinero' ? `Se lee: ${formatMoney(guardado)}` : `Se lee: ${formatNumber(guardado, { decimales: NUMBER_KINDS.km.scale, fijos: false })} km`;
 }

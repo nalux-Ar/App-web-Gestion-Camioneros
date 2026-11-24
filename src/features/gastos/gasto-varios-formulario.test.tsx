@@ -77,7 +77,6 @@ import { LOTE_DISTINTO_MESSAGE, LOTE_NO_ENCONTRADO_MESSAGE } from '@/features/ga
 import * as textosVarios from '@/features/gastos/gasto-varios-textos';
 import { NETWORK_SAVE_ERROR_MESSAGE, TIMEOUT_ERROR_MESSAGE } from '@/lib/data-errors';
 import { todayLocal } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
 import { queryClient } from '@/lib/query-client';
 import { isUuid } from '@/lib/uuid';
 import { CAMION_FALTA_MESSAGE, CAMIONES_SIN_CARGAR_MESSAGE } from '@/features/camiones/camion-seleccion';
@@ -633,7 +632,7 @@ describe('alta con varias categorías: un bloque por categoría', () => {
     await typeText(monto(COMBUSTIBLE_CATEGORIA_ID), '40000');
     await typeText(monto(PEAJES_ID), '5');
     await typeText(litros(COMBUSTIBLE_CATEGORIA_ID), '40');
-    expect(bodyText()).toContain(`Sale a ${formatNumber(1000, { decimales: 2 })} el litro`);
+    expect(bodyText()).toContain(`Sale a $\u00a01.000 el litro`);
   });
 
   it('«Gastos varios»: SU descripción es obligatoria (sin «(opcional)» y con su ayuda) y la de los demás sigue opcional', async () => {

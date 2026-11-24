@@ -58,7 +58,6 @@ import { SCOPE_DE_VINCULOS, useQuitarGastosDelViaje, useVincularGastos } from '@
 import { resumenKeys } from '@/features/resumen/resumen-keys';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { limpiarErroresRecientes } from '@/lib/errores-recientes';
-import { formatNumber } from '@/lib/numbers';
 import { queryClient } from '@/lib/query-client';
 
 // ---------------------------------------------------------------------------
@@ -584,18 +583,18 @@ describe('«Quitar gastos del viaje»: la lista de los gastos del viaje', () => 
     ]);
   });
 
-  it('cada fila muestra la categoría, la fecha (con año), el monto (sin símbolo de moneda) y la descripción si tiene', async () => {
+  it('cada fila muestra la categoría, la fecha (con año), el monto (con «$») y la descripción si tiene', async () => {
     await mount();
     const primera = textoDeFila(casillas()[0]!);
     expect(primera).toContain('Peajes');
     expect(primera).toContain('16 jun 2026');
-    expect(primera).toContain(formatNumber(1000, { decimales: 2 }));
+    expect(primera).toContain('$\u00a01.000');
     expect(primera).toContain('peaje norte');
-    expect(primera).not.toContain('$');
+    expect(primera.match(/\$/g)).toHaveLength(1);
     const segunda = textoDeFila(casillas()[1]!);
     expect(segunda).toContain('Combustible');
     expect(segunda).toContain('14 jun 2026');
-    expect(segunda).toContain(formatNumber(2500.5, { decimales: 2 }));
+    expect(segunda).toContain('$\u00a02.500,50');
     // sin descripción no hay línea de descripción
     expect(document.querySelectorAll('li')[1]!.querySelectorAll('.line-clamp-2')).toHaveLength(0);
   });
@@ -777,7 +776,7 @@ describe('«Quitar gastos del viaje»: marcar', () => {
       expect(b.disabled).toBe(false);
       expect(b.textContent).toBe('Quitar 1 gasto del viaje');
     }
-    expect(bodyText()).toContain(`Suman ${formatNumber(1000, { decimales: 2 })}`);
+    expect(bodyText()).toContain(`Suman $\u00a01.000`);
     expect(bodyText()).not.toContain('Marca los que quieres quitar.');
   });
 
@@ -787,9 +786,9 @@ describe('«Quitar gastos del viaje»: marcar', () => {
     await tocar(casilla('uno'));
     await tocar(casilla('dos'));
     expect(botonQuitar().textContent).toBe('Quitar 2 gastos del viaje');
-    expect(bodyText()).toContain(`Suman ${formatNumber(0.3, { decimales: 2 })}`);
+    expect(bodyText()).toContain(`Suman $\u00a00,30`);
     await tocar(casilla('tres'));
-    expect(bodyText()).toContain(`Suman ${formatNumber(100.6, { decimales: 2 })}`);
+    expect(bodyText()).toContain(`Suman $\u00a0100,60`);
   });
 
   it('desmarcar vuelve atrás: al quedar sin nada, el botón se apaga otra vez', async () => {
@@ -808,7 +807,7 @@ describe('«Quitar gastos del viaje»: marcar', () => {
     expect(marcadas()).toHaveLength(4);
     expect(botonMarcarTodos().textContent).toBe('Desmarcar todos');
     expect(botonQuitar().textContent).toBe('Quitar 4 gastos del viaje');
-    expect(bodyText()).toContain(`Suman ${formatNumber(1000 + 2500.5 + 300 + 50, { decimales: 2 })}`);
+    expect(bodyText()).toContain(`Suman $\u00a03.850,50`);
     await tocar(botonMarcarTodos());
     expect(marcadas()).toHaveLength(0);
     expect(botonMarcarTodos().textContent).toBe('Marcar todos (4)');
@@ -1655,7 +1654,7 @@ describe('«Quitar gastos del viaje»: la selección sigue a la lista', () => {
     expect(filas()).toHaveLength(3);
     expect(marcadas()).toHaveLength(1);
     expect(botonQuitar().textContent).toBe('Quitar 1 gasto del viaje');
-    expect(bodyText()).toContain(`Suman ${formatNumber(1000, { decimales: 2 })}`);
+    expect(bodyText()).toContain(`Suman $\u00a01.000`);
     await tocar(botonQuitar());
     expect(idsEnviados()).toEqual([[G(1)]]);
   });
@@ -1841,7 +1840,7 @@ describe('«Quitar gastos del viaje»: tamaños, colores y accesibilidad', () =>
     expect(tarjeta.className).toContain('bg-card');
     expect(tarjeta.className).toContain('border-border');
     const total = tarjeta.querySelector('p')!;
-    expect(total.textContent).toBe(`Suman ${formatNumber(1000, { decimales: 2 })}`);
+    expect(total.textContent).toBe(`Suman $\u00a01.000`);
     expect(total.className).toContain('tabular-nums');
     expect(total.compareDocumentPosition(botonQuitar()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -1911,7 +1910,7 @@ describe('«Quitar gastos del viaje»: tamaños, colores y accesibilidad', () =>
     const nombre = textoDeFila(casillas()[0]!);
     expect(nombre).toContain('Peajes');
     expect(nombre).toContain('16 jun 2026');
-    expect(nombre).toContain(formatNumber(1000, { decimales: 2 }));
+    expect(nombre).toContain('$\u00a01.000');
   });
 
   it('los títulos son encabezados: h1 del título y h2 de la lista', async () => {

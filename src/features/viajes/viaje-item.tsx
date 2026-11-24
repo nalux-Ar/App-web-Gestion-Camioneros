@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { ChevronRight } from 'lucide-react';
 
 import { formatDateShort } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney, formatNumber } from '@/lib/numbers';
 import { kmDelViaje, type ViajeDeLista } from './viajes-list';
 
 interface ViajeItemProps {
@@ -22,7 +22,7 @@ function textoEntregas(cantidad: number): string {
  * Una fila de la lista: toda es un enlace al DETALLE del viaje (área táctil ≥ 64 px; desde ahí se edita). Lo principal es el recorrido
  * ("origen → destino", hasta dos líneas: los nombres de lugares pueden ser largos); debajo, la fecha y la
  * cantidad de entregas; después los km (el valor, "Falta el km de llegada." si el viaje sigue en curso, o nada
- * si no se anotaron); y a la derecha lo que cobraste, si está. Los números van sin símbolo de moneda.
+ * si no se anotaron); y a la derecha lo que cobraste, si está («Cobraste $ 150.000»). El monto lleva «$»; los km, no.
  */
 export function ViajeItem({ viaje, volver, camion }: ViajeItemProps) {
   const km = kmDelViaje(viaje);
@@ -48,8 +48,10 @@ export function ViajeItem({ viaje, volver, camion }: ViajeItemProps) {
           ) : null}
         </div>
         {viaje.ingreso !== null ? (
-          <p className="shrink-0 text-right text-base font-semibold tabular-nums">
-            {formatNumber(viaje.ingreso, { decimales: 2 })}
+          // `w-min`: «Cobraste» arriba y «$ 150.000» abajo (el espacio entre el «$» y la cifra no corta línea), siempre del
+          // mismo ancho. En una sola línea («Cobraste $ 150.000», unos 160 px) a 360 px le dejaría al recorrido menos de 100 px.
+          <p className="w-min shrink-0 text-right text-base font-semibold tabular-nums">
+            Cobraste {formatMoney(viaje.ingreso)}
           </p>
         ) : null}
         <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />

@@ -6,7 +6,7 @@ import { SUMAR_GASTOS_CONTEXT } from './sumar-gastos-textos';
 /**
  * TODOS los textos NUEVOS de «Sumar varios a un viaje» (la pantalla `/gastos/sumar-a-viaje`, que se abre desde la lista de Gastos),
  * juntos para revisarlos de un vistazo. Español neutro, de «tú», en palabras de todos los días (nada de «vincular», «asociar» ni
- * «lote»). Los montos van sin símbolo de moneda, como en toda la app. Lo que es idéntico a «Sumar gastos que ya cargué» o a «Quitar
+ * «lote»). Los montos llevan «$» (llegan ya formateados con `formatMoney`), como en toda la app. Lo que es idéntico a «Sumar gastos que ya cargué» o a «Quitar
  * gastos del viaje» NO se repite acá: la pantalla lo toma de `sumar-gastos-textos.ts` (`TITULO_LISTA_SUELTOS`, `MARCAR_TODOS_DESMARCADO`,
  * `textoMarcarTodos`, `textoTotalMarcado`, `MARCA_ALGUNO`, `SUMANDO`, `UN_MOMENTO`, `ERROR_CATEGORIAS`) y de
  * `quitar-gastos-textos.ts` (`textoMarcarPrimeros`, `AVISO_MAXIMO_MARCADO`, que no hablan de quitar). La ayuda de la pantalla (el
@@ -72,7 +72,7 @@ export const TITULO_A_QUE_VIAJE = '¿A qué viaje?';
 /** El nombre del grupo de opciones, para el lector de pantalla. */
 export const NOMBRE_DE_LA_LISTA_DE_VIAJES = 'Viajes del mes';
 
-/** Arriba del segundo paso: cuántos gastos se van a sumar y cuánto suman. `monto` ya viene formateado, sin símbolo de moneda. */
+/** Arriba del segundo paso: cuántos gastos se van a sumar y cuánto suman. `monto` ya viene formateado, con su «$» (`formatMoney`). */
 export function textoResumenDeMarcados(cantidad: number, monto: string): string {
   return cantidad === 1 ? `Vas a sumar 1 gasto. Suma ${monto}.` : `Vas a sumar ${cantidad} gastos. Suman ${monto}.`;
 }

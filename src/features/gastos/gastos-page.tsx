@@ -15,7 +15,7 @@ import { SelectField } from '@/components/shared/select-field';
 import { AVISO_AUTOCIERRE_MS } from '@/lib/avisos';
 import { mapDataError } from '@/lib/data-errors';
 import { formatMonthLabel } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney } from '@/lib/numbers';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { categoriasParaElegir, nombreParaMostrar, type Categoria } from './categorias';
 import { AVISO_MENSAJES, LIST_LIMIT, type GastoAviso } from './constants';
@@ -172,10 +172,10 @@ export function GastosPage() {
         {errorLista}
         <section aria-labelledby="gastos-total-titulo" className="rounded-lg border border-border bg-card p-4">
           <h2 id="gastos-total-titulo" className="text-base font-medium text-muted-foreground">
-            Total de {mesLabel}
+            Gastaste en {mesLabel}
             {categoriaFiltrada ? ` · ${nombreParaMostrar(categoriaFiltrada)}` : ''}
           </h2>
-          <p className="mt-1 text-3xl font-semibold tabular-nums">{formatNumber(total, { decimales: 2 })}</p>
+          <p className="mt-1 text-3xl font-semibold tabular-nums">{formatMoney(total)}</p>
           <p className="mt-1 text-base text-muted-foreground">
             {items.length === 1 ? '1 gasto' : truncado ? `${items.length} gastos (los más recientes)` : `${items.length} gastos`}
           </p>

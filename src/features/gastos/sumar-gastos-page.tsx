@@ -24,7 +24,7 @@ import type { ViajeVista } from '@/features/viajes/viajes-api';
 import { sanitizeVolver } from '@/features/viajes/viajes-filters';
 import { mapDataError } from '@/lib/data-errors';
 import { formatDateWithYear, isValidDateString, todayLocal } from '@/lib/dates';
-import { formatNumber } from '@/lib/numbers';
+import { formatMoney } from '@/lib/numbers';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
 import { useScrollToTopOnMount } from '@/lib/use-scroll-to-top';
 import { isUuid } from '@/lib/uuid';
@@ -318,7 +318,7 @@ function SumarGastosDelViaje({ viaje, alViaje }: SumarGastosDelViajeProps) {
   const accion = (
     <div className="space-y-2 rounded-lg border border-border bg-card p-3">
       <p className="text-base font-medium tabular-nums [overflow-wrap:anywhere]">
-        {cantidad > 0 ? textoTotalMarcado(formatNumber(total, { decimales: 2 })) : MARCA_ALGUNO}
+        {cantidad > 0 ? textoTotalMarcado(formatMoney(total)) : MARCA_ALGUNO}
       </p>
       <Button
         type="button"
