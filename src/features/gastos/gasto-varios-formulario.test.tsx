@@ -70,7 +70,13 @@ import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context
 import { MemberProvider } from '@/features/member/member-provider';
 import { RequireMember } from '@/app/guards';
 import { GastoFormPage } from '@/features/gastos/gasto-form-page';
-import { COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID, MAX_GASTOS_POR_CARGA } from '@/features/gastos/constants';
+import {
+  COMBUSTIBLE_CATEGORIA_ID,
+  GASTOS_VARIOS_CATEGORIA_ID,
+  MAX_GASTOS_POR_CARGA,
+  METODO_PAGO_LABELS,
+  METODO_PAGO_ORDER,
+} from '@/features/gastos/constants';
 import type { Categoria } from '@/features/gastos/categorias';
 import { LoteDeGastosDistintoError } from '@/features/gastos/gasto-lote-errores';
 import { LOTE_DISTINTO_MESSAGE, LOTE_NO_ENCONTRADO_MESSAGE } from '@/features/gastos/gasto-lote-textos';
@@ -283,12 +289,27 @@ async function reintentar() {
 const monto = (categoriaId: string) => byId<HTMLInputElement>(`gasto-monto-${categoriaId}`);
 const descripcion = (categoriaId: string) => byId<HTMLTextAreaElement>(`gasto-descripcion-${categoriaId}`);
 const litros = (categoriaId: string) => byId<HTMLInputElement>(`gasto-litros-${categoriaId}`);
-const metodo = (categoriaId: string) => byId<HTMLSelectElement>(`gasto-metodo-${categoriaId}`);
+/** El primer botón del grupo «¿Cómo pagaste X?» de una categoría (con varias marcadas): `gasto-metodo-<categoría>-0`. */
+const metodo = (categoriaId: string) => byId<HTMLInputElement>(`gasto-metodo-${categoriaId}-0`);
+/** El prefijo de los ids de los botones de un grupo: con categoría, el de varias marcadas; sin ella, el de siempre (`gasto-metodo`). */
+const grupoDeMetodo = (categoriaId?: string) => (categoriaId === undefined ? 'gasto-metodo' : `gasto-metodo-${categoriaId}`);
+/** El método marcado de un grupo de botones ('' si no hay ninguno). */
+const metodoMarcado = (categoriaId?: string) =>
+  document.querySelector<HTMLInputElement>(`input[type="radio"][id^="${grupoDeMetodo(categoriaId)}-"]:checked`)?.value ?? '';
+/** Los botones (radios) de un grupo de método de pago. */
+const radiosDeMetodo = (categoriaId?: string) =>
+  [...document.querySelectorAll<HTMLInputElement>(`input[type="radio"][id^="${grupoDeMetodo(categoriaId)}-"]`)];
+/** La leyenda del grupo que contiene a ese elemento. */
+const leyendaDe = (elementId: string) => byId(elementId)!.closest('fieldset')!.querySelector('legend')!.textContent;
+/** Toca el botón de un método de pago. */
+async function elegirMetodo(valor: string, categoriaId?: string) {
+  await click(document.querySelector<HTMLInputElement>(`input[type="radio"][id^="${grupoDeMetodo(categoriaId)}-"][value="${valor}"]`));
+}
 
 /** Llena el monto y el método de pago de UN bloque (con varias categorías marcadas). */
 async function llenarBloque(categoriaId: string, valorMonto: string, valorMetodo = 'efectivo') {
   await typeText(monto(categoriaId), valorMonto);
-  await selectValue(metodo(categoriaId), valorMetodo);
+  await elegirMetodo(valorMetodo, categoriaId);
 }
 /** Lo mínimo para guardar Combustible + Peajes (con un solo camión activo, que se asigna solo). */
 async function llenarCombustibleYPeajes() {
@@ -416,10 +437,10 @@ describe('alta: el grupo «Categoría» son casillas', () => {
 describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
   it('sin nada marcado: Categoría → Descripción → Monto → Fecha → Viaje → Método de pago, con los ids y rótulos de siempre', async () => {
     await mount();
-    const orden = ['gasto-categoria-0', 'gasto-descripcion', 'gasto-monto', 'gasto-fecha', 'gasto-viaje', 'gasto-metodo'].map((id) => byId(id)!);
+    const orden = ['gasto-categoria-0', 'gasto-descripcion', 'gasto-monto', 'gasto-fecha', 'gasto-viaje', 'gasto-metodo-0'].map((id) => byId(id)!);
     expect(orden.every(Boolean)).toBe(true);
     for (let i = 0; i < orden.length - 1; i++) expect(antes(orden[i]!, orden[i + 1]!), `${orden[i]!.id} antes de ${orden[i + 1]!.id}`).toBe(true);
-    expect(document.querySelector('label[for="gasto-metodo"]')!.textContent).toBe('Método de pago');
+    expect(leyendaDe('gasto-metodo-0')).toBe('¿Cómo pagaste?');
     expect(document.querySelector('label[for="gasto-monto"]')!.textContent).toBe('Monto');
     expect(document.querySelector('label[for="gasto-descripcion"]')!.textContent).toContain('Descripción');
     expect(titulosDeBloques()).toEqual([]);
@@ -430,7 +451,7 @@ describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
     await mount();
     await marcar(PEAJES_ID);
     expect(titulosDeBloques()).toEqual([]);
-    for (const id of ['gasto-descripcion', 'gasto-monto', 'gasto-fecha', 'gasto-viaje', 'gasto-metodo']) expect(byId(id), id).not.toBeNull();
+    for (const id of ['gasto-descripcion', 'gasto-monto', 'gasto-fecha', 'gasto-viaje', 'gasto-metodo-0']) expect(byId(id), id).not.toBeNull();
     expect(document.querySelectorAll('input[id^="gasto-monto"]')).toHaveLength(1);
     expect(buttonByText('Guardar gasto')).toBeTruthy();
     expect(buttonByText('Guardar 1 gasto')).toBeUndefined();
@@ -449,7 +470,7 @@ describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
     await mount();
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
     expect(inserts()).toHaveLength(1);
     const fila = filaDe(inserts()[0]!);
@@ -464,7 +485,7 @@ describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
   it('sin ninguna categoría: «Elige una categoría.», el foco va al grupo y no se manda nada', async () => {
     await mount();
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
     expect(byId('gasto-categoria-error')!.textContent).toBe('Elige una categoría.');
     expect(enfocado()).toBe('gasto-categoria-0');
@@ -485,14 +506,14 @@ describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     await typeText(byId<HTMLTextAreaElement>('gasto-descripcion'), 'Peaje de la ruta');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'tarjeta_debito');
+    await elegirMetodo('tarjeta_debito');
     await click(casilla(PEAJES_ID)); // sin ninguna marcada: sigue la misma pantalla
     expect(marcadas()).toEqual([]);
     expect(byId<HTMLInputElement>('gasto-monto')!.value).toBe('800');
     await click(casilla(LAVADO_ID));
     expect(byId<HTMLInputElement>('gasto-monto')!.value).toBe('800');
     expect(byId<HTMLTextAreaElement>('gasto-descripcion')!.value).toBe('Peaje de la ruta');
-    expect(byId<HTMLSelectElement>('gasto-metodo')!.value).toBe('tarjeta_debito');
+    expect(metodoMarcado()).toBe('tarjeta_debito');
     await guardar();
     expect(filaDe(inserts()[0]!)).toMatchObject({ categoria_id: LAVADO_ID, monto: 800, descripcion: 'Peaje de la ruta', metodo_pago: 'tarjeta_debito' });
   });
@@ -518,7 +539,7 @@ describe('alta con varias categorías: un bloque por categoría', () => {
       expect(monto(id), id).not.toBeNull();
       expect(metodo(id), id).not.toBeNull();
     }
-    for (const sinSufijo of ['gasto-descripcion', 'gasto-monto', 'gasto-metodo']) expect(byId(sinSufijo), sinSufijo).toBeNull();
+    for (const sinSufijo of ['gasto-descripcion', 'gasto-monto', 'gasto-metodo-0']) expect(byId(sinSufijo), sinSufijo).toBeNull();
     // cada bloque es un grupo con su título
     const grupo = monto(PEAJES_ID)!.closest('[role="group"]')!;
     expect(document.getElementById(grupo.getAttribute('aria-labelledby')!)!.textContent).toBe('Peajes');
@@ -552,10 +573,12 @@ describe('alta con varias categorías: un bloque por categoría', () => {
   it('los métodos de pago van juntos abajo, uno por gasto, rotulados con el nombre de su categoría y sin valor por defecto', async () => {
     await mount();
     await marcar(PEAJES_ID, COMBUSTIBLE_CATEGORIA_ID);
-    expect(document.querySelector('label[for="gasto-metodo-' + COMBUSTIBLE_CATEGORIA_ID + '"]')!.textContent).toBe('Método de pago de Combustible');
-    expect(document.querySelector('label[for="gasto-metodo-' + PEAJES_ID + '"]')!.textContent).toBe('Método de pago de Peajes');
-    expect(metodo(PEAJES_ID)!.value).toBe('');
-    expect(metodo(PEAJES_ID)!.getAttribute('aria-required')).toBe('true');
+    expect(leyendaDe(`gasto-metodo-${COMBUSTIBLE_CATEGORIA_ID}-0`)).toBe('¿Cómo pagaste Combustible?');
+    expect(leyendaDe(`gasto-metodo-${PEAJES_ID}-0`)).toBe('¿Cómo pagaste Peajes?');
+    expect(metodoMarcado(PEAJES_ID)).toBe('');
+    expect(metodoMarcado(COMBUSTIBLE_CATEGORIA_ID)).toBe('');
+    // Obligatorio: cada botón es un radio `required` (en un grupo de radios, es lo que lee el lector de pantalla).
+    expect(radiosDeMetodo(PEAJES_ID).every((radio) => radio.required)).toBe(true);
     expect(titulosDeBloques()).toContain('¿Cómo pagaste cada gasto?');
   });
 
@@ -595,16 +618,16 @@ describe('alta con varias categorías: un bloque por categoría', () => {
     await marcar(PEAJES_ID, LAVADO_ID);
     await typeText(monto(PEAJES_ID), '800');
     await typeText(monto(LAVADO_ID), '300');
-    await selectValue(metodo(LAVADO_ID), 'transferencia');
+    await elegirMetodo('transferencia', LAVADO_ID);
     expect(monto(PEAJES_ID)!.value).toBe('800');
     expect(monto(LAVADO_ID)!.value).toBe('300');
-    expect(metodo(PEAJES_ID)!.value).toBe('');
+    expect(metodoMarcado(PEAJES_ID)).toBe('');
     await click(casilla(LAVADO_ID));
     expect(monto(LAVADO_ID)).toBeNull();
     expect(byId<HTMLInputElement>('gasto-monto')!.value).toBe('800'); // quedó uno solo: la pantalla de siempre, con lo de Peajes
     await click(casilla(LAVADO_ID));
     expect(monto(LAVADO_ID)!.value).toBe('300');
-    expect(metodo(LAVADO_ID)!.value).toBe('transferencia');
+    expect(metodoMarcado(LAVADO_ID)).toBe('transferencia');
     expect(monto(PEAJES_ID)!.value).toBe('800');
   });
 
@@ -683,9 +706,9 @@ describe('alta con varias categorías: errores por bloque y foco', () => {
     await typeText(monto(PEAJES_ID), '800');
     await typeText(monto(GASTOS_VARIOS_CATEGORIA_ID), '500');
     await typeText(descripcion(GASTOS_VARIOS_CATEGORIA_ID), 'Lavado');
-    await selectValue(metodo(GASTOS_VARIOS_CATEGORIA_ID), 'efectivo');
+    await elegirMetodo('efectivo', GASTOS_VARIOS_CATEGORIA_ID);
     await guardar('Guardar 2 gastos');
-    expect(enfocado()).toBe(`gasto-metodo-${PEAJES_ID}`);
+    expect(enfocado()).toBe(`gasto-metodo-${PEAJES_ID}-0`);
   });
 
   it('un error de la descripción de «Gastos varios» (que está antes que su monto) lleva el foco a la descripción', async () => {
@@ -693,7 +716,7 @@ describe('alta con varias categorías: errores por bloque y foco', () => {
     await marcar(PEAJES_ID, GASTOS_VARIOS_CATEGORIA_ID);
     await llenarBloque(PEAJES_ID, '800');
     await typeText(monto(GASTOS_VARIOS_CATEGORIA_ID), '500');
-    await selectValue(metodo(GASTOS_VARIOS_CATEGORIA_ID), 'efectivo');
+    await elegirMetodo('efectivo', GASTOS_VARIOS_CATEGORIA_ID);
     await guardar('Guardar 2 gastos');
     expect(enfocado()).toBe(`gasto-descripcion-${GASTOS_VARIOS_CATEGORIA_ID}`);
   });
@@ -707,7 +730,7 @@ describe('alta con varias categorías: errores por bloque y foco', () => {
     await typeText(monto(PEAJES_ID), '800');
     expect(byId(`gasto-monto-${PEAJES_ID}-error`)!.textContent).toBe('');
     expect(byId(`gasto-monto-${LAVADO_ID}-error`)!.textContent).not.toBe('');
-    await selectValue(metodo(LAVADO_ID), 'efectivo');
+    await elegirMetodo('efectivo', LAVADO_ID);
     expect(byId(`gasto-metodo-${LAVADO_ID}-error`)!.textContent).toBe('');
     expect(byId(`gasto-metodo-${PEAJES_ID}-error`)!.textContent).not.toBe('');
   });
@@ -895,7 +918,7 @@ describe('alta con varias categorías: guardado', () => {
     await mount({ pathname: '/gastos/nuevo', search: `?viaje=${V_PILAR.id}`, state: { desdeViaje: V_PILAR.id, volverViaje: '' } });
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
     const detalle = byId('detalle-del-viaje')!;
     expect(detalle.dataset.aviso).toBe('gasto-guardado');
@@ -939,8 +962,8 @@ describe('alta con varias categorías: sin señal y reintento', () => {
     expect(monto(PEAJES_ID)!.value).toBe('800');
     expect(monto(GASTOS_VARIOS_CATEGORIA_ID)!.value).toBe('500');
     expect(descripcion(GASTOS_VARIOS_CATEGORIA_ID)!.value).toBe('Lavado del camión');
-    expect(metodo(PEAJES_ID)!.value).toBe('efectivo');
-    expect(metodo(GASTOS_VARIOS_CATEGORIA_ID)!.value).toBe('transferencia');
+    expect(metodoMarcado(PEAJES_ID)).toBe('efectivo');
+    expect(metodoMarcado(GASTOS_VARIOS_CATEGORIA_ID)).toBe('transferencia');
     await reintentar();
     expect(inserts()).toHaveLength(2);
     expect(filasDe(inserts()[1]!)).toEqual(filasDe(inserts()[0]!)); // lo mismo, con las mismas claves
@@ -1051,10 +1074,10 @@ describe('después de un intento que no terminó bien: las categorías quedan fi
     await llenarPeajesYVarios();
     await guardar('Guardar 2 gastos');
     await typeText(monto(PEAJES_ID), '1200');
-    await selectValue(metodo(PEAJES_ID), 'tarjeta_debito');
+    await elegirMetodo('tarjeta_debito', PEAJES_ID);
     await typeText(descripcion(GASTOS_VARIOS_CATEGORIA_ID), 'Otra cosa');
     expect(monto(PEAJES_ID)!.value).toBe('1200');
-    expect(metodo(PEAJES_ID)!.value).toBe('tarjeta_debito');
+    expect(metodoMarcado(PEAJES_ID)).toBe('tarjeta_debito');
     expect(descripcion(GASTOS_VARIOS_CATEGORIA_ID)!.value).toBe('Otra cosa');
   });
 
@@ -1103,7 +1126,7 @@ describe('después de un intento de UN gasto que no terminó bien: la categoría
     await mount();
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
   }
 
@@ -1126,7 +1149,7 @@ describe('después de un intento de UN gasto que no terminó bien: la categoría
     await click(casilla(LAVADO_ID));
     expect(marcadas()).toEqual([LAVADO_ID]);
     expect(byId<HTMLInputElement>('gasto-monto')!.value).toBe('800');
-    expect(byId<HTMLSelectElement>('gasto-metodo')!.value).toBe('efectivo');
+    expect(metodoMarcado()).toBe('efectivo');
     await reintentar();
     expect(inserts()).toHaveLength(2);
     expect(filaDe(inserts()[1]!).client_ref).toBe(filaDe(inserts()[0]!).client_ref); // la misma clave: no puede duplicar
@@ -1342,7 +1365,7 @@ describe('«Empezar de nuevo»', () => {
     expect(monto(PEAJES_ID)!.value).toBe('800');
     expect(monto(GASTOS_VARIOS_CATEGORIA_ID)!.value).toBe('500');
     expect(descripcion(GASTOS_VARIOS_CATEGORIA_ID)!.value).toBe('Lavado del camión');
-    expect(metodo(PEAJES_ID)!.value).toBe('efectivo');
+    expect(metodoMarcado(PEAJES_ID)).toBe('efectivo');
     expect(bodyText()).not.toContain(NETWORK_SAVE_ERROR_MESSAGE);
     expect(bodyText()).not.toContain(textosVarios.AVISO_CATEGORIAS_FIJAS);
     expect(buttonByText(textosVarios.EMPEZAR_DE_NUEVO)).toBeUndefined();
@@ -1395,7 +1418,7 @@ describe('«Empezar de nuevo»', () => {
     await mount();
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
     await click(buttonByText(textosVarios.EMPEZAR_DE_NUEVO));
     await click(buttonByText('Sí, empezar de nuevo'));
@@ -1420,7 +1443,7 @@ describe('el reinicio del envío (lo mandado y las claves, juntos)', () => {
     await mount();
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
     expect(h.state.reinicios).toBe(1);
   });
@@ -1510,7 +1533,7 @@ describe('lo que no se arregla reintentando: «Empezar de nuevo» es la única s
     await mount();
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
     await typeText(byId<HTMLInputElement>('gasto-monto'), '950');
     await reintentar();
@@ -1564,7 +1587,7 @@ describe('guardados en vuelo: irse de la pantalla, doble toque y reinicio', () =
     } else {
       await marcar(PEAJES_ID);
       await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-      await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+      await elegirMetodo('efectivo');
       await guardar();
     }
   }
@@ -1597,7 +1620,7 @@ describe('guardados en vuelo: irse de la pantalla, doble toque y reinicio', () =
     else {
       await marcar(PEAJES_ID);
       await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-      await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+      await elegirMetodo('efectivo');
     }
     const boton = buttons().find((b) => b.type === 'submit' && b.textContent === (cantidad === 2 ? 'Guardar 2 gastos' : 'Guardar gasto'))!;
     const formulario = document.querySelector('form')!;
@@ -1685,7 +1708,7 @@ describe('editar un gasto: una sola categoría, igual que siempre', () => {
 
   it('los ids de siempre y guardar actualiza UN gasto (nunca un lote)', async () => {
     await mount(`/gastos/${GASTO_ID}/editar`);
-    for (const id of ['gasto-descripcion', 'gasto-monto', 'gasto-fecha', 'gasto-viaje', 'gasto-metodo']) expect(byId(id), id).not.toBeNull();
+    for (const id of ['gasto-descripcion', 'gasto-monto', 'gasto-fecha', 'gasto-viaje', 'gasto-metodo-0']) expect(byId(id), id).not.toBeNull();
     await guardar();
     expect(updatesGasto()).toHaveLength(1);
     expect(inserts()).toHaveLength(0);
@@ -1741,5 +1764,123 @@ describe('alta con varias categorías: idioma y accesibilidad', () => {
     expect(html).not.toMatch(/(?:^|\s)w-\[\d+px\]/);
     expect(html).not.toMatch(/(?:^|\s)min-w-\[\d+px\]/);
     expect(document.querySelector('fieldset')!.className).toContain('min-w-0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Método de pago en 4 botones POR gasto (tanda 3b, B3)
+// ---------------------------------------------------------------------------
+describe('alta con varias categorías: el método de pago son 4 botones por gasto', () => {
+  const grupoDe = (categoriaId: string) => byId(`gasto-metodo-${categoriaId}-0`)!.closest('fieldset')!;
+  const gruposDeMetodo = () => [...document.querySelectorAll('fieldset')].filter((grupo) => grupo.querySelector('input[id^="gasto-metodo-"]'));
+
+  it('un grupo por gasto (en el orden de la lista), con la categoría en la leyenda, 4 botones cada uno en 2×2 y ninguno marcado', async () => {
+    await mount();
+    await marcar(PEAJES_ID, COMBUSTIBLE_CATEGORIA_ID, LAVADO_ID);
+    expect(gruposDeMetodo().map((grupo) => grupo.querySelector('legend')!.textContent)).toEqual([
+      '¿Cómo pagaste Combustible?',
+      '¿Cómo pagaste Lavado?',
+      '¿Cómo pagaste Peajes?',
+    ]);
+    for (const id of [COMBUSTIBLE_CATEGORIA_ID, LAVADO_ID, PEAJES_ID]) {
+      const radios = radiosDeMetodo(id);
+      expect(radios.map((radio) => radio.value), id).toEqual([...METODO_PAGO_ORDER]);
+      expect(radios.map((radio) => radio.closest('label')!.textContent), id).toEqual(METODO_PAGO_ORDER.map((metodo) => METODO_PAGO_LABELS[metodo]));
+      expect(radios[0]!.closest('label')!.parentElement!.className, id).toContain('grid-cols-2');
+      expect(radios.some((radio) => radio.checked), id).toBe(false);
+      expect(radios.every((radio) => radio.required), id).toBe(true);
+    }
+    // El título de la sección sigue y el grupo de «un solo gasto» ya no está.
+    expect(titulosDeBloques()).toContain('¿Cómo pagaste cada gasto?');
+    expect(byId('gasto-metodo-0')).toBeNull();
+  });
+
+  it('ningún id del DOM se repite: los botones de cada gasto llevan el id de su categoría y cada grupo tiene su propio nombre', async () => {
+    await mount();
+    await marcar(PEAJES_ID, COMBUSTIBLE_CATEGORIA_ID, LAVADO_ID, GASTOS_VARIOS_CATEGORIA_ID);
+    const ids = [...document.querySelectorAll('[id]')].map((el) => el.id);
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+    for (const id of [COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID, LAVADO_ID, PEAJES_ID]) {
+      expect(radiosDeMetodo(id).map((radio) => radio.id), id).toEqual([0, 1, 2, 3].map((n) => `gasto-metodo-${id}-${n}`));
+    }
+    const nombres = [COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID, LAVADO_ID, PEAJES_ID].map((id) => radiosDeMetodo(id)[0]!.name);
+    expect(new Set(nombres).size).toBe(4);
+  });
+
+  it('cada grupo es independiente: elegir en uno no marca ni desmarca nada en los otros', async () => {
+    await mount();
+    await marcar(PEAJES_ID, LAVADO_ID);
+    await elegirMetodo('tarjeta_credito', PEAJES_ID);
+    expect(metodoMarcado(PEAJES_ID)).toBe('tarjeta_credito');
+    expect(metodoMarcado(LAVADO_ID)).toBe('');
+    await elegirMetodo('efectivo', LAVADO_ID);
+    expect(metodoMarcado(PEAJES_ID)).toBe('tarjeta_credito');
+    expect(metodoMarcado(LAVADO_ID)).toBe('efectivo');
+    await elegirMetodo('transferencia', PEAJES_ID); // cambiar uno no toca al otro
+    expect(metodoMarcado(PEAJES_ID)).toBe('transferencia');
+    expect(metodoMarcado(LAVADO_ID)).toBe('efectivo');
+  });
+
+  it('cada fila se guarda con el valor del botón de SU grupo (tres métodos distintos en tres gastos)', async () => {
+    await mount();
+    await marcar(PEAJES_ID, LAVADO_ID, GASTOS_VARIOS_CATEGORIA_ID);
+    await typeText(descripcion(GASTOS_VARIOS_CATEGORIA_ID), 'Un arreglo');
+    await llenarBloque(PEAJES_ID, '800', 'tarjeta_debito');
+    await llenarBloque(LAVADO_ID, '300', 'efectivo');
+    await llenarBloque(GASTOS_VARIOS_CATEGORIA_ID, '500', 'transferencia');
+    await guardar('Guardar 3 gastos');
+    const porCategoria = Object.fromEntries(filasDe(inserts()[0]!).map((fila) => [fila.categoria_id as string, fila]));
+    expect(porCategoria[PEAJES_ID]!.metodo_pago).toBe('tarjeta_debito');
+    expect(porCategoria[LAVADO_ID]!.metodo_pago).toBe('efectivo');
+    expect(porCategoria[GASTOS_VARIOS_CATEGORIA_ID]!.metodo_pago).toBe('transferencia');
+  });
+
+  it('sin método en un gasto: «Elige cómo pagaste.» SOLO en su grupo, asociado con aria; el otro grupo queda sin error', async () => {
+    await mount();
+    await marcar(PEAJES_ID, LAVADO_ID);
+    await typeText(monto(PEAJES_ID), '800');
+    await typeText(monto(LAVADO_ID), '300');
+    await elegirMetodo('efectivo', LAVADO_ID);
+    await guardar('Guardar 2 gastos');
+    expect(inserts()).toHaveLength(0);
+    const aviso = byId(`gasto-metodo-${PEAJES_ID}-error`)!;
+    expect(aviso.textContent).toBe('Elige cómo pagaste.');
+    expect(aviso.getAttribute('aria-live')).toBe('polite');
+    expect(grupoDe(PEAJES_ID).getAttribute('aria-describedby')).toContain(`gasto-metodo-${PEAJES_ID}-error`);
+    expect(radiosDeMetodo(PEAJES_ID).every((radio) => radio.getAttribute('aria-invalid') === 'true')).toBe(true);
+    expect(byId(`gasto-metodo-${LAVADO_ID}-error`)!.textContent).toBe('');
+    expect(grupoDe(LAVADO_ID).getAttribute('aria-describedby')).toBeNull();
+    expect(radiosDeMetodo(LAVADO_ID).every((radio) => radio.getAttribute('aria-invalid') === null)).toBe(true);
+    // Elegir en el grupo con error saca ESE error.
+    await elegirMetodo('efectivo', PEAJES_ID);
+    expect(byId(`gasto-metodo-${PEAJES_ID}-error`)!.textContent).toBe('');
+    expect(grupoDe(PEAJES_ID).getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('con dos grupos con error, el foco cae en el PRIMER botón del primer grupo en el orden en que se ven (Lavado antes que Peajes)', async () => {
+    await mount();
+    await marcar(PEAJES_ID, LAVADO_ID);
+    await typeText(monto(PEAJES_ID), '800');
+    await typeText(monto(LAVADO_ID), '300');
+    await guardar('Guardar 2 gastos');
+    expect(byId(`gasto-metodo-${LAVADO_ID}-error`)!.textContent).toBe('Elige cómo pagaste.');
+    expect(byId(`gasto-metodo-${PEAJES_ID}-error`)!.textContent).toBe('Elige cómo pagaste.');
+    expect(enfocado()).toBe(`gasto-metodo-${LAVADO_ID}-0`);
+    expect(document.activeElement).toBe(radiosDeMetodo(LAVADO_ID)[0]);
+  });
+
+  it('un grupo más por cada categoría que se marca; al desmarcarla se va y lo elegido en los otros se conserva', async () => {
+    await mount();
+    await marcar(PEAJES_ID, LAVADO_ID);
+    await elegirMetodo('tarjeta_credito', PEAJES_ID);
+    expect(gruposDeMetodo()).toHaveLength(2);
+    await marcar(GASTOS_VARIOS_CATEGORIA_ID);
+    expect(gruposDeMetodo()).toHaveLength(3);
+    expect(metodoMarcado(GASTOS_VARIOS_CATEGORIA_ID)).toBe('');
+    expect(metodoMarcado(PEAJES_ID)).toBe('tarjeta_credito');
+    await click(casilla(GASTOS_VARIOS_CATEGORIA_ID));
+    expect(gruposDeMetodo()).toHaveLength(2);
+    expect(radiosDeMetodo(GASTOS_VARIOS_CATEGORIA_ID)).toHaveLength(0);
+    expect(metodoMarcado(PEAJES_ID)).toBe('tarjeta_credito');
   });
 });

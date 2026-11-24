@@ -185,7 +185,7 @@ export function ayudaConfiguracion(reportarVisible: boolean): AyudaPantalla {
   return {
     titulo: 'Ayuda de Configuración',
     puntos: [
-      'Aquí ves con qué cuenta iniciaste sesión.',
+      'Aquí ves con qué cuenta iniciaste sesión y puedes cerrarla.',
       'Puedes cambiar tu nombre y entrar a tus camiones.',
       'Elige el tema claro u oscuro y el color de los botones: se guarda solo.',
       ...(reportarVisible ? [PUNTO_REPORTAR] : []),

@@ -113,8 +113,9 @@ describe('el texto exacto de «Nuevo gasto» con varias categorías', () => {
     expect(textos.unirNombres(['A', 'B', 'C', 'D'])).toBe('A, B, C y D');
   });
 
-  it('el método de pago de cada gasto lleva el nombre de su categoría, y los títulos de la parte de abajo', () => {
-    expect(textos.etiquetaMetodoDePago('Peajes')).toBe('Método de pago de Peajes');
+  it('el método de pago es una pregunta: «¿Cómo pagaste?» y, con varios gastos, con el nombre de su categoría; y los títulos de la parte de abajo', () => {
+    expect(textos.LEYENDA_COMO_PAGASTE).toBe('¿Cómo pagaste?');
+    expect(textos.etiquetaMetodoDePago('Peajes')).toBe('¿Cómo pagaste Peajes?');
     expect(textos.TITULO_COMO_PAGASTE).toBe('¿Cómo pagaste cada gasto?');
     expect(textos.TITULO_DATOS_DEL_COMBUSTIBLE).toBe('Datos del combustible');
   });

@@ -261,6 +261,10 @@ async function selectValue(el: HTMLSelectElement | null, value: string) {
   });
   await settle(3);
 }
+/** Toca el botón de un método de pago (los 4 botones del grupo `gasto-metodo`). */
+async function elegirMetodo(valor: string) {
+  await click(document.querySelector<HTMLInputElement>(`input[type="radio"][id^="gasto-metodo-"][value="${valor}"]`));
+}
 async function guardar() {
   await click(buttonByText('Guardar gasto'));
   await settle(3);
@@ -270,7 +274,7 @@ async function llenarCombustible() {
   await click(casillaOf(COMBUSTIBLE_CATEGORIA_ID));
   await typeText(byId<HTMLInputElement>('gasto-monto'), '40000');
   await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
-  await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo'); // el método de pago es obligatorio
+  await elegirMetodo('efectivo'); // el método de pago es obligatorio
 }
 
 let invalidadas: unknown[][] = [];
@@ -317,7 +321,7 @@ describe('carga de combustible sin viaje: el camión según los camiones', () =>
     await click(casillaOf(PEAJES_ID));
     expect(radiosCamion()).toHaveLength(0);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: null, litros: null });
   });
@@ -631,7 +635,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
     await mount();
     await click(casillaOf(PEAJES_ID));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'efectivo');
+    await elegirMetodo('efectivo');
     await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: null, viaje_id: V_B.id });
@@ -942,9 +946,9 @@ describe('combustible: el método de pago es obligatorio', () => {
     await typeText(byId<HTMLInputElement>('gasto-litros'), '40');
     await guardar();
     expect(document.body.textContent).toContain('Elige cómo pagaste.');
-    expect(document.activeElement?.id).toBe('gasto-metodo');
+    expect(document.activeElement?.id).toBe('gasto-metodo-0');
     expect(inserts()).toHaveLength(0);
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo'), 'tarjeta_credito');
+    await elegirMetodo('tarjeta_credito');
     await guardar();
     expect(inserts()).toHaveLength(1);
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ metodo_pago: 'tarjeta_credito', litros: 40 });

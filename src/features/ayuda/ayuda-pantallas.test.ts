@@ -78,6 +78,13 @@ describe('textos de ayuda por pantalla', () => {
     expect(pantallas.AYUDA_VIAJE_FORM.puntos.join(' ')).toContain('«Lo que cobraste»');
   });
 
+  it('la ayuda de Configuración dice que ahí se cierra la sesión (ya no hay «Salir» en el encabezado) y ninguna ayuda manda a «Salir»', () => {
+    for (const reportar of [false, true]) {
+      expect(pantallas.ayudaConfiguracion(reportar).puntos[0]).toBe('Aquí ves con qué cuenta iniciaste sesión y puedes cerrarla.');
+    }
+    for (const { nombre, texto } of TEXTOS) expect(texto, nombre).not.toMatch(/\bsalir\b/i);
+  });
+
   it('el texto del botón del recorrido es el de siempre', () => {
     expect(pantallas.TEXTO_VER_RECORRIDO).toBe('Ver el recorrido otra vez');
   });

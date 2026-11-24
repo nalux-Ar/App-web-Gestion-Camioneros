@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import { isRetryableDataError, mapDataError, NETWORK_SAVE_ERROR_MESSAGE, type DataErrorContext } from '@/lib/data-errors';
+import { useEsperaLarga } from '@/lib/use-espera-larga';
 
 /**
  * PATRÓN DE RESILIENCIA DE FORMULARIOS (leer antes de armar un formulario)
@@ -31,6 +32,13 @@ import { isRetryableDataError, mapDataError, NETWORK_SAVE_ERROR_MESSAGE, type Da
  *  4. Nada de reintentos automáticos de escrituras (ver `queryClient`,
  *     `mutations.retry: 0` y `networkMode: 'always'`): el reintento lo decide
  *     la persona.
+ *  5. `lento`: pasa a true cuando UN intento lleva 8 segundos seguidos sin
+ *     terminar (la señal está lenta) y vuelve a false apenas ese intento
+ *     termina, bien o mal. Es solo un aviso para la `SubmitBar`: no cambia
+ *     nada de lo anterior. Se cuenta sobre el intento en curso y no sobre
+ *     `pending` (que tras un éxito sigue en true hasta que se navega): un
+ *     guardado que ya terminó no puede seguir diciendo "sigue guardando".
+ *     Cada intento arranca la cuenta de cero.
  *
  * Riesgo conocido que esto NO cubre: si el INSERT llegó al servidor pero se
  * perdió la respuesta (o saltó el timeout de escritura, ver
@@ -77,6 +85,8 @@ export interface SubmitFeedbackOptions {
 
 export function useSubmitFeedback({ context }: SubmitFeedbackOptions = {}) {
   const [pending, setPending] = useState(false);
+  // Hay un intento EN VUELO (desde que empieza hasta que termina, bien o mal). No es `pending`, que tras un éxito sigue en true.
+  const [enVuelo, setEnVuelo] = useState(false);
   const [failure, setFailure] = useState<{ message: string; retryable: boolean } | null>(null);
   const inFlight = useRef(false);
 
@@ -90,6 +100,7 @@ export function useSubmitFeedback({ context }: SubmitFeedbackOptions = {}) {
       if (inFlight.current) return { ok: false };
       inFlight.current = true;
       setPending(true);
+      setEnVuelo(true);
       setFailure(null);
       let stayLocked = false;
       try {
@@ -105,6 +116,7 @@ export function useSubmitFeedback({ context }: SubmitFeedbackOptions = {}) {
         });
         return { ok: false };
       } finally {
+        setEnVuelo(false); // el intento terminó: el aviso de espera larga se va (también tras un éxito, aunque siga bloqueado)
         if (!stayLocked) {
           inFlight.current = false;
           setPending(false);
@@ -122,10 +134,15 @@ export function useSubmitFeedback({ context }: SubmitFeedbackOptions = {}) {
 
   const clearError = useCallback(() => setFailure(null), []);
 
+  // 8 segundos seguidos con el MISMO intento en vuelo; el temporizador se limpia solo al terminar y al desmontar.
+  const lento = useEsperaLarga(enVuelo);
+
   return {
     run,
     /** true mientras guarda y, tras un éxito, hasta `release()` o hasta que se desmonte. */
     pending,
+    /** true cuando el intento en curso lleva 8 s sin terminar (señal lenta); false apenas termina, bien o mal. Solo para avisar. */
+    lento,
     release,
     /** Mensaje listo para mostrar (español, nunca texto del servidor), o null. */
     error: failure?.message ?? null,

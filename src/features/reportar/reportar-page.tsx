@@ -75,7 +75,7 @@ export function ReportarPage() {
   }, [focoAlCampo]);
 
   const enviar = useEnviarReporte();
-  const { run, pending, error, retryable } = useSubmitFeedback({ context: ENVIAR_REPORTE_CONTEXT });
+  const { run, pending, lento, error, retryable } = useSubmitFeedback({ context: ENVIAR_REPORTE_CONTEXT });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -144,7 +144,7 @@ export function ReportarPage() {
             {QUE_SE_ENVIA}
           </p>
 
-          <SubmitBar pending={pending} error={error} retryable={retryable} label={BOTON_ENVIAR} pendingLabel={ENVIANDO} />
+          <SubmitBar pending={pending} lento={lento} error={error} retryable={retryable} label={BOTON_ENVIAR} pendingLabel={ENVIANDO} />
         </form>
       )}
     </div>

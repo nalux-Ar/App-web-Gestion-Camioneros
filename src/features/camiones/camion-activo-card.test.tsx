@@ -264,6 +264,44 @@ describe('tarjeta del camión activo: 1 solo camión activo', () => {
     expect(region.className).not.toContain('border-primary');
   });
 
+  it('es UNA línea: «Tu camión:» + la patente + la marca y el modelo, sin la frase de explicación y sin encabezado aparte', async () => {
+    LISTA = [A, X];
+    await mount();
+    const region = tarjeta()!;
+    expect(region.querySelector('[data-slot="card-header"]')).toBeNull();
+    expect(region.querySelector('[data-slot="card-description"]')).toBeNull();
+    expect(region.textContent).not.toContain('Se usa en');
+    const contenido = region.querySelectorAll('[data-slot="card-content"]');
+    expect(contenido).toHaveLength(1);
+    expect([...contenido[0]!.children].map((el) => el.textContent)).toEqual(['Tu camión', 'AB 123 CD', 'Scania R450']);
+    // Si no entra todo en un celular angosto, la marca baja de renglón en vez de salirse de la tarjeta.
+    expect(contenido[0]!.className).toContain('flex-wrap');
+    expect(contenido[0]!.children[2]!.className).toContain('break-words');
+    expect(contenido[0]!.children[2]!.className).toContain('min-w-0');
+  });
+
+  it('la patente es lo que más se ve (18 px, negrita) y la tarjeta mantiene su región con nombre y el objetivo del recorrido', async () => {
+    LISTA = [A, X];
+    await mount();
+    const region = tarjeta()!;
+    const patente = [...region.querySelectorAll('p')].find((p) => p.textContent === 'AB 123 CD')!;
+    expect(patente.className).toContain('text-lg');
+    expect(patente.className).toContain('font-semibold');
+    expect(tituloDe(region)).toBe('Tu camión');
+    expect(region.getAttribute('data-ayuda')).toBe('camion');
+  });
+
+  it('sin marca ni modelo: solo el título y la patente, y sigue sin control ni palabras de más («registro», «Elige el camión»)', async () => {
+    LISTA = [camion(1, 'AB123CD'), X];
+    await mount();
+    const region = tarjeta()!;
+    const contenido = region.querySelector('[data-slot="card-content"]')!;
+    expect([...contenido.children].map((el) => el.textContent)).toEqual(['Tu camión', 'AB 123 CD']);
+    expect(region.querySelectorAll('input, select, button')).toHaveLength(0);
+    expect(region.textContent).not.toMatch(/registro/i);
+    expect(region.textContent).not.toContain('Elige el camión');
+  });
+
   it('con un camión activo guardado que ya no sirve (archivado), igual: el único activo, sin pedir nada', async () => {
     LISTA = [A, X];
     CAMION_ACTIVO = X.id;
@@ -390,6 +428,20 @@ describe('tarjeta del camión activo: elegir', () => {
     expect(etiquetas()).toEqual(['AB 123 CD', 'ABC 123']);
     expect(tarjeta()!.querySelector('fieldset')!.disabled).toBe(false);
     expect(estado()).toBe('Listo: trabajas con ABC 123.');
+  });
+
+  it('la confirmación «Listo: trabajas con …» está en una región aria-live (polite) de 16 px, siempre presente desde antes de elegir', async () => {
+    CAMION_ACTIVO = A.id;
+    await mount();
+    const region = tarjeta()!.querySelector('[role="status"]')!;
+    expect(region.textContent).toBe(''); // ya existe, vacía: así el cambio de texto se anuncia
+    await click(radioDe('ABC 123'));
+    const despues = tarjeta()!.querySelector('[role="status"]')!;
+    expect(despues).toBe(region);
+    expect(despues.textContent).toBe('Listo: trabajas con ABC 123.');
+    expect(despues.getAttribute('aria-live')).toBe('polite');
+    expect(despues.className).toContain('text-base'); // 16 px
+    expect(despues.className).not.toContain('sr-only');
   });
 
   it('sin activo válido: al elegir deja de pedirlo y de destacarse', async () => {

@@ -28,6 +28,7 @@ import { CamionesCard } from '@/features/camiones/camiones-card';
 import { useMember } from '@/features/member/use-member';
 import { ReportarCard } from '@/features/reportar/reportar-card';
 import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
+import { CerrarSesion } from './cerrar-sesion';
 import { NombreCard } from './nombre-card';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -150,8 +151,10 @@ export function ConfiguracionPage() {
             Esta es la cuenta con la que iniciaste sesión. Si no es la tuya, cierra sesión.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <p className="break-all text-base font-medium">{user?.email ?? 'No disponible'}</p>
+          {/* Antes estaba en el encabezado como «Salir» y cerraba sin preguntar: ahora pide una confirmación. */}
+          <CerrarSesion />
         </CardContent>
       </Card>
 

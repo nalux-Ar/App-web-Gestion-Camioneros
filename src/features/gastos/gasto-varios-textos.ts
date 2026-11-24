@@ -47,9 +47,12 @@ export function anuncioDeGastos(nombres: readonly string[]): string {
   return `Vas a guardar ${gastos}: ${unirNombres(nombres)}.`;
 }
 
-/** El método de pago de cada gasto, con el nombre de su categoría. */
+/** La leyenda del método de pago con UNA categoría (o ninguna) y al editar: 4 botones, sin ninguno marcado de entrada. */
+export const LEYENDA_COMO_PAGASTE = '¿Cómo pagaste?';
+
+/** La leyenda del método de pago de cada gasto cuando hay varios, con el nombre de su categoría: «¿Cómo pagaste Combustible?». */
 export function etiquetaMetodoDePago(nombreDeCategoria: string): string {
-  return `Método de pago de ${nombreDeCategoria}`;
+  return `¿Cómo pagaste ${nombreDeCategoria}?`;
 }
 
 /** El título de la parte de abajo, donde se elige cómo se pagó cada gasto. */

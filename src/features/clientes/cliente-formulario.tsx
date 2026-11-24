@@ -94,7 +94,7 @@ export function ClienteFormulario({ cliente, clientes, volver }: ClienteFormular
   const crear = useCrearCliente();
   const actualizar = useActualizarCliente();
   const eliminar = useEliminarCliente();
-  const { run, pending, release, error, retryable, clearError } = useSubmitFeedback({ context: GUARDAR_CLIENTE_CONTEXT });
+  const { run, pending, lento, release, error, retryable, clearError } = useSubmitFeedback({ context: GUARDAR_CLIENTE_CONTEXT });
 
   // Foco al primer campo con error (o al nombre, si aparece el aviso de duplicado), después de que se pinte. Es un efecto
   // que solo toca el DOM (no hay setState adentro).
@@ -266,7 +266,7 @@ export function ClienteFormulario({ cliente, clientes, volver }: ClienteFormular
           error={errors.direccion}
         />
 
-        <SubmitBar pending={pending} error={error} retryable={retryable} label="Guardar cliente" />
+        <SubmitBar pending={pending} lento={lento} error={error} retryable={retryable} label="Guardar cliente" />
       </form>
 
       {cliente ? (

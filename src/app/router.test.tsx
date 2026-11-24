@@ -837,10 +837,10 @@ describe('router: Reportar un problema APAGADO (el estado por defecto: la funci�
     }
   });
 
-  it('el header NO tiene el atajo: solo Configuraci처n y Salir, sin enlace a /reportar ni `data-ayuda="reportar"`', async () => {
+  it('el header NO tiene el atajo: solo Configuraci처n, sin enlace a /reportar ni `data-ayuda="reportar"`', async () => {
     await mount('/');
     await until(() => h1().startsWith('Hola'));
-    expect(accionesDelHeader()).toEqual(['Configuraci처n', 'Salir']);
+    expect(accionesDelHeader()).toEqual(['Configuraci처n']);
     expect(document.querySelector('a[href="/reportar"]')).toBeNull();
     expect(document.querySelector('[data-ayuda="reportar"]')).toBeNull();
   });
@@ -925,7 +925,6 @@ describe('router: Reportar un problema ENCENDIDO (con el interruptor en `true`)'
     expect([...enlace.closest('header')!.querySelectorAll('a, button')].map((el) => el.getAttribute('aria-label'))).toEqual([
       'Reportar un problema',
       'Configuraci처n',
-      'Salir',
     ]);
     await tocar(enlace);
     await until(() => h1() === 'Reportar un problema');

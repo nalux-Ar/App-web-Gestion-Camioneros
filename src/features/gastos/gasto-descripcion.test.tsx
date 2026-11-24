@@ -249,9 +249,7 @@ async function typeText(el: HTMLInputElement | HTMLTextAreaElement, value: strin
 }
 async function elegirMetodo(valor = 'efectivo') {
   await act(async () => {
-    const el = byId<HTMLSelectElement>('gasto-metodo')!;
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, valor);
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector<HTMLInputElement>(`input[type="radio"][id^="gasto-metodo-"][value="${valor}"]`)!.click();
   });
 }
 /** Escribe el monto y elige el método de pago (obligatorio): lo mínimo para que lo único que falte sea lo que se prueba. */
@@ -295,7 +293,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     const desc = byId('gasto-descripcion')!;
     const monto = byId('gasto-monto')!;
     const fecha = byId('gasto-fecha')!;
-    const metodo = byId('gasto-metodo')!;
+    const metodo = byId('gasto-metodo-0')!;
     expect(cat && desc && monto && fecha && metodo).toBeTruthy();
     const before = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(cat, desc)).toBe(true);

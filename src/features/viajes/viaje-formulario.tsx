@@ -129,7 +129,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
   const crear = useCrearViaje();
   const actualizar = useActualizarViaje();
   const eliminar = useEliminarViaje();
-  const { run, pending, error, retryable } = useSubmitFeedback({ context: GUARDAR_VIAJE_CONTEXT });
+  const { run, pending, lento, error, retryable } = useSubmitFeedback({ context: GUARDAR_VIAJE_CONTEXT });
 
   // Clientes: la lista cargada + los creados en esta pantalla que la lista todavía no trae. La carga NO bloquea el
   // formulario: si falla, el error va dentro de la sección de entregas y lo tipeado se conserva.
@@ -465,6 +465,7 @@ export function ViajeFormulario({ viaje, volver, desdeDetalle = false, desdeClie
         </p>
         <SubmitBar
           pending={pending}
+          lento={lento}
           error={error}
           retryable={retryable}
           label={textosGuardar.label}

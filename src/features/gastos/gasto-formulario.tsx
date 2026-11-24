@@ -98,6 +98,7 @@ import {
   AVISO_CATEGORIAS_FIJAS,
   AVISO_TOPE_DE_CATEGORIAS,
   AYUDA_VARIAS_CATEGORIAS,
+  LEYENDA_COMO_PAGASTE,
   TITULO_COMO_PAGASTE,
   TITULO_DATOS_DEL_COMBUSTIBLE,
   anuncioDeGastos,
@@ -122,7 +123,7 @@ const IDS = {
   tanque: 'gasto-tanque', // el grupo; la primera opción es `gasto-tanque-0`
   fecha: 'gasto-fecha',
   viaje: 'gasto-viaje',
-  metodo: 'gasto-metodo',
+  metodo: 'gasto-metodo', // el grupo de 4 botones; la primera opción es `gasto-metodo-0`
 } as const;
 
 /**
@@ -166,7 +167,7 @@ function idDelPuesto(puesto: PuestoDeCampo, conSufijo: boolean, decision: Decisi
     case 'tanqueLleno':
       return `${ids.tanque}-0`; // la primera opción del grupo
     case 'metodoPago':
-      return ids.metodo;
+      return `${ids.metodo}-0`; // el primer botón del grupo
     default:
       return `${IDS.categoria}-0`;
   }
@@ -334,7 +335,7 @@ export function GastoFormulario({
   const categoriaUnica = categorias.find((categoria) => categoria.id === claveUnica);
 
   // Con `run` de una vez: el contexto de errores es el de UN gasto o el de varios (que además sabe de "las categorías de antes").
-  const { run, pending, error, retryable, clearError } = useSubmitFeedback({
+  const { run, pending, lento, error, retryable, clearError } = useSubmitFeedback({
     context: varias ? GUARDAR_LOTE_CONTEXT : GUARDAR_GASTO_CONTEXT,
   });
 
@@ -749,17 +750,25 @@ export function GastoFormulario({
     );
   }
 
-  /** El método de pago de un bloque. Con una categoría es "Método de pago"; con varias lleva el nombre de la categoría. */
-  function campoMetodoDePago(clave: string, rotulo: string, enVarias: boolean) {
+  /**
+   * El método de pago de un bloque: 4 botones grandes en cuadrícula de 2×2 (un toque, sin abrir lista), SIN ninguno marcado de entrada.
+   * Con una categoría la leyenda es «¿Cómo pagaste?»; con varias lleva el nombre de la categoría («¿Cómo pagaste Combustible?») y el
+   * id del grupo lleva el de su categoría, así los botones de un gasto no se repiten con los de otro.
+   */
+  function campoMetodoDePago(clave: string, leyenda: string, enVarias: boolean) {
     const delBloque = Object.hasOwn(errores.bloques, clave) ? errores.bloques[clave]! : {};
     return (
-      <SelectField
+      <ChoiceGroup
         id={idsDelBloque(enVarias ? clave : null).metodo}
-        label={rotulo}
-        placeholder="Elige una opción"
-        options={METODO_PAGO_OPTIONS}
+        legend={leyenda}
         value={bloqueDe(carga, clave).metodoPago}
-        onChange={(value) => setCampoDelBloque(clave, 'metodoPago', value as CamposDelBloque['metodoPago'])}
+        onChange={(value) => {
+          // Solo valores de la lista (los 4 botones): cualquier otra cosa no entra al formulario.
+          const metodo = METODO_PAGO_ORDER.find((candidato) => candidato === value);
+          if (metodo !== undefined) setCampoDelBloque(clave, 'metodoPago', metodo);
+        }}
+        options={METODO_PAGO_OPTIONS}
+        columns={2}
         error={delBloque.metodoPago}
       />
     );
@@ -883,7 +892,7 @@ export function GastoFormulario({
             {camposDelBloque(claveUnica, categoriaUnica, false)}
             {campoFecha}
             {campoViaje}
-            {campoMetodoDePago(claveUnica, 'Método de pago', false)}
+            {campoMetodoDePago(claveUnica, LEYENDA_COMO_PAGASTE, false)}
           </>
         )}
 
@@ -901,6 +910,7 @@ export function GastoFormulario({
 
         <SubmitBar
           pending={pending}
+          lento={lento}
           error={error}
           retryable={retryable}
           label={varias ? botonGuardarGastos(cantidad) : 'Guardar gasto'}

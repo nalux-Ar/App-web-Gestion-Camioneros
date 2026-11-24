@@ -39,7 +39,7 @@ import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context
 import { MemberProvider } from '@/features/member/member-provider';
 import { RequireMember } from '@/app/guards';
 import { GastoFormPage } from '@/features/gastos/gasto-form-page';
-import { COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID } from '@/features/gastos/constants';
+import { COMBUSTIBLE_CATEGORIA_ID, GASTOS_VARIOS_CATEGORIA_ID, METODO_PAGO_LABELS, METODO_PAGO_ORDER } from '@/features/gastos/constants';
 import type { Categoria } from '@/features/gastos/categorias';
 import { viajesKeys } from '@/features/viajes/viajes-keys';
 import { etiquetaDeViaje } from '@/features/viajes/viaje-opciones';
@@ -260,6 +260,12 @@ async function selectValue(el: HTMLSelectElement, value: string) {
     el.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }
+/** Toca el botón de un método de pago (los 4 botones del grupo `gasto-metodo`). */
+async function elegirMetodo(valor: string) {
+  await click(document.querySelector<HTMLInputElement>(`input[type="radio"][id^="gasto-metodo-"][value="${valor}"]`));
+}
+/** El método marcado en los 4 botones ('' si no hay ninguno). */
+const metodoMarcado = () => document.querySelector<HTMLInputElement>('input[type="radio"][id^="gasto-metodo-"]:checked')?.value ?? '';
 async function guardar() {
   await act(async () => {
     buttonByText('Guardar gasto')!.click();
@@ -270,7 +276,7 @@ async function guardar() {
 async function llenarLoMinimo() {
   await click(casillaOf(PEAJES_ID));
   await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
-  await selectValue(byId<HTMLSelectElement>('gasto-metodo')!, 'efectivo'); // el método de pago es obligatorio
+  await elegirMetodo('efectivo'); // el método de pago es obligatorio
 }
 
 beforeEach(() => {
@@ -304,7 +310,7 @@ describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
     await mount();
     const fecha = byId('gasto-fecha')!;
     const viaje = selectViaje();
-    const metodo = byId('gasto-metodo')!;
+    const metodo = byId('gasto-metodo-0')!;
     const antes = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(antes(fecha, viaje)).toBe(true);
     expect(antes(viaje, metodo)).toBe(true);
@@ -888,16 +894,16 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
 // Método de pago: obligatorio (solo validación del front; la columna sigue siendo nullable por los gastos viejos)
 // ---------------------------------------------------------------------------
 describe('formulario de gasto: el método de pago es obligatorio', () => {
-  const etiquetaMetodo = () => document.querySelector<HTMLLabelElement>('label[for="gasto-metodo"]')!;
+  const grupoMetodo = () => byId('gasto-metodo-0')!.closest('fieldset')!;
+  const radiosMetodo = () => [...grupoMetodo().querySelectorAll<HTMLInputElement>('input[type="radio"]')];
 
-  it('la etiqueta ya no dice "(opcional)", el campo es aria-required y el placeholder es neutro (no "Sin especificar")', async () => {
+  it('la leyenda ya no dice "(opcional)", los botones son requeridos y ninguno viene marcado (no hay "Sin especificar")', async () => {
     await mount();
-    expect(etiquetaMetodo().textContent).not.toContain('(opcional)');
-    expect(etiquetaMetodo().textContent).toContain('Método de pago');
-    expect(byId('gasto-metodo')!.getAttribute('aria-required')).toBe('true');
-    const vacia = byId<HTMLSelectElement>('gasto-metodo')!.querySelector('option[value=""]')!;
-    expect(vacia.textContent).toBe('Elige una opción');
-    expect(byId('gasto-metodo')!.textContent).not.toContain('Sin especificar');
+    expect(grupoMetodo().querySelector('legend')!.textContent).not.toContain('(opcional)');
+    expect(grupoMetodo().querySelector('legend')!.textContent).toBe('¿Cómo pagaste?');
+    expect(radiosMetodo().every((radio) => radio.required)).toBe(true);
+    expect(radiosMetodo().some((radio) => radio.checked)).toBe(false);
+    expect(grupoMetodo().textContent).not.toContain('Sin especificar');
     // El viaje sigue siendo opcional: la marca no se corrió de campo.
     expect(document.querySelector('label[for="gasto-viaje"]')!.textContent).toContain('(opcional)');
   });
@@ -918,8 +924,8 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
     }
     await guardar();
     expect(bodyText()).toContain('Elige cómo pagaste.');
-    expect(byId('gasto-metodo')!.getAttribute('aria-invalid')).toBe('true');
-    expect(document.activeElement?.id).toBe('gasto-metodo');
+    expect(radiosMetodo().every((radio) => radio.getAttribute('aria-invalid') === 'true')).toBe(true);
+    expect(document.activeElement?.id).toBe('gasto-metodo-0');
     expect(inserts()).toHaveLength(0);
   });
 
@@ -929,7 +935,7 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     await guardar();
     expect(bodyText()).toContain('Elige cómo pagaste.');
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo')!, 'tarjeta_debito');
+    await elegirMetodo('tarjeta_debito');
     expect(bodyText()).not.toContain('Elige cómo pagaste.');
     await guardar();
     expect(inserts()).toHaveLength(1);
@@ -939,12 +945,12 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
   it('editar un gasto VIEJO sin método: el campo abre vacío (nada autocompletado) y exige elegir uno antes de guardar', async () => {
     route.detalle = () => ok(gastoDetalle({ metodo_pago: null }));
     await mount(`/gastos/${GASTO_ID}/editar`);
-    expect(byId<HTMLSelectElement>('gasto-metodo')!.value).toBe('');
+    expect(metodoMarcado()).toBe('');
     await guardar();
     expect(bodyText()).toContain('Elige cómo pagaste.');
-    expect(document.activeElement?.id).toBe('gasto-metodo');
+    expect(document.activeElement?.id).toBe('gasto-metodo-0');
     expect(updates()).toHaveLength(0);
-    await selectValue(byId<HTMLSelectElement>('gasto-metodo')!, 'transferencia');
+    await elegirMetodo('transferencia');
     await guardar();
     expect(updates()).toHaveLength(1);
     expect(payloadOf(updates()[0]!, 'update').metodo_pago).toBe('transferencia');
@@ -952,9 +958,113 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
 
   it('editar un gasto que ya tenía método: abre con ese método y guarda sin pedir nada más', async () => {
     await mount(`/gastos/${GASTO_ID}/editar`);
-    expect(byId<HTMLSelectElement>('gasto-metodo')!.value).toBe('efectivo');
+    expect(metodoMarcado()).toBe('efectivo');
     await guardar();
     expect(updates()).toHaveLength(1);
     expect(payloadOf(updates()[0]!, 'update').metodo_pago).toBe('efectivo');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Método de pago en 4 botones (tanda 3b, B3): cuadrícula de 2×2, sin preselección, el mismo valor de siempre al guardar
+// ---------------------------------------------------------------------------
+describe('formulario de gasto: el método de pago son 4 botones', () => {
+  const grupo = () => byId('gasto-metodo-0')!.closest('fieldset')!;
+  const radios = () => [...grupo().querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+  const rotulos = () => radios().map((radio) => radio.closest('label')!.textContent);
+
+  it('«¿Cómo pagaste?» con los 4 métodos de la lista, en ese orden y con sus rótulos de siempre; ninguno marcado al abrir', async () => {
+    await mount();
+    expect(grupo().querySelector('legend')!.textContent).toBe('¿Cómo pagaste?');
+    expect(radios().map((radio) => radio.value)).toEqual([...METODO_PAGO_ORDER]);
+    expect(rotulos()).toEqual(METODO_PAGO_ORDER.map((metodo) => METODO_PAGO_LABELS[metodo]));
+    expect(rotulos()).toEqual(['Efectivo', 'Tarjeta de crédito', 'Tarjeta de débito', 'Transferencia']);
+    expect(radios().filter((radio) => radio.checked)).toHaveLength(0);
+    // Ya no es un selector.
+    expect(grupo().querySelector('select')).toBeNull();
+  });
+
+  it('cuadrícula de 2 columnas (2×2), botones de 56 px que no se salen de su columna, y los ids de los botones son gasto-metodo-0 a gasto-metodo-3', async () => {
+    await mount();
+    const cuadricula = radios()[0]!.closest('label')!.parentElement!;
+    expect(cuadricula.className).toContain('grid-cols-2');
+    expect(cuadricula.className).not.toContain('grid-cols-3');
+    expect(cuadricula.children).toHaveLength(4);
+    for (const radio of radios()) {
+      const etiqueta = radio.closest('label')!;
+      expect(etiqueta.className).toContain('min-w-0'); // puede achicarse dentro de su columna
+      expect(etiqueta.querySelector('span')!.className).toContain('min-h-14'); // 56 px
+      expect(etiqueta.querySelector('span span')!.className).toContain('break-words'); // un rótulo largo se parte en vez de salirse
+    }
+    expect(radios().map((radio) => radio.id)).toEqual(['gasto-metodo-0', 'gasto-metodo-1', 'gasto-metodo-2', 'gasto-metodo-3']);
+  });
+
+  it('tocar uno lo marca; tocar otro lo cambia (uno solo marcado a la vez)', async () => {
+    await mount();
+    await elegirMetodo('tarjeta_credito');
+    expect(metodoMarcado()).toBe('tarjeta_credito');
+    expect(radios().filter((radio) => radio.checked)).toHaveLength(1);
+    await elegirMetodo('transferencia');
+    expect(metodoMarcado()).toBe('transferencia');
+    expect(radios().filter((radio) => radio.checked)).toHaveLength(1);
+  });
+
+  it.each(METODO_PAGO_ORDER)('se guarda exactamente el valor del botón tocado: %s', async (metodo) => {
+    await mount();
+    await click(casillaOf(PEAJES_ID));
+    await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+    await elegirMetodo(metodo);
+    await guardar();
+    expect(inserts()).toHaveLength(1);
+    expect(payloadOf(inserts()[0]!, 'insert').metodo_pago).toBe(metodo);
+  });
+
+  it('sin tocar ninguno no se guarda y el error es «Elige cómo pagaste.»: en su región de aviso, asociado al grupo y con el foco en el primer botón', async () => {
+    await mount();
+    await click(casillaOf(PEAJES_ID));
+    await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+    expect(grupo().getAttribute('aria-describedby')).toBeNull();
+    await guardar();
+    expect(inserts()).toHaveLength(0);
+    const aviso = byId('gasto-metodo-error')!;
+    expect(aviso.textContent).toBe('Elige cómo pagaste.');
+    expect(aviso.getAttribute('aria-live')).toBe('polite');
+    expect(grupo().getAttribute('aria-describedby')).toContain('gasto-metodo-error');
+    expect(document.activeElement).toBe(byId('gasto-metodo-0'));
+    // Tocar uno saca el error y su asociación.
+    await elegirMetodo('efectivo');
+    expect(byId('gasto-metodo-error')!.textContent).toBe('');
+    expect(grupo().getAttribute('aria-describedby')).toBeNull();
+    expect(radios().every((radio) => radio.getAttribute('aria-invalid') === null)).toBe(true);
+  });
+
+  it.each(['tarjeta_credito', 'tarjeta_debito', 'transferencia'] as const)('editar un gasto con método %s: abre con ESE botón marcado y guarda ese valor', async (metodo) => {
+    route.detalle = () => ok(gastoDetalle({ metodo_pago: metodo }));
+    await mount(`/gastos/${GASTO_ID}/editar`);
+    expect(metodoMarcado()).toBe(metodo);
+    expect(radios().filter((radio) => radio.checked)).toHaveLength(1);
+    await guardar();
+    expect(updates()).toHaveLength(1);
+    expect(payloadOf(updates()[0]!, 'update').metodo_pago).toBe(metodo);
+  });
+
+  it('un gasto viejo sin método abre sin ninguno marcado y no se guarda hasta elegir uno', async () => {
+    route.detalle = () => ok(gastoDetalle({ metodo_pago: null }));
+    await mount(`/gastos/${GASTO_ID}/editar`);
+    expect(radios().filter((radio) => radio.checked)).toHaveLength(0);
+    await guardar();
+    expect(updates()).toHaveLength(0);
+    expect(byId('gasto-metodo-error')!.textContent).toBe('Elige cómo pagaste.');
+  });
+
+  it('un gasto nuevo siguiente no arrastra el método del anterior (siempre arranca sin marcar)', async () => {
+    await mount();
+    await elegirMetodo('efectivo');
+    expect(metodoMarcado()).toBe('efectivo');
+    await act(async () => root.unmount());
+    container.remove();
+    queryClient.clear();
+    await mount();
+    expect(metodoMarcado()).toBe('');
   });
 });

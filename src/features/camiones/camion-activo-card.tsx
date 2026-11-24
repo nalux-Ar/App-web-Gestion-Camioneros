@@ -26,7 +26,8 @@ const GUARDANDO = 'Guardando…';
  *
  *  - Lista de camiones cargando o con error: no se muestra nada (no se adivina).
  *  - 0 camiones activos: nada.
- *  - 1 camión activo: "Tu camión", de solo lectura (se usa ese siempre; el diseño no cambia al cargar el segundo).
+ *  - 1 camión activo: UNA sola línea de solo lectura, "Tu camión: AB 123 CD" (con la marca y el modelo a continuación si los hay): se
+ *    usa ese siempre, no hay nada que elegir ni que explicar (el diseño no cambia al cargar el segundo).
  *  - 2 o más: "Camión activo", con un control para elegir entre los ACTIVOS (botones hasta `MAX_BOTONES_CAMION`, lista
  *    desplegable desde ahí, como el selector de los formularios) y el activo válido marcado. Si no hay uno válido (ninguno
  *    guardado, o el guardado está archivado o ya no existe: `resolverCamionActivo`), la tarjeta se destaca y lo pide.
@@ -121,18 +122,21 @@ export function CamionActivoCard() {
   );
 }
 
-/** Un solo camión activo: se usa ese siempre, sin nada que elegir (línea de solo lectura). */
+/**
+ * Un solo camión activo: se usa ese siempre, sin nada que elegir (línea de solo lectura). Es UNA línea ("Tu camión: AB 123 CD ·
+ * Scania R450"): sin la frase que explicaba para qué se usa, que con un solo camión no aporta nada. Si la marca y el modelo no
+ * entran al lado en un celular angosto, siguen en el renglón de abajo en vez de salirse de la tarjeta.
+ */
 function TuCamion({ camion, tituloId }: { camion: CamionDeLista; tituloId: string }) {
   const descripcion = descripcionCamion(camion);
   return (
     <Card role="region" aria-labelledby={tituloId} data-ayuda="camion">
-      <CardHeader>
-        <CardTitle id={tituloId}>Tu camión</CardTitle>
-        <CardDescription>Se usa en tus viajes y cargas de combustible.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-1">
+      <CardContent className="flex flex-wrap items-baseline gap-x-2 gap-y-1 p-4">
+        <CardTitle id={tituloId} className="text-base font-medium leading-normal tracking-normal after:content-[':']">
+          Tu camión
+        </CardTitle>
         <p className="text-lg font-semibold tabular-nums">{formatearPatente(camion.patente)}</p>
-        {descripcion ? <p className="break-words text-base text-muted-foreground">{descripcion}</p> : null}
+        {descripcion ? <p className="min-w-0 break-words text-base text-muted-foreground">{descripcion}</p> : null}
       </CardContent>
     </Card>
   );

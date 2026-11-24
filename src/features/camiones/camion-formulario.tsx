@@ -96,7 +96,7 @@ export function CamionFormulario({ camion, camiones }: CamionFormularioProps) {
   const crear = useCrearCamion();
   const actualizar = useActualizarCamion();
   const cambiarActiva = useCambiarActivaCamion();
-  const { run, pending, release, error, retryable, clearError } = useSubmitFeedback({ context: GUARDAR_CAMION_CONTEXT });
+  const { run, pending, lento, release, error, retryable, clearError } = useSubmitFeedback({ context: GUARDAR_CAMION_CONTEXT });
   const reactivar = useSubmitFeedback({ context: REACTIVAR_CAMION_REPETIDO_CONTEXT });
 
   useEffect(() => {
@@ -252,7 +252,7 @@ export function CamionFormulario({ camion, camiones }: CamionFormularioProps) {
           error={errors.anio}
         />
 
-        <SubmitBar pending={pending} error={error} retryable={retryable} label="Guardar camión" />
+        <SubmitBar pending={pending} lento={lento} error={error} retryable={retryable} label="Guardar camión" />
       </form>
 
       {camion ? (

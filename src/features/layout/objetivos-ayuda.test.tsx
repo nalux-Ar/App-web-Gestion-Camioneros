@@ -96,10 +96,10 @@ describe('objetivos del recorrido en la navegación: «Reportar un problema» AP
 
   pruebasDeNavegacion();
 
-  it('no hay atajo de "Reportar un problema": ningún `data-ayuda="reportar"` ni enlace a /reportar; el header queda con Configuración y Salir', () => {
+  it('no hay atajo de "Reportar un problema": ningún `data-ayuda="reportar"` ni enlace a /reportar; el header queda solo con Configuración (ya no hay «Salir»)', () => {
     expect(destinos('reportar')).toHaveLength(0);
     expect(document.querySelector('a[href="/reportar"]')).toBeNull();
-    expect(accionesDelHeader()).toEqual(['Configuración', 'Salir']);
+    expect(accionesDelHeader()).toEqual(['Configuración']);
   });
 
   it('Inicio no es objetivo; ningún otro `data-ayuda` fuera de los del recorrido (sin el de Reportar)', () => {
@@ -133,7 +133,7 @@ describe('objetivos del recorrido en la navegación: «Reportar un problema» EN
     expect(atajo.className).toContain('w-12');
     expect(atajo.className).not.toContain('hidden');
     expect(atajo.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
-    expect(accionesDelHeader()).toEqual(['Reportar un problema', 'Configuración', 'Salir']);
+    expect(accionesDelHeader()).toEqual(['Reportar un problema', 'Configuración']);
   });
 
   it('Inicio no es objetivo; ningún otro `data-ayuda` fuera de los del recorrido', () => {

@@ -20,7 +20,7 @@ const SIGN_OUT_FAILED_MESSAGE = 'No pudimos cerrar tu sesión. Revisa tu conexi�
  * La copia local de la versión del recorrido vista (`elan:tour-visto`) es distinta: vive en localStorage y TIENE que
  * sobrevivir a una recarga (si la base falló sin señal, MemberProvider la reintenta al arrancar). Por eso NO se borra en el
  * ARRANQUE con una sesión que ya existía (la primera resolución, que `syncQueryCache` cuenta como "cambio" porque antes no
- * había nadie): solo en una transición real (a "sin sesión", de un usuario conocido a otro, o el "Salir" manual).
+ * había nadie): solo en una transición real (a "sin sesión", de un usuario conocido a otro, o el "Cerrar sesión" manual).
  */
 function limpiarRegistrosDeLaSesion({ arranqueConSesion = false }: { arranqueConSesion?: boolean } = {}) {
   limpiarErroresRecientes();
@@ -100,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!nextSession) {
         // Cualquier transición a "sin sesión" limpia las preferencias
-        // visuales de la sesión anterior: no solo cuando se toca "Salir"
+        // visuales de la sesión anterior: no solo cuando se toca "Cerrar sesión"
         // a mano, también un logout automático (refresh token vencido,
         // usuario borrado, "cerrar sesión" hecho desde otra pestaña). Un
         // dispositivo compartido no debería seguir mostrando el tema/

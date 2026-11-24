@@ -132,7 +132,7 @@ export function DevolucionFormulario({
   const crear = useCrearDevolucion();
   const actualizar = useActualizarDevolucion();
   const eliminar = useEliminarDevolucion();
-  const { run, pending, error, retryable } = useSubmitFeedback({ context: GUARDAR_DEVOLUCION_CONTEXT });
+  const { run, pending, lento, error, retryable } = useSubmitFeedback({ context: GUARDAR_DEVOLUCION_CONTEXT });
 
   const gruposDeClientes = useMemo<SelectGroup[]>(
     () =>
@@ -272,7 +272,7 @@ export function DevolucionFormulario({
           error={errors.descripcion}
         />
 
-        <SubmitBar pending={pending} error={error} retryable={retryable} label="Guardar devolución" disabled={sinClientes} />
+        <SubmitBar pending={pending} lento={lento} error={error} retryable={retryable} label="Guardar devolución" disabled={sinClientes} />
       </form>
 
       {devolucion ? (
