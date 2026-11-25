@@ -752,6 +752,8 @@ export function GastoFormulario({
 
   /**
    * El método de pago de un bloque: 4 botones grandes en cuadrícula de 2×2 (un toque, sin abrir lista), SIN ninguno marcado de entrada.
+   * Si no entran dos columnas de al menos 9,75 rem (pantalla angosta o letra grande del teléfono) se apilan en una sola columna:
+   * «Transferencia» no entra en un botón más angosto y se cortaría a mitad de palabra.
    * Con una categoría la leyenda es «¿Cómo pagaste?»; con varias lleva el nombre de la categoría («¿Cómo pagaste Combustible?») y el
    * id del grupo lleva el de su categoría, así los botones de un gasto no se repiten con los de otro.
    */
@@ -769,6 +771,7 @@ export function GastoFormulario({
         }}
         options={METODO_PAGO_OPTIONS}
         columns={2}
+        apilarEnAngosto
         error={delBloque.metodoPago}
       />
     );

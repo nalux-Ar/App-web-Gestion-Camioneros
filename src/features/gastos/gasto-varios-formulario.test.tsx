@@ -1774,7 +1774,7 @@ describe('alta con varias categorías: el método de pago son 4 botones por gast
   const grupoDe = (categoriaId: string) => byId(`gasto-metodo-${categoriaId}-0`)!.closest('fieldset')!;
   const gruposDeMetodo = () => [...document.querySelectorAll('fieldset')].filter((grupo) => grupo.querySelector('input[id^="gasto-metodo-"]'));
 
-  it('un grupo por gasto (en el orden de la lista), con la categoría en la leyenda, 4 botones cada uno en 2×2 y ninguno marcado', async () => {
+  it('un grupo por gasto (en el orden de la lista), con la categoría en la leyenda, 4 botones cada uno (2×2 si entran 2 columnas de 9,75 rem, una columna si no) y ninguno marcado', async () => {
     await mount();
     await marcar(PEAJES_ID, COMBUSTIBLE_CATEGORIA_ID, LAVADO_ID);
     expect(gruposDeMetodo().map((grupo) => grupo.querySelector('legend')!.textContent)).toEqual([
@@ -1786,7 +1786,11 @@ describe('alta con varias categorías: el método de pago son 4 botones por gast
       const radios = radiosDeMetodo(id);
       expect(radios.map((radio) => radio.value), id).toEqual([...METODO_PAGO_ORDER]);
       expect(radios.map((radio) => radio.closest('label')!.textContent), id).toEqual(METODO_PAGO_ORDER.map((metodo) => METODO_PAGO_LABELS[metodo]));
-      expect(radios[0]!.closest('label')!.parentElement!.className, id).toContain('grid-cols-2');
+      // Misma cuadrícula que con una sola categoría: columnas automáticas de mínimo 9,75 rem y 2 fijas desde 480 px (nunca un `grid-cols-2` pelado).
+      const clases = radios[0]!.closest('label')!.parentElement!.className.split(/\s+/);
+      expect(clases, id).toEqual(['grid', 'gap-2', 'grid-cols-[repeat(auto-fit,minmax(9.75rem,1fr))]', 'min-[480px]:grid-cols-2']);
+      expect(clases, id).not.toContain('grid-cols-2');
+      expect(clases, id).not.toContain('grid-cols-1');
       expect(radios.some((radio) => radio.checked), id).toBe(false);
       expect(radios.every((radio) => radio.required), id).toBe(true);
     }

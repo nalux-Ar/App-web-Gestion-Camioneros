@@ -17,6 +17,15 @@ interface ChoiceGroupProps {
   onChange: (value: string) => void;
   options: ReadonlyArray<ChoiceOption>;
   columns?: 1 | 2 | 3;
+  /**
+   * Con `columns={2}`: los botones quedan en 2×2 mientras entren dos columnas de al menos 9,75 rem, y si no entran pasan a UNA
+   * columna a ancho completo (mismo estilo y mismo alto mínimo). Reacciona al ANCHO de la pantalla y también al TAMAÑO DE LETRA
+   * del teléfono: `rem` crece con la letra, así que con letra grande se apila aunque la pantalla sea ancha (un corte fijo en px
+   * no lo vería). Sirve para rótulos largos («Transferencia»), que si no, se cortarían a mitad de palabra. Desde 480 px de ancho
+   * se fuerzan 2 columnas (para que `auto-fit` nunca arme 3 + 1 en pantallas anchas). Con `columns` 1 o 3 no cambia nada (1 ya es
+   * una columna; 3 es para rótulos cortos). Por defecto false: el resto de los grupos queda con su cuadrícula de siempre.
+   */
+  apilarEnAngosto?: boolean;
   optional?: boolean;
   hint?: ReactNode;
   error?: string | null;
@@ -24,6 +33,12 @@ interface ChoiceGroupProps {
 }
 
 const COLUMNS_CLASS = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' } as const;
+/**
+ * 2×2 mientras entren 2 columnas de ≥ 9,75 rem (= lo que necesita «Transferencia» + ~4 px de margen: palabra 95,7 px + borde 4 +
+ * padding 24 + tilde y espacio 28); si no entran (pantalla angosta O letra grande, porque `rem` crece con la letra) queda UNA
+ * columna. Desde 480 px se fuerzan 2 columnas. Sin espacios dentro de los corchetes y el literal entero, para que Tailwind genere la clase.
+ */
+const COLUMNS_2_APILABLE_CLASS = 'grid-cols-[repeat(auto-fit,minmax(9.75rem,1fr))] min-[480px]:grid-cols-2';
 
 /**
  * Elegir UNA opción tocando botones grandes (≥ 56 px), sin abrir listas: en el
@@ -43,6 +58,7 @@ export function ChoiceGroup({
   onChange,
   options,
   columns = 2,
+  apilarEnAngosto = false,
   optional = false,
   hint,
   error,
@@ -60,7 +76,7 @@ export function ChoiceGroup({
         {optional ? <span className="font-normal text-muted-foreground"> (opcional)</span> : null}
       </legend>
 
-      <div className={cn('grid gap-2', COLUMNS_CLASS[columns])}>
+      <div className={cn('grid gap-2', apilarEnAngosto && columns === 2 ? COLUMNS_2_APILABLE_CLASS : COLUMNS_CLASS[columns])}>
         {options.map((option, index) => (
           <label key={option.value} className="relative block min-w-0">
             <input

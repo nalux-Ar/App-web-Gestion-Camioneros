@@ -984,11 +984,17 @@ describe('formulario de gasto: el método de pago son 4 botones', () => {
     expect(grupo().querySelector('select')).toBeNull();
   });
 
-  it('cuadrícula de 2 columnas (2×2), botones de 56 px que no se salen de su columna, y los ids de los botones son gasto-metodo-0 a gasto-metodo-3', async () => {
+  it('cuadrícula que se acomoda sola: 2×2 mientras entren 2 columnas de 9,75 rem y UNA columna si no entran (pantalla angosta o letra grande); botones de 56 px que no se salen de su columna, y los ids son gasto-metodo-0 a gasto-metodo-3', async () => {
     await mount();
     const cuadricula = radios()[0]!.closest('label')!.parentElement!;
-    expect(cuadricula.className).toContain('grid-cols-2');
-    expect(cuadricula.className).not.toContain('grid-cols-3');
+    // Clases EXACTAS (no «contiene»): columnas automáticas de mínimo 9,75 rem (crece con la letra del teléfono) y, desde 480 px, 2 columnas
+    // fijas (para que no arme 3 + 1 en pantallas anchas). Sin un `grid-cols-2` pelado, que forzaría 2 columnas también a 320 px o con letra
+    // grande (donde «Transferencia» se corta), ni un `grid-cols-1` fijo.
+    const clases = cuadricula.className.split(/\s+/);
+    expect(clases).toEqual(['grid', 'gap-2', 'grid-cols-[repeat(auto-fit,minmax(9.75rem,1fr))]', 'min-[480px]:grid-cols-2']);
+    expect(clases).not.toContain('grid-cols-2');
+    expect(clases).not.toContain('grid-cols-1');
+    expect(clases).not.toContain('grid-cols-3');
     expect(cuadricula.children).toHaveLength(4);
     for (const radio of radios()) {
       const etiqueta = radio.closest('label')!;
