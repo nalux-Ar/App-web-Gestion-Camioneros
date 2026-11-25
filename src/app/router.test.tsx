@@ -50,6 +50,7 @@ vi.mock('@/features/reportar/reportar-config', () => ({
 
 import { AppRouter } from '@/app/router';
 import { AuthContext, type AuthContextValue } from '@/features/auth/auth-context';
+import { pasosDelTour } from '@/features/ayuda/tour-pasos';
 import { MemberProvider } from '@/features/member/member-provider';
 import { queryClient } from '@/lib/query-client';
 
@@ -641,6 +642,22 @@ describe('router: las rutas de Clientes', () => {
     const enNav = [...document.querySelectorAll<HTMLAnchorElement>('nav a')].filter((a) => a.getAttribute('href') === '/clientes');
     expect(enNav.length).toBeGreaterThan(0);
     expect(enNav[0]!.textContent).toContain('Clientes');
+  });
+
+  it('Inicio con la app entera: los objetivos del recorrido (`nav`, `camion`, `ayuda-inicio`) existen en la pantalla real, y «Clientes» ya no está en el cuerpo de Inicio', async () => {
+    await mount('/');
+    await until(() => h1().startsWith('Hola'));
+    await until(() => document.querySelector('[data-ayuda="camion"]') !== null);
+    for (const paso of pasosDelTour(false)) {
+      if (paso.objetivo !== null) expect(document.querySelector(`[data-ayuda="${paso.objetivo}"]`), paso.id).not.toBeNull();
+    }
+    // El objetivo `nav` en la app entera: el <nav> de abajo y la LISTA (<ul>) de la barra lateral (no su <nav>, que se estira).
+    expect([...document.querySelectorAll('[data-ayuda="nav"]')].map((el) => el.tagName).sort()).toEqual(['NAV', 'UL']);
+    expect(document.querySelector('ul[data-ayuda="nav"]')!.closest('nav')!.hasAttribute('data-ayuda')).toBe(false);
+    // Lo de adentro de <main> (sin las barras): los 4 accesos al final, y ninguno lleva a Clientes.
+    const hrefs = [...document.querySelectorAll('main a')].map((a) => a.getAttribute('href'));
+    expect(hrefs.slice(-4)).toEqual(['/gastos/nuevo', '/viajes/nuevo', '/viajes', '/resumen']);
+    expect(hrefs).not.toContain('/clientes');
   });
 
   it('están detrás de la sesión: sin sesión no se pide NADA', async () => {

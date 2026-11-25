@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { MAX_GASTOS_POR_VEZ } from '@/features/gastos/constants';
+import { ACCESO_RESUMEN, ACCESO_VER_VIAJES, ACCION_ANOTAR_GASTO, ACCION_ANOTAR_VIAJE } from '@/features/home/inicio-textos';
 import { ELEGIR_EL_VIAJE as BOTON_ELEGIR_EL_VIAJE } from '@/features/gastos/sumar-a-viaje-textos';
 import { BOTON_ENTRADA_SUMAR_GASTOS } from '@/features/gastos/sumar-gastos-textos';
 import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
@@ -178,20 +179,24 @@ describe('la ayuda de «Quitar gastos del viaje»', () => {
 
 describe('«Reportar un problema» en la ayuda de Inicio y de Configuración', () => {
   const FRASE = 'Si algo falla o se ve raro, usa «Reportar un problema».';
-  const CAMBIAN: Array<[string, (reportarVisible: boolean) => AyudaPantalla]> = [
-    ['Inicio', pantallas.ayudaInicio],
-    ['Configuración', pantallas.ayudaConfiguracion],
+  // [pantalla, su ayuda, cuántos puntos tiene APAGADO]: Inicio tiene 4 (el camión, los dos botones grandes, los dos accesos y
+  // Configuración); Configuración, 3. Con la función visible, uno más (el de Reportar); y nunca más de 5.
+  const CAMBIAN: Array<[string, (reportarVisible: boolean) => AyudaPantalla, number]> = [
+    ['Inicio', pantallas.ayudaInicio, 4],
+    ['Configuración', pantallas.ayudaConfiguracion, 3],
   ];
 
-  it.each(CAMBIAN)('%s, APAGADO: 3 puntos y ninguno nombra la función', (_nombre, ayuda) => {
+  it.each(CAMBIAN)('%s, APAGADO: sus puntos y ninguno nombra la función', (_nombre, ayuda, puntos) => {
     const apagada = ayuda(false);
-    expect(apagada.puntos).toHaveLength(3);
+    expect(apagada.puntos).toHaveLength(puntos);
     expect(apagada.puntos.join(' ')).not.toMatch(/Reportar un problema/);
   });
 
-  it.each(CAMBIAN)('%s, ENCENDIDO: es la de apagado MÁS la frase al final (mismo título, mismos puntos, mismo orden)', (_nombre, ayuda) => {
+  it.each(CAMBIAN)('%s, ENCENDIDO: es la de apagado MÁS la frase al final (mismo título, mismos puntos, mismo orden; hasta 5 puntos)', (_nombre, ayuda, puntos) => {
     expect(ayuda(true).titulo).toBe(ayuda(false).titulo);
     expect(ayuda(true).puntos).toEqual([...ayuda(false).puntos, FRASE]);
+    expect(ayuda(true).puntos).toHaveLength(puntos + 1);
+    expect(ayuda(true).puntos.length).toBeLessThanOrEqual(5);
   });
 
   it('las demás ayudas no nombran la función (solo Inicio y Configuración, que cambian con el interruptor)', () => {
@@ -203,6 +208,33 @@ describe('«Reportar un problema» en la ayuda de Inicio y de Configuración', (
   it('`AYUDA_INICIO` y `AYUDA_CONFIGURACION` (lo que usa la app) salen del interruptor real', () => {
     expect(pantallas.AYUDA_INICIO).toEqual(pantallas.ayudaInicio(REPORTAR_VISIBLE));
     expect(pantallas.AYUDA_CONFIGURACION).toEqual(pantallas.ayudaConfiguracion(REPORTAR_VISIBLE));
+  });
+});
+
+describe('la ayuda de Inicio (los dos botones grandes y los dos accesos)', () => {
+  const sinReportar = pantallas.ayudaInicio(false);
+  const texto = sinReportar.puntos.join(' ');
+
+  it('nombra los cuatro botones TAL COMO se leen en la pantalla (los textos de Inicio)', () => {
+    for (const boton of [ACCION_ANOTAR_GASTO, ACCION_ANOTAR_VIAJE, ACCESO_VER_VIAJES, ACCESO_RESUMEN]) expect(texto, boton).toContain(`«${boton}»`);
+  });
+
+  it('el camión va primero (así se ve en la pantalla), después los botones, y dice que Clientes está en la barra de navegación', () => {
+    expect(sinReportar.puntos[0]).toBe('Arriba está el camión con el que trabajas. Si tienes varios, aquí eliges cuál.');
+    expect(sinReportar.puntos[1]).toContain(`«${ACCION_ANOTAR_GASTO}»`);
+    expect(sinReportar.puntos[1]).toContain(`«${ACCION_ANOTAR_VIAJE}»`);
+    expect(sinReportar.puntos[2]).toContain(`«${ACCESO_VER_VIAJES}»`);
+    expect(sinReportar.puntos[2]).toContain('Clientes está en la barra de navegación');
+  });
+
+  it('ya no dice que desde Inicio se va a Clientes (ahí no hay acceso) ni habla de «la barra de abajo» (en escritorio es lateral)', () => {
+    expect(texto).not.toMatch(/Desde aquí vas a Viajes, Gastos, Clientes y Resumen/);
+    expect(texto).not.toMatch(/barra de abajo/);
+  });
+
+  it('sigue explicando Configuración y sus puntos son cortos (hasta 100 caracteres)', () => {
+    expect(texto).toContain('En Configuración cambias tu nombre, tus camiones y cómo se ve la app.');
+    for (const punto of pantallas.ayudaInicio(true).puntos) expect(punto.length, punto).toBeLessThanOrEqual(100);
   });
 });
 

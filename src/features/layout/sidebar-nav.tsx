@@ -5,14 +5,23 @@ import { ALL_NAV_ITEMS } from './nav-items';
 
 /** Barra lateral de escritorio (md+): entran los 6 ítems sin problema de
  *  espacio, así que acá sí se incluye Configuración (a diferencia de la
- *  barra inferior de mobile, ver nav-items.ts). */
+ *  barra inferior de mobile, ver nav-items.ts).
+ *
+ *  El objetivo `data-ayuda="nav"` del recorrido de bienvenida va en la LISTA
+ *  (`<ul>`) y no en el `<nav>`: el `<nav>` se estira a toda la altura de la
+ *  página (es hijo de un flex con `stretch`, y su borde derecho es el
+ *  separador), y el aro rodearía la columna entera en vez de los ítems. En la
+ *  barra de abajo el objetivo es el `<nav>` (mide 65 px). Es el mismo valor en
+ *  las dos: el motor señala el que SE VE, y la lista queda oculta en el
+ *  celular porque su `<nav>` es `hidden` (un elemento dentro de un ancestro
+ *  con `display: none` no tiene cajas de layout, así que no cuenta como visible). */
 export function SidebarNav() {
   return (
     <nav
       aria-label="Navegación principal"
       className="hidden w-56 shrink-0 border-r border-border py-6 pr-4 md:block"
     >
-      <ul className="space-y-1">
+      <ul data-ayuda="nav" className="space-y-1">
         {ALL_NAV_ITEMS.map((item) => (
           <li key={item.to}>
             <NavLink

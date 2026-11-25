@@ -5,7 +5,11 @@ export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  /** El `data-ayuda` del ítem (lo señala el recorrido de bienvenida): el mismo en la barra de abajo y en la lateral. */
+  /**
+   * El `data-ayuda` del ítem: el mismo en la barra de abajo y en la lateral. Ya ningún paso del recorrido señala un ítem suelto
+   * (señala la barra de abajo o la lista de la lateral, `data-ayuda="nav"`); `nav-viajes` sigue porque el disparador del recorrido lo usa como señal de
+   * que Inicio ya dibujó (`SENALES_DE_INICIO`).
+   */
   ayuda?: string;
 }
 

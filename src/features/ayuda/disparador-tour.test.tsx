@@ -96,10 +96,10 @@ function AuthHarness({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-/** La navegación falsa: como en el AppShell, está en TODAS las rutas. */
+/** La navegación falsa: como en el AppShell, está en TODAS las rutas (el `<nav>` entero es el objetivo `nav` del recorrido). */
 function NavFalsa() {
   return (
-    <nav>
+    <nav data-ayuda="nav">
       <a data-ayuda="nav-viajes" href="#v">Viajes</a>
       <a data-ayuda="nav-gastos" href="#g">Gastos</a>
     </nav>
@@ -191,6 +191,7 @@ beforeEach(() => {
   installResponder();
   localStorage.clear();
   rects.clear();
+  rects.set('nav', { top: 736, left: 0, width: 375, height: 64 });
   rects.set('nav-viajes', { top: 744, left: 75, width: 75, height: 56 });
   rects.set('nav-gastos', { top: 744, left: 150, width: 75, height: 56 });
   rects.set('camion', { top: 150, left: 16, width: 343, height: 160 });
@@ -216,11 +217,12 @@ afterEach(async () => {
 });
 
 describe('DisparadorTour: el recorrido automático', () => {
-  it('con el miembro listo, en Inicio y sin la versión vista: arranca (bienvenida, "Paso 1 de N")', async () => {
+  it('con el miembro listo, en Inicio y sin la versión vista: arranca con la invitación («¿Te mostramos cómo se usa?», "Paso 1 de 4": barra, camión y cierre)', async () => {
     await montar('/');
     expect(await aparece()).toBe(true);
-    expect(dialogo()!.querySelector('h2')!.textContent).toBe('Te mostramos la app');
-    expect(dialogo()!.textContent).toMatch(/Paso 1 de \d/);
+    expect(dialogo()!.querySelector('h2')!.textContent).toBe('¿Te mostramos cómo se usa?');
+    expect(dialogo()!.textContent).toContain('Paso 1 de 4');
+    expect([...dialogo()!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Sí', 'Ahora no']);
   });
 
   it('con la versión ya vista en la base: no arranca', async () => {
@@ -267,9 +269,42 @@ describe('DisparadorTour: el recorrido automático', () => {
     expect(await aparece()).toBe(true);
   });
 
-  it('SALTAR lo marca como visto (local + base) y no vuelve a aparecer', async () => {
+  it('«AHORA NO» (la invitación) lo marca como visto (local + base) y no vuelve a aparecer', async () => {
     await montar('/');
     expect(await aparece()).toBe(true);
+    await tocar(boton('Ahora no'));
+    expect(dialogo()).toBeNull();
+    expect(leerTourVistoLocal('user-a')).toBe(1);
+    expect(escrituras()).toHaveLength(1);
+    expect(escrituras()[0]!.ops.find((o) => o.m === 'update')!.args).toEqual([{ tour_version_vista: 1 }]);
+    expect(await aparece()).toBe(false);
+  });
+
+  it('Esc en la invitación también lo marca como visto (una sola escritura)', async () => {
+    await montar('/');
+    expect(await aparece()).toBe(true);
+    await act(async () => {
+      (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    await settle();
+    expect(dialogo()).toBeNull();
+    expect(leerTourVistoLocal('user-a')).toBe(1);
+    expect(escrituras()).toHaveLength(1);
+  });
+
+  it('«Sí» NO lo marca todavía: sigue el recorrido y no escribe nada hasta el final', async () => {
+    await montar('/');
+    expect(await aparece()).toBe(true);
+    await tocar(boton('Sí'));
+    expect(dialogo()!.querySelector('h2')!.textContent).toBe('Para ir a cada parte');
+    expect(escrituras()).toHaveLength(0);
+    expect(leerTourVistoLocal('user-a')).toBe(0);
+  });
+
+  it('SALTAR (la esquina de los pasos 2 a 4) lo marca como visto (local + base) y no vuelve a aparecer', async () => {
+    await montar('/');
+    expect(await aparece()).toBe(true);
+    await tocar(boton('Sí'));
     await tocar(boton('Saltar'));
     expect(dialogo()).toBeNull();
     expect(leerTourVistoLocal('user-a')).toBe(1);
@@ -278,9 +313,10 @@ describe('DisparadorTour: el recorrido automático', () => {
     expect(await aparece()).toBe(false);
   });
 
-  it('TERMINAR (Listo en el último paso) también lo marca como visto', async () => {
+  it('TERMINAR («Sí», los pasos y «Listo» en el último) también lo marca como visto', async () => {
     await montar('/');
     expect(await aparece()).toBe(true);
+    await tocar(boton('Sí'));
     for (let i = 0; i < 12 && boton('Siguiente'); i++) await tocar(boton('Siguiente'));
     await tocar(boton('Listo'));
     expect(dialogo()).toBeNull();
@@ -288,11 +324,11 @@ describe('DisparadorTour: el recorrido automático', () => {
     expect(leerTourVistoLocal('user-a')).toBe(1);
   });
 
-  it('sin señal: corre igual, y al saltar queda la marca local (no vuelve a aparecer al volver a entrar)', async () => {
+  it('sin señal: corre igual, y al decir «Ahora no» queda la marca local (no vuelve a aparecer al volver a entrar)', async () => {
     updateFalla = true;
     await montar('/');
     expect(await aparece()).toBe(true);
-    await tocar(boton('Saltar'));
+    await tocar(boton('Ahora no'));
     expect(leerTourVistoLocal('user-a')).toBe(1);
     await desmontar();
     h.calls.length = 0;
@@ -302,13 +338,13 @@ describe('DisparadorTour: el recorrido automático', () => {
 });
 
 describe('DisparadorTour: "Ver el recorrido otra vez"', () => {
-  it('lo muestra aunque ya esté visto, y al saltarlo NO escribe en la base ni toca la versión', async () => {
+  it('lo muestra aunque ya esté visto, y al decir «Ahora no» NO escribe en la base ni toca la versión', async () => {
     versionEnBase = 1;
     await montar('/');
     expect(await aparece()).toBe(false);
     await pedirDesdeLaAyuda();
     expect(await aparece()).toBe(true);
-    await tocar(boton('Saltar'));
+    await tocar(boton('Ahora no'));
     expect(dialogo()).toBeNull();
     expect(escrituras()).toHaveLength(0);
     expect(localStorage.getItem(STORAGE)).toBeNull();
@@ -343,10 +379,10 @@ describe('DisparadorTour: "Ver el recorrido otra vez"', () => {
     await pedirDesdeLaAyuda();
     expect(await aparece()).toBe(true);
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-    expect(dialogo()!.querySelector('h2')!.textContent).toBe('Te mostramos la app');
+    expect(dialogo()!.querySelector('h2')!.textContent).toBe('¿Te mostramos cómo se usa?');
     expect(document.querySelectorAll('[data-velo]')).toHaveLength(1);
     expect(app.hasAttribute('inert')).toBe(true);
-    await tocar(boton('Saltar'));
+    await tocar(boton('Ahora no'));
     expect(dialogo()).toBeNull();
     expect(app.hasAttribute('inert')).toBe(false);
     expect(document.activeElement).toBe(i);
@@ -356,11 +392,11 @@ describe('DisparadorTour: "Ver el recorrido otra vez"', () => {
   it('el último paso señala el botón «Ayuda» de Inicio (ya no cae centrado) y su texto dice dónde repetir el recorrido', async () => {
     await montar('/');
     expect(await aparece()).toBe(true);
+    await tocar(boton('Sí'));
     for (let n = 0; n < 12 && boton('Siguiente'); n++) await tocar(boton('Siguiente'));
-    expect(dialogo()!.querySelector('h2')!.textContent).toBe('Listo');
-    expect(dialogo()!.querySelector('[data-texto-paso]')!.textContent).toBe(
-      'Eso es todo. Si quieres verlo otra vez, toca «Ayuda»: ahí está «Ver el recorrido otra vez».',
-    );
+    expect(dialogo()!.querySelector('h2')!.textContent).toBe('Si necesitas ayuda');
+    expect(dialogo()!.textContent).toContain('Paso 4 de 4');
+    expect(dialogo()!.querySelector('[data-texto-paso]')!.textContent).toBe('Toca «Ayuda»: ahí puedes ver este recorrido otra vez.');
     expect(dialogo()!.textContent).not.toMatch(/«i»|"i"/);
     expect(dialogo()!.getAttribute('data-posicion')).not.toBe('centrado');
     expect(document.querySelector('[data-aro]')).not.toBeNull();
@@ -371,7 +407,7 @@ describe('DisparadorTour: "Ver el recorrido otra vez"', () => {
     await montar('/');
     await pedirDesdeLaAyuda();
     expect(await aparece()).toBe(true);
-    await tocar(boton('Saltar'));
+    await tocar(boton('Ahora no'));
     expect(dialogo()).toBeNull();
     await pedirDesdeLaAyuda();
     expect(await aparece()).toBe(true);

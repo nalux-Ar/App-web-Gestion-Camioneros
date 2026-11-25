@@ -68,8 +68,46 @@ function destinos(objetivo: string) {
 const accionesDelHeader = () =>
   [...document.querySelector('header')!.querySelectorAll('a, button')].map((el) => el.getAttribute('aria-label'));
 
+/**
+ * Los `data-ayuda` de los ítems de la navegación que YA NINGÚN paso del recorrido señala (el paso de la barra señala la barra
+ * de abajo o la lista de la lateral, `nav`). Siguen puestos: `nav-viajes` lo usa el disparador como señal de que Inicio ya dibujó, y los demás no
+ * molestan. Si se quitan, esta lista y la de abajo se achican a propósito.
+ */
+const ITEMS_SIN_PASO = ['nav-viajes', 'nav-gastos', 'nav-clientes', 'nav-resumen', 'nav-configuracion'];
+
 /** Lo que NO depende de «Reportar un problema»: la navegación es la misma con la función visible o oculta. */
 function pruebasDeNavegacion() {
+  it('`nav` (el objetivo del paso de la barra): el <nav> de la barra de abajo y la LISTA (<ul>) de la lateral, los dos con el mismo valor', () => {
+    const objetivos = [...document.querySelectorAll<HTMLElement>('[data-ayuda="nav"]')];
+    expect(objetivos).toHaveLength(2);
+    const clases = (el: Element) => el.className.split(/\s+/);
+
+    // De abajo (celular): el <nav> entero (65 px de alto), visible solo en el celular.
+    const deAbajo = objetivos.filter((o) => o.tagName === 'NAV');
+    expect(deAbajo).toHaveLength(1);
+    expect(deAbajo[0]!.getAttribute('aria-label')).toBe('Navegación principal');
+    expect(clases(deAbajo[0]!)).toContain('md:hidden');
+
+    // Lateral (escritorio): la lista de ítems, NO el <nav> (que se estira a toda la altura de la página y el aro rodearía la
+    // columna entera). Su <nav> es `hidden md:block`: en el celular la lista queda dentro de un ancestro oculto, sin cajas, y
+    // el motor no la toma (ver «de dos elementos con el mismo data-ayuda» y la prueba de la forma real en `tour-ayuda.test.tsx`).
+    const lista = objetivos.filter((o) => o.tagName === 'UL');
+    expect(lista).toHaveLength(1);
+    const navLateral = lista[0]!.parentElement!;
+    expect(navLateral.tagName).toBe('NAV');
+    expect(navLateral.getAttribute('aria-label')).toBe('Navegación principal');
+    expect(navLateral.hasAttribute('data-ayuda')).toBe(false);
+    expect(clases(navLateral)).toEqual(expect.arrayContaining(['hidden', 'md:block']));
+    expect(clases(navLateral)).not.toContain('md:hidden');
+
+    // Cada una tiene los 4 ítems de uso diario adentro (no es una lista vacía) y la lateral, además, Configuración.
+    for (const objetivo of objetivos) {
+      expect([...objetivo.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(expect.arrayContaining(['/viajes', '/gastos', '/clientes', '/resumen']));
+    }
+    expect(lista[0]!.querySelectorAll('a[href="/configuracion"]')).toHaveLength(1);
+    expect(deAbajo[0]!.querySelectorAll('a[href="/configuracion"]')).toHaveLength(0);
+  });
+
   it.each([
     ['nav-viajes', '/viajes'],
     ['nav-gastos', '/gastos'],
@@ -102,10 +140,11 @@ describe('objetivos del recorrido en la navegación: «Reportar un problema» AP
     expect(accionesDelHeader()).toEqual(['Configuración']);
   });
 
-  it('Inicio no es objetivo; ningún otro `data-ayuda` fuera de los del recorrido (sin el de Reportar)', () => {
-    const validos = new Set(pasosDelTour(false).map((p) => p.objetivo).filter(Boolean));
+  it('Inicio no es objetivo; ningún otro `data-ayuda` fuera de los del recorrido y de los ítems conocidos (sin el de Reportar)', () => {
+    const validos = new Set<string | null>([...pasosDelTour(false).map((p) => p.objetivo).filter(Boolean), ...ITEMS_SIN_PASO]);
     const usados = [...document.querySelectorAll('[data-ayuda]')].map((e) => e.getAttribute('data-ayuda'));
-    expect(usados.length).toBe(4 * 2 + 2);
+    // 2 barras (`nav`) + 4 ítems × 2 barras + Configuración × 2 (header y barra lateral).
+    expect(usados.length).toBe(2 + 4 * 2 + 2);
     for (const u of usados) expect(validos.has(u)).toBe(true);
     expect(document.querySelector('a[href="/"][data-ayuda]')).toBeNull();
   });
@@ -136,11 +175,17 @@ describe('objetivos del recorrido en la navegación: «Reportar un problema» EN
     expect(accionesDelHeader()).toEqual(['Reportar un problema', 'Configuración']);
   });
 
-  it('Inicio no es objetivo; ningún otro `data-ayuda` fuera de los del recorrido', () => {
-    const validos = new Set(pasosDelTour(true).map((p) => p.objetivo).filter(Boolean));
+  it('Inicio no es objetivo; ningún otro `data-ayuda` fuera de los del recorrido y de los ítems conocidos', () => {
+    const validos = new Set<string | null>([...pasosDelTour(true).map((p) => p.objetivo).filter(Boolean), ...ITEMS_SIN_PASO]);
     const usados = [...document.querySelectorAll('[data-ayuda]')].map((e) => e.getAttribute('data-ayuda'));
-    expect(usados.length).toBe(4 * 2 + 2 + 1);
+    expect(usados.length).toBe(2 + 4 * 2 + 2 + 1);
     for (const u of usados) expect(validos.has(u)).toBe(true);
     expect(document.querySelector('a[href="/"][data-ayuda]')).toBeNull();
+  });
+
+  it('con Reportar visible, los objetivos de los pasos que viven en la navegación y el header (`nav`, `reportar`) existen', () => {
+    for (const paso of pasosDelTour(true)) {
+      if (paso.objetivo === 'nav' || paso.objetivo === 'reportar') expect(document.querySelector(`[data-ayuda="${paso.objetivo}"]`), paso.id).not.toBeNull();
+    }
   });
 });

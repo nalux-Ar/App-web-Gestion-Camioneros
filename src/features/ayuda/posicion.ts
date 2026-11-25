@@ -12,6 +12,12 @@ export type PasoTour = {
   texto: string;
   /** Si el objetivo no aparece: se saltea el paso, o se muestra centrado sin resalte. */
   siFalta: 'saltar' | 'centrado';
+  /**
+   * Un paso que PREGUNTA si se quiere ver el recorrido (el primero): en vez de «Siguiente» lleva «Sí» (sigue al paso
+   * siguiente) y «Ahora no» (termina como saltado), y no lleva la esquina «Saltar» (sería lo mismo que «Ahora no»). Es un dato
+   * del paso, no un `if` sobre su `id`.
+   */
+  invitacion?: boolean;
 };
 
 /** Un paso listo para mostrar: `conObjetivo` false = centrado (sin objetivo, o el objetivo no apareció). */

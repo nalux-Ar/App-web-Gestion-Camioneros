@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { BOTON_ATRAS, BOTON_LISTO, BOTON_SALTAR, BOTON_SIGUIENTE, ETIQUETA_SALTAR } from './ayuda-textos';
+import {
+  BOTON_AHORA_NO,
+  BOTON_ATRAS,
+  BOTON_LISTO,
+  BOTON_SALTAR,
+  BOTON_SI,
+  BOTON_SIGUIENTE,
+  ETIQUETA_AHORA_NO,
+  ETIQUETA_SALTAR,
+  ETIQUETA_SI,
+} from './ayuda-textos';
 import { DialogoAyuda } from './dialogo-ayuda';
 import { buscarObjetivo, calcularPosicion, pasosResolubles, textoContador, type PasoResuelto, type PasoTour, type Rect, type Viewport } from './posicion';
 import { leerViewport, prefiereMenosMovimiento, rectDe } from './use-dialogo-ayuda';
@@ -11,7 +21,7 @@ export type FinDelTour = 'completo' | 'saltado';
 
 export interface TourAyudaProps {
   pasos: readonly PasoTour[];
-  /** Al tocar "Listo" en el último paso ('completo'), o "Saltar" / Esc ('saltado'). */
+  /** Al tocar "Listo" en el último paso ('completo'), o "Saltar" / "Ahora no" (la invitación) / Esc ('saltado'). */
   onTerminar: (motivo: FinDelTour) => void;
   /** Cuánto se espera a que aparezcan los objetivos (la pantalla puede estar terminando de cargar), en ms. */
   esperaMs?: number;
@@ -119,8 +129,13 @@ export function TourAyuda({ pasos, onTerminar, esperaMs = 1500 }: TourAyudaProps
   if (resueltos === null || paso === null) return null;
 
   const ultimo = indice === resueltos.length - 1;
+  const invitacion = paso.invitacion === true;
   const rectVisible = paso.conObjetivo ? rect : null;
   const posicion = calcularPosicion(rectVisible, tarjeta, viewport);
+  const avanzar = () => (ultimo ? terminar.current('completo') : setIndice((i) => i + 1));
+  // «Atrás» desde el paso que sigue a la invitación volvería a la pregunta «¿Te mostramos…?», que ya se contestó: no se ofrece.
+  // Se mira el paso ANTERIOR de la lista que se muestra (su campo `invitacion`), no una posición fija.
+  const hayAtras = indice > 0 && resueltos[indice - 1]?.invitacion !== true;
 
   return (
     <>
@@ -132,22 +147,31 @@ export function TourAyuda({ pasos, onTerminar, esperaMs = 1500 }: TourAyudaProps
         claveFoco={paso.id}
         dialogoRef={dialogoRef}
         onEscape={() => terminar.current('saltado')}
+        // La invitación ya tiene su «Ahora no»: una esquina «Saltar» sería lo mismo, dos veces.
         esquina={
-          <Button type="button" variant="ghost" aria-label={ETIQUETA_SALTAR} onClick={() => terminar.current('saltado')}>
-            {BOTON_SALTAR}
-          </Button>
+          invitacion ? undefined : (
+            <Button type="button" variant="ghost" aria-label={ETIQUETA_SALTAR} onClick={() => terminar.current('saltado')}>
+              {BOTON_SALTAR}
+            </Button>
+          )
         }
+        // Dos botones grandes (56 px) uno debajo del otro, a todo el ancho: el principal ARRIBA y primero en el orden del
+        // teclado (lo que se ve y lo que recorre el Tab van en el mismo orden), y debajo el que vuelve o descarta.
         acciones={
-          <>
-            {indice > 0 ? (
-              <Button type="button" variant="outline" onClick={() => setIndice((i) => i - 1)}>
+          <div className="flex w-full flex-col gap-2">
+            <Button type="button" size="lg" className="w-full" aria-label={invitacion ? ETIQUETA_SI : undefined} onClick={avanzar}>
+              {invitacion ? BOTON_SI : ultimo ? BOTON_LISTO : BOTON_SIGUIENTE}
+            </Button>
+            {invitacion ? (
+              <Button type="button" size="lg" variant="outline" className="w-full" aria-label={ETIQUETA_AHORA_NO} onClick={() => terminar.current('saltado')}>
+                {BOTON_AHORA_NO}
+              </Button>
+            ) : hayAtras ? (
+              <Button type="button" size="lg" variant="outline" className="w-full" onClick={() => setIndice((i) => i - 1)}>
                 {BOTON_ATRAS}
               </Button>
             ) : null}
-            <Button type="button" onClick={() => (ultimo ? terminar.current('completo') : setIndice((i) => i + 1))}>
-              {ultimo ? BOTON_LISTO : BOTON_SIGUIENTE}
-            </Button>
-          </>
+          </div>
         }
       >
         <p data-texto-paso="">{paso.texto}</p>

@@ -176,7 +176,8 @@ describe('TourAyuda: el diálogo', () => {
     await montar(OBJETIVOS);
     await tocar(boton('Siguiente')); // paso 2: Saltar, Atrás, Siguiente
     const botones = [...dialogo()!.querySelectorAll<HTMLButtonElement>('button')];
-    expect(botones.map((b) => b.textContent)).toEqual(['Saltar', 'Atrás', 'Siguiente']);
+    // El principal va primero (arriba, a todo el ancho) y «Atrás» debajo: lo que se ve y lo que recorre el Tab, en el mismo orden.
+    expect(botones.map((b) => b.textContent)).toEqual(['Saltar', 'Siguiente', 'Atrás']);
     botones[2]!.focus();
     await tecla('Tab');
     expect(document.activeElement).toBe(botones[0]);
@@ -348,6 +349,264 @@ describe('TourAyuda: objetivos', () => {
     await tocar(velo());
     expect(fin).not.toHaveBeenCalled();
     expect(titulo()).toBe('Te mostramos la app');
+  });
+});
+
+// El recorrido nuevo: la primera pantalla es una INVITACIÓN («Sí» / «Ahora no», sin «Saltar») y los botones son grandes.
+describe('TourAyuda: la invitación y los botones grandes', () => {
+  const INVITACION: PasoTour[] = [
+    { id: 'bienvenida', objetivo: null, titulo: '¿Te mostramos cómo se usa?', texto: 'Son pocos pasos.', siFalta: 'centrado', invitacion: true },
+    { id: 'barra', objetivo: 'nav', titulo: 'Para ir a cada parte', texto: 'Desde esta barra.', siFalta: 'saltar' },
+    { id: 'camion', objetivo: 'camion', titulo: 'Tu camión', texto: 'El camión con el que trabajas.', siFalta: 'saltar' },
+    { id: 'cierre', objetivo: 'ayuda-i', titulo: 'Si necesitas ayuda', texto: 'Toca «Ayuda».', siFalta: 'centrado' },
+  ];
+  const DESTINOS = '<nav data-ayuda="nav"><a href="#">Viajes</a></nav><div data-ayuda="camion">camión</div><button data-ayuda="ayuda-i">i</button>';
+  function conRectsDeInvitacion() {
+    rects.set('nav', { top: 736, left: 0, width: 375, height: 64 });
+    rects.set('camion', { top: 150, left: 16, width: 343, height: 160 });
+    rects.set('ayuda-i', { top: 20, left: 280, width: 80, height: 48 });
+  }
+  const textos = () => [...dialogo()!.querySelectorAll('button')].map((b) => b.textContent);
+  const clases = (b: HTMLElement | undefined) => (b?.className ?? '').split(/\s+/);
+
+  it('el primer paso pregunta: SOLO «Sí» y «Ahora no» (sin «Saltar», sin «Siguiente», sin «Atrás»), con «Sí» primero', async () => {
+    conRectsDeInvitacion();
+    await montar(DESTINOS, INVITACION);
+    expect(titulo()).toBe('¿Te mostramos cómo se usa?');
+    expect(textos()).toEqual(['Sí', 'Ahora no']);
+    expect(boton('Saltar')).toBeUndefined();
+    expect(boton('Siguiente')).toBeUndefined();
+    expect(boton('Atrás')).toBeUndefined();
+  });
+
+  it('«Sí» sigue al paso 2 sin terminar nada; ahí aparece la esquina «Saltar» y NO hay «Atrás» (volvería a la pregunta ya contestada)', async () => {
+    conRectsDeInvitacion();
+    const fin = vi.fn();
+    await montar(DESTINOS, INVITACION, fin);
+    await tocar(boton('Sí'));
+    expect(fin).not.toHaveBeenCalled();
+    expect(titulo()).toBe('Para ir a cada parte');
+    expect(dialogo()!.textContent).toContain('Paso 2 de 4');
+    expect(textos()).toEqual(['Saltar', 'Siguiente']);
+    expect(boton('Atrás')).toBeUndefined();
+    expect(aro()).not.toBeNull();
+    expect(fin).not.toHaveBeenCalled();
+  });
+
+  it('«Atrás»: no está en el paso 1 ni en el 2 (el que sigue a la invitación); sí en el 3 y en el 4, y desde el 3 vuelve al 2', async () => {
+    conRectsDeInvitacion();
+    await montar(DESTINOS, INVITACION);
+    expect(boton('Atrás')).toBeUndefined(); // paso 1: la invitación
+    await tocar(boton('Sí'));
+    expect(boton('Atrás')).toBeUndefined(); // paso 2
+    await tocar(boton('Siguiente'));
+    expect(dialogo()!.textContent).toContain('Paso 3 de 4');
+    expect(textos()).toEqual(['Saltar', 'Siguiente', 'Atrás']);
+    await tocar(boton('Siguiente'));
+    expect(dialogo()!.textContent).toContain('Paso 4 de 4');
+    expect(textos()).toEqual(['Saltar', 'Listo', 'Atrás']);
+    await tocar(boton('Atrás'));
+    expect(dialogo()!.textContent).toContain('Paso 3 de 4');
+    await tocar(boton('Atrás'));
+    expect(dialogo()!.textContent).toContain('Paso 2 de 4');
+    expect(titulo()).toBe('Para ir a cada parte');
+    expect(boton('Atrás')).toBeUndefined(); // y desde el 2 ya no se puede volver a la pregunta
+  });
+
+  it('la regla mira el paso ANTERIOR (su campo `invitacion`) y no una posición fija: con la invitación en 2.º lugar, «Atrás» falta justo en el paso que le sigue', async () => {
+    conRectsDeInvitacion();
+    const pasos: PasoTour[] = [
+      { id: 'a', objetivo: null, titulo: 'Primero', texto: 'Uno.', siFalta: 'centrado' },
+      { ...INVITACION[0]!, id: 'pregunta' },
+      INVITACION[1]!,
+      INVITACION[2]!,
+    ];
+    await montar(DESTINOS, pasos);
+    expect(titulo()).toBe('Primero');
+    expect(textos()).toEqual(['Saltar', 'Siguiente']);
+    await tocar(boton('Siguiente'));
+    // La invitación en 2.º lugar lleva «Sí» y «Ahora no» (una invitación nunca lleva «Atrás»).
+    expect(titulo()).toBe('¿Te mostramos cómo se usa?');
+    expect(textos()).toEqual(['Sí', 'Ahora no']);
+    await tocar(boton('Sí'));
+    expect(titulo()).toBe('Para ir a cada parte');
+    expect(boton('Atrás')).toBeUndefined(); // sigue a la invitación (que está en la posición 2, no en la 1)
+    await tocar(boton('Siguiente'));
+    expect(titulo()).toBe('Tu camión');
+    expect(boton('Atrás')).toBeDefined(); // el anterior ya no es una invitación
+  });
+
+  it('«Ahora no» termina como SALTADO (una sola vez y sin avanzar): así queda como visto y no insiste', async () => {
+    conRectsDeInvitacion();
+    const fin = vi.fn();
+    await montar(DESTINOS, INVITACION, fin);
+    await tocar(boton('Ahora no'));
+    expect(fin).toHaveBeenCalledTimes(1);
+    expect(fin).toHaveBeenCalledWith('saltado');
+  });
+
+  it('Esc en la invitación también termina como saltado', async () => {
+    conRectsDeInvitacion();
+    const fin = vi.fn();
+    await montar(DESTINOS, INVITACION, fin);
+    await tecla('Escape');
+    expect(fin).toHaveBeenCalledTimes(1);
+    expect(fin).toHaveBeenCalledWith('saltado');
+  });
+
+  it('recorrido completo: «Sí», «Siguiente», «Siguiente» y «Listo» en el último; «Saltar» en los pasos 2 a 4 termina como saltado', async () => {
+    conRectsDeInvitacion();
+    const fin = vi.fn();
+    await montar(DESTINOS, INVITACION, fin);
+    await tocar(boton('Sí'));
+    await tocar(boton('Siguiente'));
+    expect(titulo()).toBe('Tu camión');
+    expect(dialogo()!.textContent).toContain('Paso 3 de 4');
+    await tocar(boton('Siguiente'));
+    expect(titulo()).toBe('Si necesitas ayuda');
+    expect(dialogo()!.textContent).toContain('Paso 4 de 4');
+    expect(boton('Siguiente')).toBeUndefined();
+    expect(textos()).toEqual(['Saltar', 'Listo', 'Atrás']);
+    await tocar(boton('Listo'));
+    expect(fin).toHaveBeenCalledTimes(1);
+    expect(fin).toHaveBeenCalledWith('completo');
+  });
+
+  it('«Saltar» de un paso intermedio termina como saltado', async () => {
+    conRectsDeInvitacion();
+    const fin = vi.fn();
+    await montar(DESTINOS, INVITACION, fin);
+    await tocar(boton('Sí'));
+    await tocar(boton('Saltar'));
+    expect(fin).toHaveBeenCalledTimes(1);
+    expect(fin).toHaveBeenCalledWith('saltado');
+  });
+
+  it('el contador es de los pasos que SE MUESTRAN: sin la barra (`siFalta: saltar`) son 3, y «Sí» va directo al camión', async () => {
+    rects.set('camion', { top: 150, left: 16, width: 343, height: 160 });
+    rects.set('ayuda-i', { top: 20, left: 280, width: 80, height: 48 });
+    await montar('<div data-ayuda="camion">camión</div><button data-ayuda="ayuda-i">i</button>', INVITACION);
+    expect(dialogo()!.textContent).toContain('Paso 1 de 3');
+    await tocar(boton('Sí'));
+    expect(titulo()).toBe('Tu camión');
+    expect(dialogo()!.textContent).toContain('Paso 2 de 3');
+    // Sigue a la invitación (la barra se salteó): tampoco lleva «Atrás».
+    expect(boton('Atrás')).toBeUndefined();
+  });
+
+  it('una barra que existe pero NO se ve (sin cajas) se saltea igual que si faltara', async () => {
+    rects.set('camion', { top: 150, left: 16, width: 343, height: 160 });
+    rects.set('ayuda-i', { top: 20, left: 280, width: 80, height: 48 });
+    await montar(DESTINOS, INVITACION); // el `nav` está en la página pero sin rectángulo: no se ve
+    expect(dialogo()!.textContent).toContain('Paso 1 de 3');
+  });
+
+  it('el paso de la barra señala el `nav` que se ve (y el aro lo rodea con 4 px de holgura)', async () => {
+    conRectsDeInvitacion();
+    await montar(DESTINOS, INVITACION);
+    await tocar(boton('Sí'));
+    expect(aro()!.style.top).toBe('732px');
+    expect(aro()!.style.left).toBe('-4px');
+    expect(aro()!.style.width).toBe('383px');
+    expect(aro()!.style.height).toBe('72px');
+    // En el celular (375 px) la barra está abajo: la tarjeta va ARRIBA para no taparla.
+    Object.defineProperty(window, 'innerWidth', { value: 375, configurable: true });
+    await act(async () => window.dispatchEvent(new Event('resize')));
+    await asentar();
+    expect(dialogo()!.getAttribute('data-posicion')).toBe('hoja-arriba');
+  });
+
+  it('`nav` con la forma REAL de las dos barras (el <nav> de abajo y la LISTA dentro del <nav> lateral): se señala la que se ve, sin importar que la otra esté dentro de un ancestro oculto', async () => {
+    // Lo que hace el navegador: un elemento dentro de un ancestro con `display: none` no tiene cajas de layout (no se ve).
+    const cajas = Element.prototype.getClientRects;
+    Element.prototype.getClientRects = function (this: Element) {
+      if (this.closest('[data-oculto]')) return [] as unknown as DOMRectList;
+      return cajas.call(this);
+    };
+    try {
+      rects.set('abajo', { top: 736, left: 0, width: 375, height: 65 });
+      rects.set('lista', { top: 80, left: 0, width: 207, height: 308 });
+      // En el mismo ORDEN que el AppShell: la lateral va ANTES en el documento, así que en el celular el motor tiene que
+      // descartar primero su lista (dentro del <nav> oculto) para llegar a la de abajo.
+      const par = (oculta: 'abajo' | 'lateral') =>
+        `<nav id="lateral" ${oculta === 'lateral' ? 'data-oculto' : ''}><ul data-ayuda="nav" data-ayuda-falsa="lista"><li><a href="#">Viajes</a></li></ul></nav>` +
+        `<nav id="abajo" data-ayuda="nav" data-ayuda-falsa="abajo" ${oculta === 'abajo' ? 'data-oculto' : ''}><a href="#">Viajes</a></nav>`;
+      const pasos = [INVITACION[0]!, INVITACION[1]!];
+
+      // Escritorio: la de abajo es `md:hidden` (oculta) y se señala la LISTA, no el <nav> entero.
+      await montar(par('abajo'), pasos);
+      await tocar(boton('Sí'));
+      expect(aro()!.style.top).toBe('76px');
+      expect(aro()!.style.height).toBe('316px');
+      await act(async () => root.unmount());
+
+      // Celular: el <nav> lateral es `hidden`; su lista (un hijo de un ancestro oculto) NO cuenta y se señala la barra de abajo.
+      await montar(par('lateral'), pasos);
+      await tocar(boton('Sí'));
+      expect(aro()!.style.top).toBe('732px');
+      expect(aro()!.style.height).toBe('73px');
+    } finally {
+      Element.prototype.getClientRects = cajas;
+    }
+  });
+
+  it('una invitación que es el ÚNICO paso: «Sí» la termina como completo (no hay otro paso al que seguir)', async () => {
+    const fin = vi.fn();
+    await montar('', [INVITACION[0]!], fin);
+    expect(dialogo()!.textContent).toContain('Paso 1 de 1');
+    await tocar(boton('Sí'));
+    expect(fin).toHaveBeenCalledWith('completo');
+  });
+
+  it('los botones del recorrido son GRANDES: «Sí», «Siguiente» y «Listo» de 56 px a todo el ancho; «Atrás» y «Ahora no» igual, de contorno', async () => {
+    conRectsDeInvitacion();
+    await montar(DESTINOS, INVITACION);
+    expect(clases(boton('Sí'))).toEqual(expect.arrayContaining(['h-14', 'w-full', 'text-lg', 'bg-primary']));
+    expect(clases(boton('Ahora no'))).toEqual(expect.arrayContaining(['h-14', 'w-full', 'text-lg', 'border-input']));
+    expect(clases(boton('Ahora no'))).not.toContain('bg-primary');
+    await tocar(boton('Sí'));
+    expect(clases(boton('Siguiente'))).toEqual(expect.arrayContaining(['h-14', 'w-full', 'text-lg', 'bg-primary']));
+    await tocar(boton('Siguiente')); // paso 3: ya hay «Atrás» (el 2 no lo lleva)
+    expect(clases(boton('Atrás'))).toEqual(expect.arrayContaining(['h-14', 'w-full', 'text-lg', 'border-input']));
+    expect(clases(boton('Atrás'))).not.toContain('bg-primary');
+    await tocar(boton('Siguiente'));
+    expect(clases(boton('Listo'))).toEqual(expect.arrayContaining(['h-14', 'w-full', 'text-lg', 'bg-primary']));
+    // La esquina «Saltar» se queda del tamaño de siempre (48 px).
+    expect(clases(boton('Saltar'))).toContain('h-12');
+  });
+
+  it('los botones van uno DEBAJO del otro (columna), el principal primero y los dos dentro del mismo contenedor', async () => {
+    conRectsDeInvitacion();
+    await montar(DESTINOS, INVITACION);
+    const principal = boton('Sí')!;
+    const secundario = boton('Ahora no')!;
+    expect(principal.parentElement).toBe(secundario.parentElement);
+    expect(clases(principal.parentElement!)).toEqual(expect.arrayContaining(['flex', 'flex-col', 'w-full']));
+    expect(principal.compareDocumentPosition(secundario) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('nombres accesibles que EMPIEZAN con el texto visible (WCAG 2.5.3): «Sí, ver el recorrido» y «Ahora no, saltar el recorrido»', async () => {
+    conRectsDeInvitacion();
+    await montar(DESTINOS, INVITACION);
+    expect(boton('Sí')!.getAttribute('aria-label')).toBe('Sí, ver el recorrido');
+    expect(boton('Ahora no')!.getAttribute('aria-label')).toBe('Ahora no, saltar el recorrido');
+    await tocar(boton('Sí'));
+    await tocar(boton('Siguiente')); // paso 3: ahí sí hay «Atrás»
+    // «Siguiente» y «Atrás» no llevan etiqueta propia: su texto visible ya es su nombre.
+    expect(boton('Siguiente')!.hasAttribute('aria-label')).toBe(false);
+    expect(boton('Atrás')!.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('el foco queda atrapado entre los botones de la invitación: Tab del último vuelve al primero, Shift+Tab del primero va al último', async () => {
+    conRectsDeInvitacion();
+    await montar(DESTINOS, INVITACION);
+    const botones = [...dialogo()!.querySelectorAll<HTMLButtonElement>('button')];
+    expect(botones.map((b) => b.textContent)).toEqual(['Sí', 'Ahora no']);
+    botones[1]!.focus();
+    await tecla('Tab');
+    expect(document.activeElement).toBe(botones[0]);
+    await tecla('Tab', { shiftKey: true });
+    expect(document.activeElement).toBe(botones[1]);
   });
 });
 

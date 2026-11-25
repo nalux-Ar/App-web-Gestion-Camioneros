@@ -5,7 +5,10 @@ import { PRIMARY_NAV_ITEMS } from './nav-items';
 
 /**
  * Barra inferior fija en mobile con las 5 secciones de uso diario
- * (Configuración queda en el header, ver nav-items.ts). Safe-area para no
+ * (Configuración queda en el header, ver nav-items.ts). El `<nav>` entero es
+ * el objetivo `data-ayuda="nav"` del recorrido de bienvenida (el mismo valor
+ * en la LISTA de la barra lateral, ver sidebar-nav.tsx; el motor señala el
+ * que se ve). Safe-area para no
  * quedar tapada por la barra de gestos/home indicator. Cada ítem tiene
  * ≥64px de alto (piso táctil del proyecto es 48px) e ícono de 24px + rótulo
  * de 14px: el estado activo no depende solo del color (también queda en
@@ -28,6 +31,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Navegación principal"
+      data-ayuda="nav"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       <ul className="flex">

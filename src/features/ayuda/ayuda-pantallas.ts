@@ -16,15 +16,17 @@ export interface AyudaPantalla {
 const PUNTO_REPORTAR = 'Si algo falla o se ve raro, usa «Reportar un problema».';
 
 /**
- * La ayuda de Inicio. Función pura que recibe el interruptor de «Reportar un problema» (así se prueban los dos estados sin
- * recargar módulos): con `false` no nombra esa función; con `true` lleva el punto de siempre, al final.
+ * La ayuda de Inicio (el camión, los dos botones grandes, los dos accesos de contorno, dónde está Clientes y Configuración).
+ * Función pura que recibe el interruptor de «Reportar un problema» (así se prueban los dos estados sin recargar módulos): con
+ * `false` no nombra esa función (4 puntos); con `true` lleva el punto de siempre, al final (5).
  */
 export function ayudaInicio(reportarVisible: boolean): AyudaPantalla {
   return {
     titulo: 'Ayuda de Inicio',
     puntos: [
-      'Desde aquí vas a Viajes, Gastos, Clientes y Resumen con solo tocarlos.',
       'Arriba está el camión con el que trabajas. Si tienes varios, aquí eliges cuál.',
+      'Toca «Anotar un gasto» o «Anotar un viaje» para anotarlo con un solo toque.',
+      '«Ver mis viajes» y «Resumen» te llevan a esas pantallas. Clientes está en la barra de navegación.',
       'En Configuración cambias tu nombre, tus camiones y cómo se ve la app.',
       ...(reportarVisible ? [PUNTO_REPORTAR] : []),
     ],
