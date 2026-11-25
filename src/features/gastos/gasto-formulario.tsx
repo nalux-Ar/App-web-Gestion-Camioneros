@@ -10,6 +10,7 @@ import { NumberField } from '@/components/shared/number-field';
 import { SelectField } from '@/components/shared/select-field';
 import { SubmitBar } from '@/components/shared/submit-bar';
 import { TextareaField } from '@/components/shared/textarea-field';
+import { Button } from '@/components/ui/button';
 import type { CamionDeLista } from '@/features/camiones/camion';
 import {
   CAMIONES_SIN_CARGAR_MESSAGE,
@@ -30,7 +31,7 @@ import { useViajesRecientes } from '@/features/viajes/use-viajes';
 import { rutaDelViaje, type DesdeViaje, type DetalleAviso } from '@/features/viajes/viaje-navegacion';
 import { etiquetaDeViaje, opcionesDeViaje, type ViajeOpcion } from '@/features/viajes/viaje-opciones';
 import { mapDataError, RecordNotFoundError } from '@/lib/data-errors';
-import { todayLocal } from '@/lib/dates';
+import { isValidDateString, todayLocal } from '@/lib/dates';
 import { formatMoney } from '@/lib/numbers';
 import { charLength } from '@/lib/text';
 import { useSubmitFeedback } from '@/lib/use-submit-feedback';
@@ -55,6 +56,7 @@ import {
 } from './constants';
 import { EmpezarDeNuevo } from './empezar-de-nuevo';
 import { claveDeCategoria, nuevoEnvio, reiniciarEnvio, type EnvioDeLaCarga } from './gasto-envio';
+import { BOTON_CAMBIAR_FECHA, NOMBRE_CAMBIAR_FECHA, ROTULO_FECHA, textoDeLaFecha } from './gasto-fecha-textos';
 import {
   emptyGastoValues,
   previewPrecioPorLitro,
@@ -217,6 +219,11 @@ interface GastoFormularioProps {
  * mismos textos, mismos ids y el mismo guardado de UN gasto (`useCrearGasto`); con dos o más se guardan todos juntos en UN solo pedido
  * (`useCrearGastos`: quedan todos o ninguno), cada uno con su propia clave de idempotencia. La edición sigue siendo de UNA categoría.
  *
+ * Orden en pantalla: categoría, descripción, monto (y el recuadro de Combustible), «¿Cómo pagaste?», fecha y viaje. Con varias categorías:
+ * los bloques, el grupo «¿Cómo pagaste cada gasto?» y después la fecha y el viaje compartidos. La fecha va plegada («Fecha: hoy» con
+ * «Cambiar»): el campo aparece al tocar «Cambiar» o ante un error de la fecha, y una vez abierto queda abierto. El foco al primer error
+ * sigue ese mismo orden (`camposEnOrdenVisual`).
+ *
  * Resiliencia (patrón de src/lib/use-submit-feedback.ts):
  *  - El estado de los campos vive acá, en memoria, y NO se limpia si el guardado falla.
  *  - "Reintentar" reenvía el formulario con los mismos valores. En el ALTA el INSERT es
@@ -273,6 +280,10 @@ export function GastoFormulario({
       : CARGA_VACIA,
   );
   const [fecha, setFecha] = useState(valoresIniciales.fecha);
+  // La fecha va plegada («Fecha: hoy» y «Cambiar»): el campo se despliega al tocar «Cambiar» o ante un error de la fecha, y una vez
+  // abierto queda abierto (aunque se corrija el error o se vuelva a hoy). Una fecha que no se entiende (la base acepta cosas raras) no se
+  // puede resumir en una línea: el campo arranca abierto.
+  const [fechaAbierta, setFechaAbierta] = useState(() => !isValidDateString(valoresIniciales.fecha));
   const [viajeId, setViajeId] = useState(valoresIniciales.viajeId);
   const [combustible, setCombustible] = useState<DatosDeCombustible>({
     camionId: valoresIniciales.camionId,
@@ -438,6 +449,12 @@ export function GastoFormulario({
     if (idCombustible !== null) setErrores((previos) => sinErrorDelBloque(previos, idCombustible, campo));
   }
 
+  /** «Cambiar»: se reemplaza la fila por el campo y el foco pasa a él (el efecto del foco corre cuando el campo ya existe). */
+  function abrirFecha() {
+    setFechaAbierta(true);
+    pedirFoco(IDS.fecha);
+  }
+
   function handleFechaChange(valor: string) {
     setFecha(valor);
     setErrores((previos) => sinErrorCompartido(previos, 'fecha'));
@@ -472,7 +489,11 @@ export function GastoFormulario({
 
   function mostrarErrores(nuevos: ErroresDeCarga, disposicion: 'una' | 'varias', claves: readonly string[]) {
     setErrores(nuevos);
-    // El foco va al PRIMER error en el orden en que se ven los campos (con varias categorías, los métodos de pago van al final).
+    // Un error de la fecha nunca queda escondido en la fila plegada: se abre el campo en el MISMO ciclo que se pinta el error (todo
+    // esto va junto en un solo render), así cuando corre el efecto del foco el campo ya existe.
+    if (nuevos.compartidos.fecha !== undefined) setFechaAbierta(true);
+    // El foco va al PRIMER error en el orden en que se ven los campos (el método de pago antes que la fecha y el viaje; con varias
+    // categorías, los de todos los bloques juntos).
     const puesto = primerErrorVisual(nuevos, disposicion, claves);
     if (puesto) pedirFoco(idDelPuesto(puesto, disposicion === 'varias', decisionCamion));
   }
@@ -777,7 +798,9 @@ export function GastoFormulario({
     );
   }
 
-  const campoFecha = (
+  // La fecha: casi siempre es la de hoy, así que va plegada en una fila («Fecha: hoy» y «Cambiar»). Con «Cambiar» (o ante un error de la
+  // fecha) se reemplaza por el campo de siempre, con el mismo id, los mismos límites y el mismo error. Es una sola para toda la carga.
+  const campoFecha = fechaAbierta ? (
     <DateField
       id={IDS.fecha}
       label="Fecha"
@@ -787,6 +810,15 @@ export function GastoFormulario({
       onChange={handleFechaChange}
       error={errores.compartidos.fecha}
     />
+  ) : (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      <p id={`${IDS.fecha}-linea`} className="text-base">
+        {ROTULO_FECHA} <span className="font-semibold">{textoDeLaFecha(fecha, today)}</span>
+      </p>
+      <Button type="button" variant="outline" aria-label={NOMBRE_CAMBIAR_FECHA} onClick={abrirFecha}>
+        {BOTON_CAMBIAR_FECHA}
+      </Button>
+    </div>
   );
 
   const campoViaje = (
@@ -874,13 +906,7 @@ export function GastoFormulario({
               );
             })}
 
-            {/* La fecha y el viaje son uno solo para todos los gastos. */}
-            <div className="space-y-5 border-t border-border pt-5">
-              {campoFecha}
-              {campoViaje}
-            </div>
-
-            {/* El método de pago es de cada gasto: al final, uno por categoría. */}
+            {/* El método de pago es de cada gasto: uno por categoría, juntos, ANTES de la fecha y el viaje. */}
             <div role="group" aria-labelledby="gasto-metodos-titulo" className="space-y-5 border-t border-border pt-5">
               <h2 id="gasto-metodos-titulo" className="text-lg font-semibold">
                 {TITULO_COMO_PAGASTE}
@@ -889,13 +915,19 @@ export function GastoFormulario({
                 <div key={categoria.id}>{campoMetodoDePago(categoria.id, etiquetaMetodoDePago(nombreParaMostrar(categoria)), true)}</div>
               ))}
             </div>
+
+            {/* La fecha y el viaje son uno solo para todos los gastos. */}
+            <div className="space-y-5 border-t border-border pt-5">
+              {campoFecha}
+              {campoViaje}
+            </div>
           </>
         ) : (
           <>
             {camposDelBloque(claveUnica, categoriaUnica, false)}
+            {campoMetodoDePago(claveUnica, LEYENDA_COMO_PAGASTE, false)}
             {campoFecha}
             {campoViaje}
-            {campoMetodoDePago(claveUnica, LEYENDA_COMO_PAGASTE, false)}
           </>
         )}
 

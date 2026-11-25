@@ -290,9 +290,16 @@ describe('la ayuda de «Nuevo gasto»: se puede marcar más de una categoría', 
     expect(TODAS).toHaveLength(17);
   });
 
+  it('dice que la fecha es la de hoy y que se cambia con «Cambiar» (la fecha va plegada), en un punto corto', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('«Cambiar»'));
+    expect(punto).toBe('Elige la categoría y anota el monto. La fecha es la de hoy: toca «Cambiar» si fue otro día.');
+    expect(punto!.length).toBeLessThanOrEqual(100);
+  });
+
   it('lo de siempre sigue: categoría, monto y fecha, cómo se pagó, combustible, viaje y «Gastos varios»', () => {
     const texto = ayuda.puntos.join(' ');
-    expect(texto).toContain('Elige la categoría, anota el monto y la fecha.');
+    expect(texto).toContain('Elige la categoría y anota el monto.');
+    expect(texto).toContain('La fecha es la de hoy');
     expect(texto).toContain('cómo pagaste');
     expect(texto).toContain('combustible');
     expect(texto).toContain('viaje');

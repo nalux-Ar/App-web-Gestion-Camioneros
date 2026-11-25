@@ -16,8 +16,23 @@ import {
   type ErroresDeCarga,
 } from './gasto-varios-errores';
 
-// Dónde se muestra cada error y a cuál se lleva el foco: el PRIMER error en el orden en que se VEN los campos (con varias categorías,
-// los métodos de pago van al final de todo, así que no siempre coincide con el «primero» que da la validación del lote).
+// Dónde se muestra cada error y a cuál se lleva el foco: el PRIMER error en el orden en que se VEN los campos. El método de pago va ANTES
+// de la fecha y del viaje (con varias categorías, los métodos de pago de todos los bloques van juntos, después de todos los bloques), así
+// que no siempre coincide con el «primero» que da la validación (`GASTO_FIELD_ORDER`, que no cambia).
+
+/** El orden en pantalla con un solo bloque, escrito A MANO (no derivado de `GASTO_FIELD_ORDER`): si alguien lo mueve, esta prueba salta. */
+const ORDEN_VISUAL_UNA: readonly GastoFormField[] = [
+  'categoriaId',
+  'descripcion',
+  'monto',
+  'camionId',
+  'litros',
+  'kmOdometro',
+  'tanqueLleno',
+  'metodoPago',
+  'fecha',
+  'viajeId',
+];
 
 const A = 'a0000000-0000-4000-8000-000000000001';
 const B = 'b0000000-0000-4000-8000-000000000002';
@@ -125,8 +140,22 @@ describe('hayErrores', () => {
 });
 
 describe('camposEnOrdenVisual', () => {
-  it('con un solo bloque es EXACTAMENTE el orden de siempre (GASTO_FIELD_ORDER)', () => {
-    expect(camposEnOrdenVisual('una', [A]).map((puesto) => puesto.campo)).toEqual([...GASTO_FIELD_ORDER]);
+  it('con un solo bloque: categoría, descripción, monto, camión, litros, km, tanque, MÉTODO DE PAGO, fecha y viaje', () => {
+    expect(camposEnOrdenVisual('una', [A]).map((puesto) => puesto.campo)).toEqual([...ORDEN_VISUAL_UNA]);
+  });
+
+  it('con un solo bloque el método de pago va justo después del tanque y antes de la fecha, y de ella al viaje (la validación sigue con su orden)', () => {
+    const orden = camposEnOrdenVisual('una', [A]).map((puesto) => puesto.campo);
+    expect(orden.indexOf('metodoPago')).toBeLessThan(orden.indexOf('fecha'));
+    expect(orden.indexOf('fecha')).toBeLessThan(orden.indexOf('viajeId'));
+    expect(orden.indexOf('tanqueLleno') + 1).toBe(orden.indexOf('metodoPago'));
+    expect(GASTO_FIELD_ORDER.indexOf('metodoPago')).toBeGreaterThan(GASTO_FIELD_ORDER.indexOf('viajeId')); // el orden de la validación no se tocó
+  });
+
+  it('con un solo bloque son los mismos campos que los de la validación, ni uno más ni uno menos (solo cambia el orden)', () => {
+    const visuales = camposEnOrdenVisual('una', [A]).map((puesto) => puesto.campo);
+    expect(new Set(visuales).size).toBe(visuales.length);
+    expect([...visuales].sort()).toEqual([...GASTO_FIELD_ORDER].sort());
   });
 
   it('con un solo bloque la categoría, la fecha y el viaje no son de ningún bloque; el resto sí', () => {
@@ -141,7 +170,7 @@ describe('camposEnOrdenVisual', () => {
     expect(camposEnOrdenVisual('una', []).find((puesto) => puesto.campo === 'monto')!.clave).toBe('');
   });
 
-  it('con varios: la categoría, cada bloque entero (en su orden), la fecha, el viaje y AL FINAL el método de pago de cada uno', () => {
+  it('con varios: la categoría, cada bloque entero (en su orden), el método de pago de cada uno (juntos) y AL FINAL la fecha y el viaje', () => {
     const orden = camposEnOrdenVisual('varias', [A, B]).map((puesto) => `${puesto.clave === null ? '-' : puesto.clave === A ? 'A' : 'B'}:${puesto.campo}`);
     expect(orden).toEqual([
       '-:categoriaId',
@@ -157,11 +186,31 @@ describe('camposEnOrdenVisual', () => {
       'B:litros',
       'B:kmOdometro',
       'B:tanqueLleno',
-      '-:fecha',
-      '-:viajeId',
       'A:metodoPago',
       'B:metodoPago',
+      '-:fecha',
+      '-:viajeId',
     ]);
+  });
+
+  it('con varios y tres bloques: los tres métodos de pago juntos, en el orden de los bloques, antes de la fecha y del viaje', () => {
+    const C = 'c0000000-0000-4000-8000-000000000003';
+    const orden = camposEnOrdenVisual('varias', [A, B, C]);
+    const posiciones = orden.map((puesto, i) => (puesto.campo === 'metodoPago' ? i : -1)).filter((i) => i >= 0);
+    expect(posiciones).toHaveLength(3);
+    expect(posiciones[2]! - posiciones[0]!).toBe(2); // pegados
+    expect(orden.filter((puesto) => puesto.campo === 'metodoPago').map((puesto) => puesto.clave)).toEqual([A, B, C]);
+    expect(orden.slice(-2).map((puesto) => puesto.campo)).toEqual(['fecha', 'viajeId']);
+    expect(orden.slice(-2).every((puesto) => puesto.clave === null)).toBe(true);
+    expect(orden[orden.length - 3]!.campo).toBe('metodoPago');
+  });
+
+  it('con varios (con los litros, el km y el tanque de un bloque): los métodos de pago van después de TODO lo de TODOS los bloques', () => {
+    const orden = camposEnOrdenVisual('varias', [A, B]);
+    const primerMetodo = orden.findIndex((puesto) => puesto.campo === 'metodoPago');
+    const ultimoDeBloque = orden.map((puesto) => puesto.clave !== null && puesto.campo !== 'metodoPago').lastIndexOf(true);
+    expect(primerMetodo).toBeGreaterThan(ultimoDeBloque);
+    expect(orden.some((puesto) => puesto.campo === 'litros' && puesto.clave === A)).toBe(true);
   });
 
   it('dentro de un bloque el orden de los campos es el de siempre (sin la categoría, la fecha, el viaje ni el método)', () => {
@@ -177,8 +226,8 @@ describe('primerErrorVisual', () => {
     expect(primerErrorVisual(SIN_ERRORES, 'varias', [A, B])).toBeNull();
   });
 
-  it('con un solo bloque coincide con el primer campo con error del orden de siempre, para cualquier combinación de errores', () => {
-    const campos: GastoFormField[] = [...GASTO_FIELD_ORDER];
+  it('con un solo bloque coincide con el primer campo con error del orden en pantalla, para cualquier combinación de errores', () => {
+    const campos: GastoFormField[] = [...ORDEN_VISUAL_UNA];
     // todas las combinaciones de 1 y de 2 errores
     for (const uno of campos) {
       for (const otro of campos) {
@@ -190,16 +239,27 @@ describe('primerErrorVisual', () => {
     }
   });
 
-  it('con varios: un error de método de pago del PRIMER bloque va DESPUÉS de un error de monto del segundo (los métodos van al final)', () => {
+  it('con un solo bloque: un error del método de pago gana sobre uno de la fecha o del viaje (se ve antes); y la fecha gana sobre el viaje', () => {
+    expect(primerErrorVisual(erroresDeUnGasto(A, { metodoPago: 'p', fecha: 'f' }), 'una', [A])).toEqual({ campo: 'metodoPago', clave: A });
+    expect(primerErrorVisual(erroresDeUnGasto(A, { metodoPago: 'p', viajeId: 'v' }), 'una', [A])).toEqual({ campo: 'metodoPago', clave: A });
+    expect(primerErrorVisual(erroresDeUnGasto(A, { fecha: 'f', viajeId: 'v' }), 'una', [A])).toEqual({ campo: 'fecha', clave: null });
+    expect(primerErrorVisual(erroresDeUnGasto(A, { tanqueLleno: 't', metodoPago: 'p' }), 'una', [A])).toEqual({ campo: 'tanqueLleno', clave: A });
+  });
+
+  it('con varios: un error de método de pago del PRIMER bloque va DESPUÉS de un error de monto del segundo (los métodos van después de todos los bloques)', () => {
     const errores: ErroresDeCarga = { compartidos: {}, bloques: { [A]: { metodoPago: 'p' }, [B]: { monto: 'm' } } };
     expect(primerErrorVisual(errores, 'varias', [A, B])).toEqual({ campo: 'monto', clave: B });
   });
 
-  it('con varios: la fecha va antes que cualquier método de pago y después de todos los montos', () => {
+  it('con varios: cualquier método de pago va antes que la fecha y que el viaje, y después de todos los montos', () => {
     const conFecha: ErroresDeCarga = { compartidos: { fecha: 'f' }, bloques: { [B]: { metodoPago: 'p' } } };
-    expect(primerErrorVisual(conFecha, 'varias', [A, B])).toEqual({ campo: 'fecha', clave: null });
+    expect(primerErrorVisual(conFecha, 'varias', [A, B])).toEqual({ campo: 'metodoPago', clave: B });
+    const conViaje: ErroresDeCarga = { compartidos: { viajeId: 'v' }, bloques: { [A]: { metodoPago: 'p' } } };
+    expect(primerErrorVisual(conViaje, 'varias', [A, B])).toEqual({ campo: 'metodoPago', clave: A });
     const conMonto: ErroresDeCarga = { compartidos: { fecha: 'f' }, bloques: { [B]: { monto: 'm' } } };
     expect(primerErrorVisual(conMonto, 'varias', [A, B])).toEqual({ campo: 'monto', clave: B });
+    const soloFecha: ErroresDeCarga = { compartidos: { fecha: 'f', viajeId: 'v' }, bloques: {} };
+    expect(primerErrorVisual(soloFecha, 'varias', [A, B])).toEqual({ campo: 'fecha', clave: null });
   });
 
   it('con varios: entre los métodos de pago, el del primer bloque', () => {

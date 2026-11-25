@@ -286,20 +286,20 @@ afterEach(async () => {
 });
 
 describe('formulario de gasto: la descripcion arriba del monto y obligatoria en Gastos varios', () => {
-  it('orden en pantalla: Categoria -> Descripcion -> Monto -> Fecha -> Metodo de pago (la descripcion ya no queda al final)', async () => {
+  it('orden en pantalla: Categoria -> Descripcion -> Monto -> Metodo de pago -> Fecha (la descripcion ya no queda al final)', async () => {
     installResponder();
     await mountForm();
     const cat = byId('gasto-categoria-0')!.closest('fieldset')!;
     const desc = byId('gasto-descripcion')!;
     const monto = byId('gasto-monto')!;
-    const fecha = byId('gasto-fecha')!;
     const metodo = byId('gasto-metodo-0')!;
+    const fecha = byId('gasto-fecha-linea')!; // la fecha va plegada: «Fecha: hoy» con «Cambiar»
     expect(cat && desc && monto && fecha && metodo).toBeTruthy();
     const before = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(cat, desc)).toBe(true);
     expect(before(desc, monto)).toBe(true);
-    expect(before(monto, fecha)).toBe(true);
-    expect(before(fecha, metodo)).toBe(true);
+    expect(before(monto, metodo)).toBe(true);
+    expect(before(metodo, fecha)).toBe(true);
     // Y despues de la descripcion no queda otro textarea (no esta duplicada al final).
     expect(document.querySelectorAll('textarea')).toHaveLength(1);
   });

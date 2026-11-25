@@ -107,6 +107,18 @@ const CAMPOS_DEL_BLOQUE: readonly CampoDeBloque[] = GASTO_FIELD_ORDER.filter(
   (campo): campo is CampoDeBloque => campo !== 'categoriaId' && campo !== 'metodoPago' && !esCampoCompartido(campo),
 );
 
+/**
+ * El orden de TODOS los campos con un solo bloque, tal como se ven: lo de siempre hasta el tanque lleno, después el método de pago y,
+ * al final, la fecha y el viaje. NO es `GASTO_FIELD_ORDER` (ese es el de la validación, que sigue con la fecha y el viaje antes del
+ * método de pago): el método de pago se pasó ANTES de la fecha y el viaje en la pantalla.
+ */
+const ORDEN_VISUAL_DE_UN_BLOQUE: readonly GastoFormField[] = [
+  ...GASTO_FIELD_ORDER.filter((campo) => campo !== 'metodoPago' && campo !== 'fecha' && campo !== 'viajeId'),
+  'metodoPago',
+  'fecha',
+  'viajeId',
+];
+
 function mensajeDe(errores: ErroresDeCarga, puesto: PuestoDeCampo): string | undefined {
   if (puesto.clave === null) {
     if (puesto.campo === 'categoriaId') return errores.categoria;
@@ -119,22 +131,23 @@ function mensajeDe(errores: ErroresDeCarga, puesto: PuestoDeCampo): string | und
 /**
  * Los campos de la pantalla EN EL ORDEN EN QUE SE VEN, para llevar el foco al primero con error.
  *
- *  - Con un solo bloque (`'una'`: una categoría marcada, ninguna o la edición): el orden de siempre, `GASTO_FIELD_ORDER`
- *    (categoría, descripción, monto, camión, litros, km, tanque, fecha, viaje, método de pago).
+ *  - Con un solo bloque (`'una'`: una categoría marcada, ninguna o la edición): categoría, descripción, monto, camión, litros, km,
+ *    tanque, método de pago, fecha y viaje.
  *  - Con varios (`'varias'`): el grupo de categorías; después, bloque por bloque (en el orden de los bloques), su descripción, monto y lo
- *    del combustible; después la fecha y el viaje; y AL FINAL el método de pago de cada bloque (van juntos abajo del todo).
+ *    del combustible; después el método de pago de cada bloque (van juntos, en el grupo «¿Cómo pagaste cada gasto?»); y AL FINAL la
+ *    fecha y el viaje, que son de toda la carga.
  */
 export function camposEnOrdenVisual(disposicion: 'una' | 'varias', claves: readonly string[]): PuestoDeCampo[] {
   if (disposicion === 'una') {
     const clave = claves[0] ?? '';
-    return GASTO_FIELD_ORDER.map((campo) => ({ campo, clave: campo === 'categoriaId' || esCampoCompartido(campo) ? null : clave }));
+    return ORDEN_VISUAL_DE_UN_BLOQUE.map((campo) => ({ campo, clave: campo === 'categoriaId' || esCampoCompartido(campo) ? null : clave }));
   }
   return [
     { campo: 'categoriaId', clave: null },
     ...claves.flatMap((clave) => CAMPOS_DEL_BLOQUE.map((campo) => ({ campo, clave }))),
+    ...claves.map((clave) => ({ campo: 'metodoPago' as const, clave })),
     { campo: 'fecha', clave: null },
     { campo: 'viajeId', clave: null },
-    ...claves.map((clave) => ({ campo: 'metodoPago' as const, clave })),
   ];
 }
 

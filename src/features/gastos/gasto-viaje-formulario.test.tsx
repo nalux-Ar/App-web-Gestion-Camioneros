@@ -306,14 +306,15 @@ afterEach(async () => {
 // Alta: el selector "Viaje"
 // ---------------------------------------------------------------------------
 describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
-  it('va despues de la fecha y antes del metodo de pago, con "(opcional)" en la etiqueta', async () => {
+  it('va despues del metodo de pago y de la fecha (la fila plegada), al final, con "(opcional)" en la etiqueta', async () => {
     await mount();
-    const fecha = byId('gasto-fecha')!;
+    const fecha = byId('gasto-fecha-linea')!;
     const viaje = selectViaje();
     const metodo = byId('gasto-metodo-0')!;
     const antes = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(antes(metodo, fecha)).toBe(true);
     expect(antes(fecha, viaje)).toBe(true);
-    expect(antes(viaje, metodo)).toBe(true);
+    expect(antes(metodo, viaje)).toBe(true);
     expect(document.querySelector('label[for="gasto-viaje"]')!.textContent).toBe('Viaje (opcional)');
     expect(viaje.getAttribute('aria-required')).toBeNull();
   });

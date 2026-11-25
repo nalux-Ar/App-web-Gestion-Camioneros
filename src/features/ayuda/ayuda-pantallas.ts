@@ -109,7 +109,7 @@ export const AYUDA_SUMAR_A_VIAJE: AyudaPantalla = {
 export const AYUDA_GASTO_FORM: AyudaPantalla = {
   titulo: 'Ayuda para anotar un gasto',
   puntos: [
-    'Elige la categoría, anota el monto y la fecha.',
+    'Elige la categoría y anota el monto. La fecha es la de hoy: toca «Cambiar» si fue otro día.',
     'Puedes marcar más de una categoría: cada una se guarda como un gasto, con su monto.',
     'Elige siempre cómo pagaste: efectivo, tarjeta o transferencia.',
     'En el combustible suma los litros y los kilómetros que marca el tablero: así calculamos cuánto rinde tu camión.',

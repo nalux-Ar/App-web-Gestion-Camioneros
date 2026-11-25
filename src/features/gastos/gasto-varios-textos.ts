@@ -55,7 +55,7 @@ export function etiquetaMetodoDePago(nombreDeCategoria: string): string {
   return `¿Cómo pagaste ${nombreDeCategoria}?`;
 }
 
-/** El título de la parte de abajo, donde se elige cómo se pagó cada gasto. */
+/** El título del grupo donde se elige cómo se pagó cada gasto (con varias categorías: después de los bloques y antes de la fecha y el viaje). */
 export const TITULO_COMO_PAGASTE = '¿Cómo pagaste cada gasto?';
 
 /** El título del recuadro del combustible cuando hay varios gastos (el título del bloque ya es «Combustible»). */

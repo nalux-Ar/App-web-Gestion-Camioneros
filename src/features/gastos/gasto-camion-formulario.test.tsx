@@ -232,7 +232,8 @@ const errorCamion = () => byId('gasto-camion-error')?.textContent ?? '';
 const inputPatente = () => byId<HTMLInputElement>('gasto-camion-nuevo-patente');
 /** La línea "Camión: AB 123 CD" (Etapa 5c), o null si no se muestra. */
 const lineaCamion = () => byId('gasto-camion-linea')?.textContent ?? null;
-const botonCambiar = () => buttons().find((b) => b.textContent === 'Cambiar') ?? null;
+// El «Cambiar» del CAMIÓN (la fecha también tiene un «Cambiar», con su propio nombre: «Cambiar la fecha»).
+const botonCambiar = () => buttons().find((b) => b.textContent === 'Cambiar' && b.getAttribute('aria-label') === 'Cambiar el camión') ?? null;
 const ayudaCamion = () => byId('gasto-camion-ayuda')?.textContent ?? null;
 const hintCamion = () => byId('gasto-camion-hint')?.textContent ?? null;
 
