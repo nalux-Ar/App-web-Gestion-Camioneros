@@ -16,7 +16,14 @@ const NBSP = '\u00a0';
 const MENOS = SIGNO_MENOS;
 
 export const RESUMEN_TITULO = 'Resumen';
-export const TITULO_GASTOS = 'Gastos del mes';
+/** La segunda tarjeta (Mes y Año): cuántos gastos fueron, en qué categorías y la comparación (Mes) o el promedio (Año). */
+export const TITULO_EN_QUE_GASTASTE = 'En qué gastaste';
+/** Los plegados (cerrados al entrar). Los otros llevan `TITULO_COMBUSTIBLE` y `textoTituloViajes`. */
+export const TITULO_COMO_PAGASTE = 'Cómo pagaste';
+export const TITULO_GASTO_POR_CAMION = 'Gasto por camión';
+export const TITULO_MES_POR_MES = 'Mes por mes';
+/** En el encabezado de un plegado CERRADO cuya propia consulta falló. */
+export const PLEGADO_NO_SE_PUDO_CARGAR = 'No se pudo cargar';
 
 /** Sin red, las consultas quedan en pausa hasta que vuelve la señal. */
 export const RESUMEN_SIN_CONEXION = 'Sin conexión. Cargaremos el resumen cuando vuelva la señal.';
@@ -46,7 +53,7 @@ export function textoCantidadGastos(cantidad: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Gastos del mes y comparación
+// En qué gastaste: la comparación del mes
 // ---------------------------------------------------------------------------
 
 /** El nombre de un mes ("septiembre"), con el año solo si es otro que `anioDeReferencia` ("diciembre 2025"). */
@@ -139,12 +146,12 @@ export function textoYMasEnGastos(faltan: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Ingresos y resultado
+// ¿Cuánto te quedó?: lo que cobraste, lo que gastaste y el resultado
 // ---------------------------------------------------------------------------
 
 export const TITULO_RESULTADO = '¿Cuánto te quedó?';
-export const ETIQUETA_INGRESOS = 'Lo que cobraste';
-export const ETIQUETA_GASTOS_DEL_MES = 'Gastos del mes';
+export const ETIQUETA_COBRASTE = 'Cobraste';
+export const ETIQUETA_GASTASTE = 'Gastaste';
 /** Qué es el resultado (lo calcula la base: `resumen_mensual.resultado`). */
 export const TEXTO_COMO_SE_CALCULA_RESULTADO = 'El resultado es lo que cobraste por los viajes del mes menos todos los gastos del mes.';
 export const TEXTO_VER_VIAJES_DEL_MES = 'Ver los viajes del mes';
@@ -161,7 +168,15 @@ export function textoViajesConIngreso(conIngreso: number, total: number): string
     : `${formatEntero(conIngreso)} de ${textoCantidadViajes(total)} con cobro anotado`;
 }
 
-/** El nombre del resultado: una pérdida se dice con la palabra, no solo con el signo o el color. */
+/**
+ * El rótulo del resultado grande de la tarjeta "¿Cuánto te quedó?" (solo ahí: las filas de viajes y de "Resultado por
+ * mes" usan `etiquetaResultado`). El 0 es "Te quedó": no se perdió nada.
+ */
+export function etiquetaDeLoQueQuedo(resultado: number): string {
+  return resultado < 0 ? 'Perdiste' : 'Te quedó';
+}
+
+/** El nombre del resultado de una fila: una pérdida se dice con la palabra, no solo con el signo o el color. */
 export function etiquetaResultado(resultado: number): string {
   if (resultado > 0) return 'Ganancia';
   if (resultado < 0) return 'Pérdida';
@@ -180,7 +195,7 @@ export function formatResultado(resultado: number): string {
 
 /** Sin resultado (ningún viaje del período tiene ingreso): qué falta para tenerlo. `periodo`: el Mes o el Año. */
 export function textoSinResultado(viajes: number, periodo: 'mes' | 'año' = 'mes'): string {
-  const falta = `para ver si el ${periodo} dio ganancia o pérdida.`;
+  const falta = `para saber cuánto te quedó en el ${periodo}.`;
   if (viajes === 0) return `No hay viajes en el ${periodo}. Anota tus viajes con lo que cobraste ${falta}`;
   if (viajes === 1) return `Tu viaje del ${periodo} no tiene anotado lo que cobraste. Anótalo ${falta}`;
   return `Ninguno de tus ${formatEntero(viajes)} viajes del ${periodo} tiene anotado lo que cobraste. Anótalo ${falta}`;
@@ -304,6 +319,10 @@ export const PASOS_COMO_SE_CALCULA: readonly string[] = [
 // ---------------------------------------------------------------------------
 
 export const TITULO_VIAJES = 'Viajes del mes';
+/** El título del plegado de viajes, con cuántos hay cuando ya cargó (0 incluido): "Viajes del mes (5)". */
+export function textoTituloViajes(total: number | undefined): string {
+  return total === undefined ? TITULO_VIAJES : `${TITULO_VIAJES} (${formatEntero(total)})`;
+}
 /** El viaje no tiene lo que cobraste anotado: no hay ganancia que mostrar. */
 export const SIN_INGRESO = 'Sin cobro anotado';
 
@@ -339,7 +358,6 @@ export const ANIO_SIGUIENTE = 'Año siguiente';
 // Vista Año: gastos del año, promedio y gasto por mes
 // ---------------------------------------------------------------------------
 
-export const TITULO_GASTOS_DEL_ANIO = 'Gastos del año';
 export const ETIQUETA_PROMEDIO_POR_MES = 'Promedio por mes';
 export const TITULO_GASTO_POR_MES = 'Gasto por mes';
 /** Un mes del año sin gastos (en la lista de gasto por mes). */
@@ -365,8 +383,11 @@ export function nombreDelMes(mes: YearMonth): string {
 }
 
 // ---------------------------------------------------------------------------
-// Vista Año: ingresos, resultado y resultado por mes
+// Vista Año: resultado y "Mes por mes"
 // ---------------------------------------------------------------------------
+
+/** Dentro de "Mes por mes" cuando la serie del año no cargó: el error (y su "Reintentar") ya está en la primera tarjeta. */
+export const TEXTO_MESES_SIN_CARGAR = `No pudimos cargar los meses. Mira el aviso en «${TITULO_RESULTADO}», arriba.`;
 
 /** Qué es el resultado del año (la suma de los 12 meses de `resumen_mensual`). */
 export const TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO = 'El resultado es lo que cobraste por los viajes del año menos todos los gastos del año.';

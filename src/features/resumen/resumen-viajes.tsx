@@ -5,7 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { filtroToSearch } from '@/features/viajes/viajes-filters';
 import { formatDateShort, type YearMonth } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import { BloqueResumen, type ConsultaDeBloque } from './resumen-bloque';
+import type { ConsultaDeBloque } from './resumen-bloque';
 import {
   etiquetaResultado,
   formatResultado,
@@ -15,9 +15,10 @@ import {
   textoIngresoDelViaje,
   textoKm,
   textoSinViajes,
-  TITULO_VIAJES,
+  textoTituloViajes,
 } from './resumen-pantalla-textos';
 import type { ResumenViajes, ViajeDelResumen } from './resumen-parse';
+import { BloquePlegado } from './resumen-plegado';
 import { etiquetaCamionResumen, textoViajesCortados } from './resumen-textos';
 
 interface ViajesDelMesProps {
@@ -27,14 +28,14 @@ interface ViajesDelMesProps {
 }
 
 /**
- * Los viajes del mes (`resumen_viajes`) con su ganancia, en el orden en que los manda la base (del más nuevo al más
- * viejo). Si la base cortó la lista, se avisa. Cada fila abre el detalle del viaje; su "volver" lleva a la lista de
- * Viajes de ESE mes (la navegación del detalle es la de Viajes).
+ * Los viajes del mes (`resumen_viajes`) con su ganancia, plegados (el título dice cuántos son), en el orden en que los
+ * manda la base (del más nuevo al más viejo). Si la base cortó la lista, se avisa. Cada fila abre el detalle del viaje;
+ * su "volver" lleva a la lista de Viajes de ESE mes (la navegación del detalle es la de Viajes).
  */
 export function ViajesDelMes({ mes, enCurso, viajes }: ViajesDelMesProps) {
   const volver = filtroToSearch({ mes, vista: 'viajes' });
   return (
-    <BloqueResumen id="resumen-viajes" titulo={TITULO_VIAJES} consulta={viajes} filasCargando={3}>
+    <BloquePlegado id="resumen-viajes" titulo={textoTituloViajes(viajes.data?.total)} consulta={viajes} filasCargando={3}>
       {(datos) => {
         if (datos.viajes.length === 0) return <p className="text-muted-foreground">{textoSinViajes(mes, enCurso)}</p>;
         const cortados = textoViajesCortados(datos.viajes.length, datos.total);
@@ -56,7 +57,7 @@ export function ViajesDelMes({ mes, enCurso, viajes }: ViajesDelMesProps) {
           </>
         );
       }}
-    </BloqueResumen>
+    </BloquePlegado>
   );
 }
 

@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react';
 
-import { BloqueResumen, type ConsultaDeBloque } from './resumen-bloque';
+import type { ConsultaDeBloque } from './resumen-bloque';
 import {
   ETIQUETAS_COMBUSTIBLE,
   formatMonto,
@@ -16,6 +16,7 @@ import {
   TITULO_COMO_SE_CALCULA,
 } from './resumen-pantalla-textos';
 import type { CombustibleDelCamion } from './resumen-parse';
+import { BloquePlegado } from './resumen-plegado';
 import { etiquetaCamionResumen } from './resumen-textos';
 
 interface CombustibleDelPeriodoProps {
@@ -25,13 +26,13 @@ interface CombustibleDelPeriodoProps {
 }
 
 /**
- * Combustible por camión (`resumen_combustible`) de un período, el mes o el año: las cargas del período y, si hay tramos
- * válidos que cierran en él, el rendimiento ponderado del período. Todo lo calcula la base; acá solo se muestra y se
- * explica ("¿Cómo se calcula?").
+ * Combustible por camión (`resumen_combustible`) de un período, el mes o el año, plegado: las cargas del período y, si hay
+ * tramos válidos que cierran en él, el rendimiento ponderado del período. Todo lo calcula la base; acá solo se muestra y
+ * se explica ("¿Cómo se calcula?").
  */
 export function CombustibleDelPeriodo({ vacio, combustible }: CombustibleDelPeriodoProps) {
   return (
-    <BloqueResumen id="resumen-combustible" titulo={TITULO_COMBUSTIBLE} consulta={combustible} filasCargando={3}>
+    <BloquePlegado id="resumen-combustible" titulo={TITULO_COMBUSTIBLE} consulta={combustible} filasCargando={3}>
       {(camiones) => (
         <>
           {camiones.length === 0 ? (
@@ -46,7 +47,7 @@ export function CombustibleDelPeriodo({ vacio, combustible }: CombustibleDelPeri
           <ComoSeCalcula />
         </>
       )}
-    </BloqueResumen>
+    </BloquePlegado>
   );
 }
 

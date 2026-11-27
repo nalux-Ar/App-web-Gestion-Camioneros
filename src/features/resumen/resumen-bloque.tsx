@@ -22,7 +22,7 @@ export interface ConsultaDeBloque<T> {
  * La tarjeta de un bloque (los mismos bordes y fondo del resumen de Viajes): una sección con su título h2, que es su
  * nombre accesible. `ocupada` = `aria-busy` mientras el contenido todavía no está.
  */
-export function TarjetaResumen({ id, titulo, ocupada = false, children }: { id: string; titulo: string; ocupada?: boolean; children: ReactNode }) {
+function TarjetaResumen({ id, titulo, ocupada = false, children }: { id: string; titulo: string; ocupada?: boolean; children: ReactNode }) {
   const tituloId = `${id}-titulo`;
   return (
     <section id={id} aria-labelledby={tituloId} aria-busy={ocupada} className="rounded-lg border border-border bg-card p-4">
@@ -76,14 +76,25 @@ interface BloqueResumenProps<T> {
 }
 
 /**
- * Un bloque del Resumen: tarjeta con su título y SU estado. Mientras carga, filas grises (`aria-busy`); si falla, el error
- * con "Reintentar" (y, si había datos de antes, se siguen viendo debajo); con datos, `children(datos)`.
+ * El estado de una consulta dentro de un bloque (tarjeta o plegado). Mientras carga, filas grises; si falla, el error con
+ * "Reintentar" (y, si había datos de antes, se siguen viendo debajo); con datos, `children(datos)`.
  */
-export function BloqueResumen<T>({ id, titulo, consulta, filasCargando = 2, children }: BloqueResumenProps<T>) {
+export function ContenidoDeConsulta<T>({ consulta, filasCargando = 2, children }: Pick<BloqueResumenProps<T>, 'consulta' | 'filasCargando' | 'children'>) {
   return (
-    <TarjetaResumen id={id} titulo={titulo} ocupada={consulta.data === undefined && !consulta.isError}>
+    <>
       {consulta.isError ? <ErrorDeBloque consulta={consulta} /> : null}
       {consulta.data !== undefined ? children(consulta.data) : consulta.isError ? null : <BloqueCargando filas={filasCargando} />}
+    </>
+  );
+}
+
+/** Un bloque del Resumen a la vista: tarjeta con su título y SU estado (`aria-busy` mientras carga). */
+export function BloqueResumen<T>({ id, titulo, consulta, filasCargando, children }: BloqueResumenProps<T>) {
+  return (
+    <TarjetaResumen id={id} titulo={titulo} ocupada={consulta.data === undefined && !consulta.isError}>
+      <ContenidoDeConsulta consulta={consulta} filasCargando={filasCargando}>
+        {children}
+      </ContenidoDeConsulta>
     </TarjetaResumen>
   );
 }

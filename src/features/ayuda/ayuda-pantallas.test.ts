@@ -6,6 +6,7 @@ import { ACCESO_RESUMEN, ACCESO_VER_VIAJES, ACCION_ANOTAR_GASTO, ACCION_ANOTAR_V
 import { ELEGIR_EL_VIAJE as BOTON_ELEGIR_EL_VIAJE } from '@/features/gastos/sumar-a-viaje-textos';
 import { BOTON_ENTRADA_SUMAR_GASTOS } from '@/features/gastos/sumar-gastos-textos';
 import { REPORTAR_VISIBLE } from '@/features/reportar/reportar-config';
+import { ETIQUETAS_VISTA, TITULO_EN_QUE_GASTASTE, TITULO_GASTO_POR_CAMION } from '@/features/resumen/resumen-pantalla-textos';
 import * as pantallas from './ayuda-pantallas';
 import type { AyudaPantalla } from './ayuda-pantallas';
 
@@ -121,10 +122,11 @@ describe('la ayuda de «Sumar gastos que ya cargué»', () => {
     expect(punto).toMatch(/no se suma/);
   });
 
-  it('dice que sumar cambia la ganancia del viaje y «Por camión» del Resumen, pero NO los totales por fecha', () => {
+  it('dice que sumar cambia la ganancia del viaje y «Gasto por camión» del Resumen, pero NO los totales por fecha', () => {
     const punto = ayuda.puntos.find((p) => p.includes('ganancia'));
     expect(punto).toBeDefined();
-    expect(punto).toContain('«Por camión»');
+    expect(punto).toContain(`«${TITULO_GASTO_POR_CAMION}»`); // el nombre es el de la sección de verdad
+    expect(punto).toContain('«Gasto por camión»');
     expect(punto).toContain('Resumen');
     expect(punto).toMatch(/, pero no los totales por fecha\.$/);
   });
@@ -162,10 +164,11 @@ describe('la ayuda de «Quitar gastos del viaje»', () => {
     expect(texto).toContain(`hasta ${MAX_GASTOS_POR_VEZ} por vez`);
   });
 
-  it('dice que quitar cambia la ganancia del viaje y «Por camión» del Resumen, pero NO los totales por fecha', () => {
+  it('dice que quitar cambia la ganancia del viaje y «Gasto por camión» del Resumen, pero NO los totales por fecha', () => {
     const punto = ayuda.puntos.find((p) => p.includes('ganancia'));
     expect(punto).toBeDefined();
-    expect(punto).toContain('«Por camión»');
+    expect(punto).toContain(`«${TITULO_GASTO_POR_CAMION}»`); // el nombre es el de la sección de verdad
+    expect(punto).toContain('«Gasto por camión»');
     expect(punto).toContain('Resumen');
     expect(punto).toMatch(/, pero no los totales por fecha.$/);
   });
@@ -271,6 +274,31 @@ describe('la ayuda de «Sumar varios a un viaje»', () => {
     const punto = ayuda.puntos.find((p) => p.includes('otro camión'));
     expect(punto).toBe('Los gastos que ya están en un viaje no aparecen aquí. Si uno es de otro camión que el viaje, no se suma: te avisamos cuántos son.');
     expect(texto).not.toContain('te avisamos cuál.');
+  });
+});
+
+describe('la ayuda del Resumen: el orden de la pantalla y lo plegado', () => {
+  const ayuda = pantallas.AYUDA_RESUMEN;
+
+  it('tiene su título y como máximo 5 puntos cortos', () => {
+    expect(ayuda.titulo).toBe('Ayuda del Resumen');
+    expect(ayuda.puntos.length).toBeLessThanOrEqual(5);
+    for (const punto of ayuda.puntos) expect(punto.length, punto).toBeLessThanOrEqual(100);
+  });
+
+  it('cuenta el orden de la pantalla: primero cuánto te quedó, debajo «En qué gastaste», y lo demás tocando su título', () => {
+    expect(ayuda.puntos.slice(0, 3)).toEqual([
+      'Primero ves cuánto te quedó: lo que cobraste por los viajes menos lo que gastaste.',
+      'Debajo, en «En qué gastaste», ves tus gastos separados por categoría.',
+      'Lo demás se abre tocando su título: cómo pagaste, cuánto rinde tu camión y más.',
+    ]);
+    expect(ayuda.puntos[1]).toContain(`«${TITULO_EN_QUE_GASTASTE}»`);
+  });
+
+  it('sigue diciendo cómo cambiar de Mes a Año y de dónde salen los números', () => {
+    const texto = ayuda.puntos.join(' ');
+    expect(texto).toContain(`Cambia entre ${ETIQUETAS_VISTA.mes} y ${ETIQUETAS_VISTA.anio}`);
+    expect(texto).toContain('Los números salen de los viajes y gastos que anotaste');
   });
 });
 

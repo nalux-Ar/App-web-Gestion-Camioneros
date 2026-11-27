@@ -2,12 +2,12 @@ import { Link } from 'react-router';
 
 import { todayLocal } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import { BarraDecorativa, BloqueResumen, EstadoDeCarga, type ConsultaDeBloque } from './resumen-bloque';
+import { BarraDecorativa, BloqueCargando, BloqueResumen, EstadoDeCarga, type ConsultaDeBloque } from './resumen-bloque';
 import { CombustibleDelPeriodo } from './resumen-combustible';
 import { gastoPorMes, mesesYaTranscurridos, promedioPorMes, totalesDelAnio, type GastoDeUnMes } from './resumen-calculos';
 import { mesDeFecha, mesesTranscurridos } from './resumen-fechas';
 import { filtroEnVista, resumenFiltroToSearch } from './resumen-filtros';
-import { DesglosesDelGasto } from './resumen-gastos';
+import { BarrasPorCategoria, DesglosesPlegados } from './resumen-gastos';
 import {
   ETIQUETA_KM,
   ETIQUETA_PROMEDIO_POR_MES,
@@ -21,6 +21,7 @@ import {
   SIN_INGRESOS_CARGADOS,
   SIN_VIAJES,
   TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO,
+  TEXTO_MESES_SIN_CARGAR,
   TEXTO_VIAJES_EN_EL_ANIO,
   textoCantidadGastos,
   textoCantidadViajes,
@@ -30,12 +31,14 @@ import {
   textoSinCombustibleDelAnio,
   textoSinGastosDelAnio,
   textoSinResultado,
+  TITULO_EN_QUE_GASTASTE,
   TITULO_GASTO_POR_MES,
-  TITULO_GASTOS_DEL_ANIO,
+  TITULO_MES_POR_MES,
   TITULO_RESULTADO,
   TITULO_RESULTADO_POR_MES,
 } from './resumen-pantalla-textos';
-import type { MontoYCantidad, ResumenDelMes, ResumenGastos } from './resumen-parse';
+import type { ResumenDelMes, ResumenGastos } from './resumen-parse';
+import { PlegadoResumen } from './resumen-plegado';
 import { ContenidoDelResultado } from './resumen-resultado';
 import { useResumenDelAnio } from './use-resumen';
 
@@ -45,7 +48,7 @@ import { useResumenDelAnio } from './use-resumen';
  * con las consultas de ESE año (`key` en la pantalla).
  *
  * No hay lista de viajes: la base la limita a 62 días (un año no entra). Se ven mes a mes desde la vista Mes, y cada mes
- * de las listas "Gasto por mes" y "Resultado por mes" lleva a su Mes.
+ * de las listas "Gasto por mes" y "Resultado por mes" (dentro de "Mes por mes") lleva a su Mes.
  */
 export function ResumenDelAnio({ anio }: { anio: number }) {
   // "Hoy" una sola vez: decide si el año está en curso y cuántos meses ya empezaron (12 en un año pasado; en el año en
@@ -54,17 +57,44 @@ export function ResumenDelAnio({ anio }: { anio: number }) {
   const enCurso = mesDeFecha(hoy)?.year === anio;
   const meses = mesesTranscurridos(anio, hoy);
   const resumen = useResumenDelAnio(anio);
-  const gastos = resumen.gastos.data;
 
   return (
     <>
       <EstadoDeCarga consultas={[resumen.gastos, resumen.mensual, resumen.combustible]} periodo={String(anio)} />
+      <ResultadoDelAnio mensual={resumen.mensual} />
       <GastosDelAnio anio={anio} enCurso={enCurso} meses={meses} gastos={resumen.gastos} />
-      <GastoPorMes anio={anio} enCurso={enCurso} meses={meses} mensual={resumen.mensual} />
-      {gastos !== undefined && gastos.total.cantidad > 0 ? <DesglosesDelGasto datos={gastos} /> : null}
-      <ResultadoDelAnio anio={anio} meses={meses} mensual={resumen.mensual} />
+      <MesPorMes anio={anio} enCurso={enCurso} meses={meses} mensual={resumen.mensual} />
+      <DesglosesPlegados gastos={resumen.gastos} />
       <CombustibleDelPeriodo vacio={textoSinCombustibleDelAnio(anio, enCurso)} combustible={resumen.combustible} />
     </>
+  );
+}
+
+/**
+ * La primera tarjeta del Año: lo que cobraste, lo que gastaste y cuánto te quedó, SUMANDO los 12 meses de
+ * `resumen_mensual` (`totalesDelAnio`), con las mismas reglas que el Mes (`ContenidoDelResultado`).
+ */
+function ResultadoDelAnio({ mensual }: { mensual: ConsultaDeBloque<ResumenDelMes[]> }) {
+  return (
+    <BloqueResumen id="resumen-resultado" titulo={TITULO_RESULTADO} consulta={mensual} filasCargando={3}>
+      {(filas) => {
+        const totales = totalesDelAnio(filas);
+        return (
+          <ContenidoDelResultado
+            datos={{
+              resultado: totales.resultado,
+              viajesCantidad: totales.viajesCantidad,
+              viajesConIngreso: totales.viajesConIngreso,
+              viajesSinIngreso: totales.viajesSinIngreso,
+              viajesIngreso: totales.ingresos,
+              gastosMonto: totales.gastos,
+            }}
+            comoSeCalcula={TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO}
+            sinResultado={textoSinResultado(totales.viajesCantidad, 'año')}
+          />
+        );
+      }}
+    </BloqueResumen>
   );
 }
 
@@ -76,15 +106,22 @@ interface GastosDelAnioProps {
   gastos: ConsultaDeBloque<ResumenGastos>;
 }
 
-/** El gasto del año: total (monto y cantidad) y el promedio por mes. Sin comparación con el año anterior. */
+/**
+ * "En qué gastaste" del año: cuántos gastos, las barras por categoría y el promedio por mes. Sin comparación con el año
+ * anterior, y sin el total (es el "Gastaste" de la primera tarjeta).
+ */
 function GastosDelAnio({ anio, enCurso, meses, gastos }: GastosDelAnioProps) {
   return (
-    <BloqueResumen id="resumen-gastos" titulo={TITULO_GASTOS_DEL_ANIO} consulta={gastos}>
+    <BloqueResumen id="resumen-gastos" titulo={TITULO_EN_QUE_GASTASTE} consulta={gastos}>
       {(datos) =>
         datos.total.cantidad === 0 ? (
           <p className="text-muted-foreground">{textoSinGastosDelAnio(anio, enCurso)}</p>
         ) : (
-          <TotalYPromedio total={datos.total} meses={meses} enCurso={enCurso} />
+          <>
+            <p className="text-base text-muted-foreground">{textoCantidadGastos(datos.total.cantidad)}</p>
+            <BarrasPorCategoria datos={datos} />
+            <PromedioPorMes monto={datos.total.monto} meses={meses} enCurso={enCurso} />
+          </>
         )
       }
     </BloqueResumen>
@@ -92,31 +129,24 @@ function GastosDelAnio({ anio, enCurso, meses, gastos }: GastosDelAnioProps) {
 }
 
 /**
- * El total y el promedio por mes = total / meses transcurridos (ver `mesesTranscurridos`): en el año en curso se divide
- * por los meses que ya empezaron, no por 12 (los que faltan todavía no tienen gastos). El texto dice sobre cuántos meses.
+ * El promedio por mes = total / meses transcurridos (ver `mesesTranscurridos`): en el año en curso se divide por los
+ * meses que ya empezaron, no por 12 (los que faltan todavía no tienen gastos). El texto dice sobre cuántos meses.
  */
-function TotalYPromedio({ total, meses, enCurso }: { total: MontoYCantidad; meses: number; enCurso: boolean }) {
-  const promedio = promedioPorMes(total.monto, meses);
+function PromedioPorMes({ monto, meses, enCurso }: { monto: number; meses: number; enCurso: boolean }) {
+  const promedio = promedioPorMes(monto, meses);
+  if (promedio === null) return null;
   return (
-    <>
-      <div>
-        <p className="text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(total.monto)}</p>
-        <p className="text-base text-muted-foreground">{textoCantidadGastos(total.cantidad)}</p>
+    <dl className="border-t border-border pt-3">
+      <div data-promedio="">
+        <dt className="text-base text-muted-foreground">{ETIQUETA_PROMEDIO_POR_MES}</dt>
+        <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(promedio)}</dd>
+        <dd className="text-base text-muted-foreground">{textoPromedioDeMeses(meses, enCurso)}</dd>
       </div>
-      {promedio !== null ? (
-        <dl>
-          <div data-promedio="">
-            <dt className="text-base text-muted-foreground">{ETIQUETA_PROMEDIO_POR_MES}</dt>
-            <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(promedio)}</dd>
-            <dd className="text-base text-muted-foreground">{textoPromedioDeMeses(meses, enCurso)}</dd>
-          </div>
-        </dl>
-      ) : null}
-    </>
+    </dl>
   );
 }
 
-interface GastoPorMesProps {
+interface MesPorMesProps {
   anio: number;
   enCurso: boolean;
   meses: number;
@@ -124,24 +154,77 @@ interface GastoPorMesProps {
 }
 
 /**
- * Una barra por mes transcurrido (los futuros vienen en 0 y no aportan), con el ancho RELATIVO AL MES DE MAYOR GASTO y el
- * monto y la cantidad en texto. Cada fila lleva al Mes de ese mes. Sale de `resumen_mensual` (su propia consulta).
+ * "Mes por mes", plegado: los viajes y km del año, el gasto y el resultado de cada mes transcurrido y el paso a la vista
+ * Mes (acá no hay lista de viajes). Usa la MISMA serie que la primera tarjeta, así que no se abre solo ni repite el aviso
+ * de error: si no cargó, adentro dice dónde está.
  */
-function GastoPorMes({ anio, enCurso, meses, mensual }: GastoPorMesProps) {
+function MesPorMes({ anio, enCurso, meses, mensual }: MesPorMesProps) {
+  const filas = mensual.data;
   return (
-    <BloqueResumen id="resumen-gasto-por-mes" titulo={TITULO_GASTO_POR_MES} consulta={mensual} filasCargando={4}>
-      {(filas) => {
-        const lista = gastoPorMes(filas, meses);
-        if (lista.every((mes) => mes.monto === 0)) return <p className="text-muted-foreground">{textoSinGastosDelAnio(anio, enCurso)}</p>;
-        return (
-          <ul className="space-y-2">
-            {lista.map((mes) => (
-              <FilaDeGastoDelMes key={mes.mes} gasto={mes} />
-            ))}
-          </ul>
-        );
-      }}
-    </BloqueResumen>
+    <PlegadoResumen id="resumen-mes-por-mes" titulo={TITULO_MES_POR_MES} ocupada={filas === undefined && !mensual.isError}>
+      {filas !== undefined ? (
+        <DetalleMesPorMes anio={anio} enCurso={enCurso} meses={meses} filas={filas} />
+      ) : mensual.isError ? (
+        <p className="text-base text-muted-foreground">{TEXTO_MESES_SIN_CARGAR}</p>
+      ) : (
+        <BloqueCargando filas={4} />
+      )}
+    </PlegadoResumen>
+  );
+}
+
+function DetalleMesPorMes({ anio, enCurso, meses, filas }: Omit<MesPorMesProps, 'mensual'> & { filas: readonly ResumenDelMes[] }) {
+  const totales = totalesDelAnio(filas);
+  return (
+    <>
+      <dl className="grid grid-cols-2 gap-3">
+        <div>
+          <dt className="text-base text-muted-foreground">{ETIQUETA_VIAJES}</dt>
+          <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{textoCantidadViajes(totales.viajesCantidad)}</dd>
+        </div>
+        <div>
+          <dt className="text-base text-muted-foreground">{ETIQUETA_KM}</dt>
+          <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{textoKm(totales.viajesKm)}</dd>
+        </div>
+      </dl>
+      <GastoPorMes anio={anio} enCurso={enCurso} meses={meses} filas={filas} />
+      {/* Sin ningún viaje en el año, ya se dice arriba: una lista de meses vacíos sería solo ruido. */}
+      {totales.viajesCantidad > 0 ? <ResultadoPorMes filas={mesesYaTranscurridos(filas, meses)} /> : null}
+      <p data-viajes-por-mes="" className="text-base text-muted-foreground">
+        {TEXTO_VIAJES_EN_EL_ANIO}{' '}
+        <Link
+          to={`/resumen${resumenFiltroToSearch(filtroEnVista({ vista: 'anio', anio }, 'mes'))}`}
+          replace
+          className="-mx-1 inline-flex min-h-11 items-center rounded-md px-1 font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {IR_A_LA_VISTA_MES}
+        </Link>
+      </p>
+    </>
+  );
+}
+
+/**
+ * Una barra por mes transcurrido (los futuros vienen en 0 y no aportan), con el ancho RELATIVO AL MES DE MAYOR GASTO y el
+ * monto y la cantidad en texto. Cada fila lleva al Mes de ese mes.
+ */
+function GastoPorMes({ anio, enCurso, meses, filas }: Omit<MesPorMesProps, 'mensual'> & { filas: readonly ResumenDelMes[] }) {
+  const lista = gastoPorMes(filas, meses);
+  return (
+    <div id="resumen-gasto-por-mes" className="space-y-2">
+      <h3 id="resumen-gasto-por-mes-titulo" className="font-semibold">
+        {TITULO_GASTO_POR_MES}
+      </h3>
+      {lista.every((mes) => mes.monto === 0) ? (
+        <p className="text-muted-foreground">{textoSinGastosDelAnio(anio, enCurso)}</p>
+      ) : (
+        <ul aria-labelledby="resumen-gasto-por-mes-titulo" className="space-y-2">
+          {lista.map((mes) => (
+            <FilaDeGastoDelMes key={mes.mes} gasto={mes} />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -171,60 +254,6 @@ function FilaDeGastoDelMes({ gasto }: { gasto: GastoDeUnMes }) {
         ) : null}
       </Link>
     </li>
-  );
-}
-
-interface ResultadoDelAnioProps {
-  anio: number;
-  meses: number;
-  mensual: ConsultaDeBloque<ResumenDelMes[]>;
-}
-
-/**
- * Ingresos y resultado del año, SUMANDO los 12 meses de `resumen_mensual` (`totalesDelAnio`), con las mismas reglas que el
- * Mes (`ContenidoDelResultado`) más los viajes y los km del año. Debajo, el resultado de cada mes transcurrido. No hay lista
- * de viajes: se explica y se lleva a la vista Mes.
- */
-function ResultadoDelAnio({ anio, meses, mensual }: ResultadoDelAnioProps) {
-  return (
-    <BloqueResumen id="resumen-resultado" titulo={TITULO_RESULTADO} consulta={mensual} filasCargando={3}>
-      {(filas) => {
-        const totales = totalesDelAnio(filas);
-        return (
-          <>
-            <ContenidoDelResultado
-              datos={{
-                resultado: totales.resultado,
-                viajesCantidad: totales.viajesCantidad,
-                viajesConIngreso: totales.viajesConIngreso,
-                viajesSinIngreso: totales.viajesSinIngreso,
-                viajesIngreso: totales.ingresos,
-                gastosMonto: totales.gastos,
-              }}
-              etiquetaGastos={TITULO_GASTOS_DEL_ANIO}
-              comoSeCalcula={TEXTO_COMO_SE_CALCULA_RESULTADO_ANIO}
-              sinResultado={textoSinResultado(totales.viajesCantidad, 'año')}
-              extras={[
-                { etiqueta: ETIQUETA_VIAJES, valor: textoCantidadViajes(totales.viajesCantidad) },
-                { etiqueta: ETIQUETA_KM, valor: textoKm(totales.viajesKm) },
-              ]}
-            />
-            <p data-viajes-por-mes="" className="text-base text-muted-foreground">
-              {TEXTO_VIAJES_EN_EL_ANIO}{' '}
-              <Link
-                to={`/resumen${resumenFiltroToSearch(filtroEnVista({ vista: 'anio', anio }, 'mes'))}`}
-                replace
-                className="-mx-1 inline-flex min-h-11 items-center rounded-md px-1 font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {IR_A_LA_VISTA_MES}
-              </Link>
-            </p>
-            {/* Sin ningún viaje en el año, el bloque ya lo dice: una lista de meses vacíos sería solo ruido. */}
-            {totales.viajesCantidad > 0 ? <ResultadoPorMes filas={mesesYaTranscurridos(filas, meses)} /> : null}
-          </>
-        );
-      }}
-    </BloqueResumen>
   );
 }
 

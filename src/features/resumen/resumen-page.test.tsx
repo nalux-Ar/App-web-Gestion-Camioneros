@@ -281,6 +281,28 @@ const barras = (id: string) =>
 const anchos = (id: string) =>
   [...(byId(id)?.querySelectorAll<HTMLElement>('li[data-fila] [aria-hidden="true"] > div') ?? [])].map((barra) => barra.style.width);
 const comparacion = () => plano(document.querySelector('#resumen-gastos [data-comparacion]')?.textContent);
+/**
+ * "En qué gastaste" de `GASTOS_OCT` ya cargado: la cantidad y las tres categorías con su monto. El total NO se repite en
+ * esa tarjeta (es el "Gastaste" de la primera): por eso se mira que cada pieza esté y que "$ 10.000" no.
+ */
+function gastosDelMesALaVista() {
+  expect(textoDe('resumen-gastos')).toContain('8 gastos');
+  expect(barras('resumen-por-categoria').map((f) => [f[0], f[1]])).toEqual([
+    ['Combustible', '$ 7.000'],
+    ['Peajes', '$ 2.000'],
+    ['Comida', '$ 1.000'],
+  ]);
+  expect(textoDe('resumen-gastos')).not.toContain('$ 10.000');
+}
+/** El título de cada sección tal como se lee: el elemento que la nombra (`aria-labelledby`), que va dentro de su h2. */
+function nombreDeSeccion(id: string) {
+  const seccion = byId(id)!;
+  expect(seccion.tagName, id).toBe('SECTION');
+  const nombre = byId(seccion.getAttribute('aria-labelledby')!)!;
+  expect(nombre.closest('h2'), id).not.toBeNull();
+  expect(nombre.closest('section'), id).toBe(seccion);
+  return nombre.textContent;
+}
 /** Cuántas veces se pidió `resumen_gastos` desde ese día (el mes mirado o el período de comparación). */
 const pedidosDeGastos = (desde: string) => rpcs('resumen_gastos').filter((c) => argsDe(c).p_desde === desde).length;
 const botonEn = (id: string, texto: string) =>
@@ -420,10 +442,10 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     route.gastos = (call) => (argsDe(call).p_desde === MES_DESDE ? ok(GASTOS_OCT) : resp());
   }
 
-  it('el total (monto y cantidad) y la comparación con los mismos días del mes anterior (mes en curso)', async () => {
+  it('la cantidad, las categorías y la comparación con los mismos días del mes anterior (mes en curso); el total está arriba, en "Gastaste"', async () => {
     await mount();
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
-    expect(textoDe('resumen-gastos')).toContain('8 gastos');
+    gastosDelMesALaVista();
+    expect(plano(byId('resumen-resultado')!.querySelectorAll('dl > div')[1]!.textContent)).toBe('Gastaste$ 10.000');
     expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. los mismos días de septiembre ($ 8.000)');
     // Del 1 al 14 de septiembre (hoy es 14 de octubre).
     expect(rpcs('resumen_gastos').map(argsDe)).toContainEqual({ p_desde: '2026-09-01', p_hasta: '2026-09-14' });
@@ -478,7 +500,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
   it('el mes sin gastos (en curso): "Todavía no anotaste gastos este mes", sin comparación ni desgloses', async () => {
     route.gastos = () => ok([total(0, 0)]);
     await mount();
-    expect(textoDe('resumen-gastos')).toBe('Gastos del mesTodavía no anotaste gastos este mes');
+    expect(textoDe('resumen-gastos')).toBe('En qué gastasteTodavía no anotaste gastos este mes');
     expect(document.querySelector('[data-comparacion]')).toBeNull();
     expect(byId('resumen-por-categoria')).toBeNull();
     expect(byId('resumen-por-metodo')).toBeNull();
@@ -500,10 +522,10 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     expect(byId('resumen-por-categoria')).toBeNull();
   });
 
-  it('la comparación cargando: el total ya se ve, y la comparación tiene SU línea gris', async () => {
+  it('la comparación cargando: las categorías ya se ven, y la comparación tiene SU línea gris', async () => {
     comparacionDa(() => new Promise<Resp>(() => {}));
     await mount();
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
     expect(byId('resumen-gastos')!.getAttribute('aria-busy')).toBe('false');
     expect(document.querySelector('[data-comparacion] [data-cargando]')).not.toBeNull();
     expect(byId('resumen-por-categoria')).not.toBeNull();
@@ -530,7 +552,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     expect(pedidosDeGastos('2026-09-01')).toBe(deComparacion);
     expect(rpcs('resumen_mensual')).toHaveLength(mensuales);
     expect(byId('resumen-gastos')!.querySelector('[role="alert"]')).toBeNull();
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
     expect(byId('resumen-por-categoria')).not.toBeNull();
   });
 
@@ -554,14 +576,17 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     await mount();
     expect(textoDe('resumen-gastos')).toContain(RESUMEN_ERROR_INESPERADO);
     expect(botonEn('resumen-gastos', 'Reintentar')).toBeDefined();
-    expect(textoDe('resumen-gastos')).not.toContain('$ 10.000');
+    // Nada a medias: ni la cantidad ni las barras (de "En qué gastaste" ni de los plegados que salen de la misma respuesta).
+    expect(textoDe('resumen-gastos')).not.toContain('8 gastos');
+    expect(document.querySelectorAll('li[data-fila]')).toHaveLength(0);
+    expect(byId('resumen-por-metodo')).toBeNull();
   });
 
-  it('falla SOLO la comparación: el total y los desgloses se ven; la comparación tiene su error y su "Reintentar"', async () => {
+  it('falla SOLO la comparación: las categorías y los desgloses se ven; la comparación tiene su error y su "Reintentar"', async () => {
     let falla = true;
     comparacionDa(() => (falla ? sinRed() : ok([total(8000, 6)])));
     await mount();
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
     expect(byId('resumen-por-categoria')).not.toBeNull();
     const aviso = document.querySelector('[data-comparacion] [role="alert"]')!;
     expect(plano(aviso.textContent)).toContain(`No pudimos comparar con los mismos días de septiembre. ${NETWORK_ERROR_MESSAGE}`);
@@ -584,7 +609,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     await act(async () => onlineManager.setOnline(true));
     await settle();
     expect(bodyText()).not.toContain(RESUMEN_SIN_CONEXION);
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
   });
 
   /** El `role="status"` de la pantalla (el único que hay). */
@@ -623,7 +648,7 @@ describe('pantalla Resumen: gastos del mes y comparación', () => {
     for (const id of ['resumen-gastos', 'resumen-resultado', 'resumen-combustible', 'resumen-viajes']) {
       expect(byId(id)!.getAttribute('aria-busy'), id).toBe('false');
     }
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
     expect(document.querySelector('[data-comparacion] [data-cargando]')).not.toBeNull();
     expect(plano(estadoDeLaPantalla().textContent)).toBe(RESUMEN_SIN_CONEXION);
     expect(estadoDeLaPantalla().className).not.toContain('sr-only');
@@ -741,15 +766,20 @@ describe('pantalla Resumen: desgloses con barras', () => {
     expect(byId('resumen-por-camion')).toBeNull();
   });
 
-  it('títulos en orden: un h1 y un h2 por bloque (cada sección se nombra con su h2)', async () => {
+  it('títulos en orden: un h1 y un h2 por bloque (cada sección se nombra con el título de su h2)', async () => {
     await mount();
     expect(document.querySelectorAll('h1')).toHaveLength(1);
-    expect(h2s().slice(0, 4)).toEqual(['Gastos del mes', 'Por categoría', 'Por método de pago', 'Por camión']);
-    for (const id of ['resumen-gastos', 'resumen-por-categoria', 'resumen-por-metodo', 'resumen-por-camion']) {
-      const seccion = byId(id)!;
-      expect(seccion.tagName).toBe('SECTION');
-      expect(byId(seccion.getAttribute('aria-labelledby')!)!.tagName).toBe('H2');
-    }
+    expect(h2s().slice(0, 4)).toEqual(['¿Cuánto te quedó?', 'En qué gastaste', 'Cómo pagaste', 'Gasto por camión']);
+    expect(['resumen-resultado', 'resumen-gastos', 'resumen-por-metodo', 'resumen-por-camion'].map(nombreDeSeccion)).toEqual([
+      '¿Cuánto te quedó?',
+      'En qué gastaste',
+      'Cómo pagaste',
+      'Gasto por camión',
+    ]);
+    // Las barras por categoría van DENTRO de "En qué gastaste", sin sección ni título propios.
+    const categorias = byId('resumen-por-categoria')!;
+    expect(categorias.closest('section')).toBe(byId('resumen-gastos'));
+    expect(categorias.querySelector('h2')).toBeNull();
   });
 });
 
@@ -763,29 +793,32 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     route.mensual = (call) => ok([mesFila(String(argsDe(call).p_mes_desde), over)]);
   };
 
-  it('ganancia: "Ganancia" con el monto, los ingresos y los gastos del mes, y qué es el resultado', async () => {
+  it('ganancia: "Te quedó" con el monto, lo cobrado y lo gastado del mes, y qué es el resultado', async () => {
     await mount();
-    expect(resultado()).toBe('Ganancia$ 15.000');
-    expect(datos()).toEqual(['Lo que cobraste$ 25.0003 viajes con cobro anotado', 'Gastos del mes$ 10.000']);
+    expect(resultado()).toBe('Te quedó$ 15.000');
+    expect(datos()).toEqual(['Cobraste$ 25.0003 viajes con cobro anotado', 'Gastaste$ 10.000']);
+    expect(textoDe('resumen-resultado')).not.toMatch(/Ganancia|Pérdida|Perdiste/);
     expect(textoDe('resumen-resultado')).toContain('lo que cobraste por los viajes del mes menos todos los gastos del mes');
     expect(textoDe('resumen-resultado')).not.toContain('incompleto');
     expect(byId('resumen-resultado')!.querySelector('.text-destructive-text')).toBeNull();
   });
 
-  it('pérdida: se dice "Pérdida" con la palabra, el monto lleva "−" delante y va en el color de error (tres señales)', async () => {
+  it('pérdida: se dice "Perdiste" con la palabra, el monto lleva "−" delante y va en el color de error (tres señales)', async () => {
     mensualCon({ viajes_ingreso: 7000, resultado: -3000 });
     await mount();
     // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
-    expect(resultado()).toBe('Pérdida-$ 3.000');
-    expect(textoDe('resumen-resultado')).not.toContain('Ganancia');
+    expect(resultado()).toBe('Perdiste-$ 3.000');
+    expect(textoDe('resumen-resultado')).not.toMatch(/Te quedó|Ganancia|Pérdida/);
     // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
     expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u2212$\u00a03.000');
   });
 
-  it('resultado 0: "Resultado", ni ganancia ni pérdida', async () => {
+  it('resultado 0: "Te quedó $ 0" (no se perdió nada), sin signo ni color de error', async () => {
     mensualCon({ viajes_ingreso: 10000, resultado: 0 });
     await mount();
-    expect(resultado()).toBe('Resultado$ 0');
+    expect(resultado()).toBe('Te quedó$ 0');
+    expect(textoDe('resumen-resultado')).not.toMatch(/Perdiste|Resultado\$/);
+    expect(byId('resumen-resultado')!.querySelector('.text-destructive-text')).toBeNull();
   });
 
   it('resultado null (ningún viaje con cobro anotado): NO hay resultado; invita a anotar lo que cobraste, con enlace a los viajes del mes', async () => {
@@ -793,13 +826,13 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     await mount();
     expect(byId('resumen-resultado')!.querySelector('[data-resultado]')).toBeNull();
     const texto = textoDe('resumen-resultado');
-    expect(texto).toContain('Ninguno de tus 3 viajes del mes tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
-    expect(texto).not.toMatch(/Ganancia|Pérdida|Resultado/);
+    expect(texto).toContain('Ninguno de tus 3 viajes del mes tiene anotado lo que cobraste. Anótalo para saber cuánto te quedó en el mes.');
+    expect(texto).not.toMatch(/Te quedó|Perdiste|Ganancia|Pérdida|Resultado/);
     expect(texto).not.toContain('El resultado es lo que cobraste'); // la explicación de cómo se calcula no va sin resultado
     const enlace = byId('resumen-resultado')!.querySelector<HTMLAnchorElement>('a')!;
     expect(enlace.textContent).toBe('Ver los viajes del mes');
     expect(enlace.getAttribute('href')).toBe('/viajes');
-    expect(datos()).toEqual(['Lo que cobraste$ 00 de 3 viajes con cobro anotado', 'Gastos del mes$ 10.000']);
+    expect(datos()).toEqual(['Cobraste$ 00 de 3 viajes con cobro anotado', 'Gastaste$ 10.000']);
   });
 
   it('resultado null con un solo viaje y sin viajes: el texto que corresponde', async () => {
@@ -811,8 +844,8 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     queryClient.clear();
     mensualCon({ viajes_cantidad: 0, viajes_km: 0, viajes_con_ingreso: 0, viajes_sin_ingreso: 0, viajes_ingreso: 0, resultado: null });
     await mount();
-    expect(textoDe('resumen-resultado')).toContain('No hay viajes en el mes. Anota tus viajes con lo que cobraste para ver si el mes dio ganancia o pérdida.');
-    expect(datos()[0]).toBe('Lo que cobraste$ 0');
+    expect(textoDe('resumen-resultado')).toContain('No hay viajes en el mes. Anota tus viajes con lo que cobraste para saber cuánto te quedó en el mes.');
+    expect(datos()).toEqual(['Cobraste$ 0', 'Gastaste$ 10.000']);
   });
 
   it('en un mes cerrado, el enlace lleva a los viajes de ESE mes', async () => {
@@ -825,14 +858,14 @@ describe('pantalla Resumen: ingresos y resultado', () => {
   it('con viajes sin ingreso, el resultado se muestra CON el aviso de que puede estar incompleto', async () => {
     mensualCon({ viajes_con_ingreso: 1, viajes_sin_ingreso: 2, viajes_ingreso: 12000, resultado: 2000 });
     await mount();
-    expect(resultado()).toBe('Ganancia$ 2.0002 viajes sin cobro anotado: el resultado puede estar incompleto.');
-    expect(datos()[0]).toBe('Lo que cobraste$ 12.0001 de 3 viajes con cobro anotado');
+    expect(resultado()).toBe('Te quedó$ 2.0002 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    expect(datos()[0]).toBe('Cobraste$ 12.0001 de 3 viajes con cobro anotado');
     await act(async () => root.unmount());
     container.remove();
     queryClient.clear();
     mensualCon({ viajes_con_ingreso: 2, viajes_sin_ingreso: 1, viajes_ingreso: 8000, resultado: -2000 });
     await mount();
-    expect(resultado()).toBe('Pérdida-$ 2.0001 viaje sin cobro anotado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Perdiste-$ 2.0001 viaje sin cobro anotado: el resultado puede estar incompleto.');
   });
 
   it('pide la fila de ESE mes (un mes) y la valida: un mes que no es el pedido es un error, con "Reintentar"', async () => {
@@ -849,7 +882,7 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     await mount();
     expect(byId('resumen-resultado')!.getAttribute('aria-busy')).toBe('true');
     expect(byId('resumen-resultado')!.querySelector('[data-cargando]')).not.toBeNull();
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
   });
 
   it('si falla, su "Reintentar" pide SOLO el resultado; los gastos se siguen viendo', async () => {
@@ -857,21 +890,21 @@ describe('pantalla Resumen: ingresos y resultado', () => {
     route.mensual = (call) => (falla ? sinRed() : ok([mesFila(String(argsDe(call).p_mes_desde))]));
     await mount();
     expect(textoDe('resumen-resultado')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
     const gastos = rpcs('resumen_gastos').length;
     const mensuales = rpcs('resumen_mensual').length;
     falla = false;
     await click(botonEn('resumen-resultado', 'Reintentar'));
     expect(rpcs('resumen_mensual')).toHaveLength(mensuales + 1);
     expect(rpcs('resumen_gastos')).toHaveLength(gastos);
-    expect(resultado()).toBe('Ganancia$ 15.000');
+    expect(resultado()).toBe('Te quedó$ 15.000');
   });
 
   it('si fallan los gastos, el resultado se sigue viendo (cada bloque con su consulta)', async () => {
     route.gastos = () => sinRed();
     await mount();
     expect(textoDe('resumen-gastos')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(resultado()).toBe('Ganancia$ 15.000');
+    expect(resultado()).toBe('Te quedó$ 15.000');
   });
 });
 
@@ -1010,7 +1043,7 @@ describe('pantalla Resumen: combustible por camión', () => {
     estado = 'falla';
     await mount();
     expect(textoDe('resumen-combustible')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
     expect(textoDe('resumen-resultado')).toContain('$ 15.000');
     const pedidos = rpcs('resumen_combustible').length;
     const otros = h.calls.length - pedidos;
@@ -1107,7 +1140,7 @@ describe('pantalla Resumen: viajes del mes', () => {
   it('sin viajes: lo dice (en curso y cerrado)', async () => {
     route.viajes = () => ok([]);
     await mount();
-    expect(textoDe('resumen-viajes')).toBe('Viajes del mesTodavía no hay viajes este mes');
+    expect(textoDe('resumen-viajes')).toBe('Viajes del mes (0)Todavía no hay viajes este mes');
     await act(async () => root.unmount());
     container.remove();
     MES_DESDE = '2026-08-01';
@@ -1136,7 +1169,7 @@ describe('pantalla Resumen: viajes del mes', () => {
     route.viajes = () => (estado === 'cargando' ? new Promise(() => {}) : estado === 'falla' ? sinRed() : ok([viajeFila({ total_viajes: 1 })]));
     await mount();
     expect(byId('resumen-viajes')!.getAttribute('aria-busy')).toBe('true');
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    gastosDelMesALaVista();
     await act(async () => root.unmount());
     container.remove();
     queryClient.clear();
@@ -1167,7 +1200,16 @@ describe('pantalla Resumen: viajes del mes', () => {
 describe('pantalla Resumen: todos los bloques', () => {
   it('el orden de los bloques y la jerarquía de títulos (h1 → h2 → h3)', async () => {
     await mount();
-    expect(h2s()).toEqual(['Gastos del mes', 'Por categoría', 'Por método de pago', 'Por camión', '¿Cuánto te quedó?', 'Combustible por camión', 'Viajes del mes']);
+    expect(h2s()).toEqual(['¿Cuánto te quedó?', 'En qué gastaste', 'Cómo pagaste', 'Gasto por camión', 'Combustible por camión', 'Viajes del mes (2)']);
+    // El orden en el documento es el de los títulos.
+    expect([...container.querySelectorAll('section')].map((s) => s.id)).toEqual([
+      'resumen-resultado',
+      'resumen-gastos',
+      'resumen-por-metodo',
+      'resumen-por-camion',
+      'resumen-combustible',
+      'resumen-viajes',
+    ]);
     const titulos = [...document.querySelectorAll('h1, h2, h3')].map((t) => t.tagName);
     expect(titulos[0]).toBe('H1');
     // Ningún salto de nivel: después de un h1 viene un h2, y un h3 solo después de un h2 o de otro h3.
@@ -1255,7 +1297,7 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
   const detalle = () => byId('resumen-por-categoria')!.querySelector('[data-gastos-varios]');
   const filasDelDetalle = () => [...(detalle()?.querySelectorAll('[data-gasto-vario]') ?? [])].map((li) => plano(li.textContent));
   const estadoSr = () => document.querySelector('[role="status"]')!.textContent;
-  const resultadoOk = () => plano(byId('resumen-resultado')?.querySelector('[data-resultado]')?.textContent) === 'Ganancia$ 15.000';
+  const resultadoOk = () => plano(byId('resumen-resultado')?.querySelector('[data-resultado]')?.textContent) === 'Te quedó$ 15.000';
 
   it('fecha corta, descripción y monto de cada gasto, DEBAJO de la barra de "Gastos varios" (y no en otra categoría)', async () => {
     conVarios();
@@ -1340,7 +1382,11 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     route.varios = () => new Promise(() => {});
     await mount();
     expect(detalle()!.querySelector('[data-cargando]')).not.toBeNull();
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    expect(textoDe('resumen-gastos')).toContain('8 gastos');
+    expect(barras('resumen-por-categoria').map((f) => [f[0], f[1]])).toEqual([
+      ['Combustible', '$ 7.000'],
+      ['Gastos varios', '$ 3.000'],
+    ]);
     expect(estadoSr()).toBe('');
   });
 
@@ -1349,14 +1395,16 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     route.varios = () => errorBase('PGRST202', 404);
     await mount();
     expect(barras('resumen-por-categoria').map((f) => f[0])).toEqual(['Combustible', 'Gastos varios']);
-    expect(textoDe('resumen-gastos')).toContain('$ 10.000');
+    expect(textoDe('resumen-gastos')).toContain('8 gastos');
+    expect(comparacion()).toBe('$ 2.000 más (+25 %) vs. los mismos días de septiembre ($ 8.000)');
     expect(byId('resumen-por-metodo')).not.toBeNull();
     expect(resultadoOk()).toBe(true);
     const aviso = detalle()!.querySelector('[role="alert"]')!;
     expect(plano(aviso.textContent)).toContain('No pudimos cargar el detalle de Gastos varios.');
     expect(bodyText()).not.toMatch(/PGRST|resumen_gastos_varios|detalle interno/);
     expect(filasDelDetalle()).toEqual([]);
-    expect(byId('resumen-gastos')!.querySelector('[role="alert"]')).toBeNull();
+    // El único aviso de toda la tarjeta es el del detalle (el gasto y la comparación no fallaron).
+    expect([...byId('resumen-gastos')!.querySelectorAll('[role="alert"]')]).toEqual([aviso]);
   });
 
   it('una respuesta fuera de contrato no muestra NADA a medias: solo el aviso; "Reintentar" pide solo el detalle', async () => {
@@ -1375,12 +1423,13 @@ describe('pantalla Resumen: detalle de Gastos varios', () => {
     expect(filasDelDetalle()).toEqual(['12 oct · A$ 100']);
   });
 
-  it('el detalle va DENTRO de "Por categoría": no agrega secciones ni cambia el orden de los h2', async () => {
+  it('el detalle va DENTRO de "En qué gastaste", con las categorías: no agrega secciones ni cambia el orden de los h2', async () => {
     conVarios();
     route.varios = () => ok([gv(G1, '2026-10-12', 'A', 100, {}, 3)]);
     await mount();
-    expect(h2s().slice(0, 3)).toEqual(['Gastos del mes', 'Por categoría', 'Por método de pago']);
+    expect(h2s().slice(0, 3)).toEqual(['¿Cuánto te quedó?', 'En qué gastaste', 'Cómo pagaste']);
     expect(document.querySelectorAll('[data-gastos-varios]')).toHaveLength(1);
+    expect(detalle()!.closest('section')).toBe(byId('resumen-gastos'));
   });
 
   it('"Gastos varios" dentro de "Otras" (fuera de las 5 principales): el detalle va igual, debajo de las barras y con su título', async () => {

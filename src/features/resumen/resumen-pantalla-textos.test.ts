@@ -24,6 +24,19 @@ import {
   formatResultado,
   textoCantidadViajes,
   textoSinResultado,
+  etiquetaDeLoQueQuedo,
+  ETIQUETA_COBRASTE,
+  ETIQUETA_GASTASTE,
+  PLEGADO_NO_SE_PUDO_CARGAR,
+  TEXTO_MESES_SIN_CARGAR,
+  textoTituloViajes,
+  TITULO_COMBUSTIBLE,
+  TITULO_COMO_PAGASTE,
+  TITULO_EN_QUE_GASTASTE,
+  TITULO_GASTO_POR_CAMION,
+  TITULO_GASTO_POR_MES,
+  TITULO_MES_POR_MES,
+  TITULO_RESULTADO,
   textoViajesConIngreso,
   textoViajesSinIngreso,
   formatDecimales,
@@ -166,9 +179,47 @@ describe('textos de la pantalla Resumen: ingresos y resultado', () => {
   });
 
   it('textoSinResultado: sin viajes, uno o varios', () => {
-    expect(textoSinResultado(0)).toBe('No hay viajes en el mes. Anota tus viajes con lo que cobraste para ver si el mes dio ganancia o pérdida.');
-    expect(textoSinResultado(1)).toBe('Tu viaje del mes no tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
-    expect(textoSinResultado(1200)).toBe('Ninguno de tus 1.200 viajes del mes tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
+    expect(textoSinResultado(0)).toBe('No hay viajes en el mes. Anota tus viajes con lo que cobraste para saber cuánto te quedó en el mes.');
+    expect(textoSinResultado(1)).toBe('Tu viaje del mes no tiene anotado lo que cobraste. Anótalo para saber cuánto te quedó en el mes.');
+    expect(textoSinResultado(1200)).toBe('Ninguno de tus 1.200 viajes del mes tiene anotado lo que cobraste. Anótalo para saber cuánto te quedó en el mes.');
+  });
+
+  it('etiquetaDeLoQueQuedo (el resultado grande): "Te quedó" si es positivo o cero; "Perdiste" si es negativo', () => {
+    expect(etiquetaDeLoQueQuedo(15000)).toBe('Te quedó');
+    expect(etiquetaDeLoQueQuedo(0.01)).toBe('Te quedó');
+    expect(etiquetaDeLoQueQuedo(0)).toBe('Te quedó');
+    expect(etiquetaDeLoQueQuedo(-0.01)).toBe('Perdiste');
+    expect(etiquetaDeLoQueQuedo(-15000)).toBe('Perdiste');
+    // Sigue la regla de las tres señales: hay signo menos si y solo si dice "Perdiste".
+    for (const n of [-1500.5, -0.01, 0, 0.01, 1500.5]) {
+      expect(formatResultado(n).startsWith('\u2212'), String(n)).toBe(etiquetaDeLoQueQuedo(n) === 'Perdiste');
+    }
+  });
+
+  it('los rótulos y títulos de la pantalla', () => {
+    expect([TITULO_RESULTADO, ETIQUETA_COBRASTE, ETIQUETA_GASTASTE, TITULO_EN_QUE_GASTASTE]).toEqual([
+      '¿Cuánto te quedó?',
+      'Cobraste',
+      'Gastaste',
+      'En qué gastaste',
+    ]);
+    expect([TITULO_COMO_PAGASTE, TITULO_GASTO_POR_CAMION, TITULO_COMBUSTIBLE, TITULO_MES_POR_MES, TITULO_GASTO_POR_MES]).toEqual([
+      'Cómo pagaste',
+      'Gasto por camión',
+      'Combustible por camión',
+      'Mes por mes',
+      'Gasto por mes',
+    ]);
+    expect(PLEGADO_NO_SE_PUDO_CARGAR).toBe('No se pudo cargar');
+    expect(TEXTO_MESES_SIN_CARGAR).toBe('No pudimos cargar los meses. Mira el aviso en «¿Cuánto te quedó?», arriba.');
+  });
+
+  it('textoTituloViajes: sin número mientras no cargó; con número (también 0 y miles) cuando ya está', () => {
+    expect(textoTituloViajes(undefined)).toBe('Viajes del mes');
+    expect(textoTituloViajes(0)).toBe('Viajes del mes (0)');
+    expect(textoTituloViajes(1)).toBe('Viajes del mes (1)');
+    expect(textoTituloViajes(5)).toBe('Viajes del mes (5)');
+    expect(textoTituloViajes(1200)).toBe('Viajes del mes (1.200)');
   });
 
   it('textoViajesSinIngreso: singular y plural', () => {
@@ -274,11 +325,11 @@ describe('textos de la pantalla Resumen: vista Año (gastos)', () => {
 
 describe('textos de la pantalla Resumen: vista Año (resultado)', () => {
   it('textoSinResultado del año: los mismos textos que el Mes, con "año"', () => {
-    expect(textoSinResultado(0, 'año')).toBe('No hay viajes en el año. Anota tus viajes con lo que cobraste para ver si el año dio ganancia o pérdida.');
-    expect(textoSinResultado(1, 'año')).toBe('Tu viaje del año no tiene anotado lo que cobraste. Anótalo para ver si el año dio ganancia o pérdida.');
-    expect(textoSinResultado(20, 'año')).toBe('Ninguno de tus 20 viajes del año tiene anotado lo que cobraste. Anótalo para ver si el año dio ganancia o pérdida.');
-    // Sin período: el del Mes (los textos del paso 2 no cambiaron).
-    expect(textoSinResultado(3)).toBe('Ninguno de tus 3 viajes del mes tiene anotado lo que cobraste. Anótalo para ver si el mes dio ganancia o pérdida.');
+    expect(textoSinResultado(0, 'año')).toBe('No hay viajes en el año. Anota tus viajes con lo que cobraste para saber cuánto te quedó en el año.');
+    expect(textoSinResultado(1, 'año')).toBe('Tu viaje del año no tiene anotado lo que cobraste. Anótalo para saber cuánto te quedó en el año.');
+    expect(textoSinResultado(20, 'año')).toBe('Ninguno de tus 20 viajes del año tiene anotado lo que cobraste. Anótalo para saber cuánto te quedó en el año.');
+    // Sin período: el del Mes.
+    expect(textoSinResultado(3)).toBe('Ninguno de tus 3 viajes del mes tiene anotado lo que cobraste. Anótalo para saber cuánto te quedó en el mes.');
   });
 
   it('textoIngresosYGastos y los textos fijos del Año', () => {
@@ -295,6 +346,28 @@ describe('textos de la pantalla Resumen: vista Año (combustible)', () => {
   it('textoSinCombustibleDelAnio: en curso / pasado', () => {
     expect(textoSinCombustibleDelAnio(2026, true)).toBe('Todavía no cargaste combustible en 2026');
     expect(textoSinCombustibleDelAnio(2025, false)).toBe('No cargaste combustible en 2025');
+  });
+});
+
+describe('textos de la pantalla Resumen: español neutro, de "tú"', () => {
+  it('los textos nuevos no usan voseo ni "acá"', () => {
+    const voseo = /(?<![\p{L}])(?:acá|vos|tenés|podés|querés|mirá|tocá|abrí|fijate|anotá|cargá|probá)(?![\p{L}])/iu;
+    const textos = [
+      ETIQUETA_COBRASTE,
+      ETIQUETA_GASTASTE,
+      TITULO_EN_QUE_GASTASTE,
+      TITULO_COMO_PAGASTE,
+      TITULO_GASTO_POR_CAMION,
+      TITULO_MES_POR_MES,
+      PLEGADO_NO_SE_PUDO_CARGAR,
+      TEXTO_MESES_SIN_CARGAR,
+      etiquetaDeLoQueQuedo(1),
+      etiquetaDeLoQueQuedo(-1),
+      textoSinResultado(0),
+      textoSinResultado(1, 'año'),
+      textoSinResultado(2),
+    ];
+    for (const texto of textos) expect(texto).not.toMatch(voseo);
   });
 });
 

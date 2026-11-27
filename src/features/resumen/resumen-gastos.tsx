@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { GASTOS_VARIOS_CATEGORIA_ID } from '@/features/gastos/constants';
 import { filtroToSearch } from '@/features/gastos/gastos-filters';
 import { formatDateShort, type YearMonth } from '@/lib/dates';
-import { BloqueResumen, ErrorDeBloque, LineaCargando, ListaDeBarras, TarjetaResumen, type ConsultaDeBloque } from './resumen-bloque';
+import { BloqueResumen, ErrorDeBloque, LineaCargando, ListaDeBarras, type ConsultaDeBloque } from './resumen-bloque';
 import { compararGasto, filasDeBarras, principalesYOtras } from './resumen-calculos';
 import {
   ETIQUETA_DETALLE_GASTOS_VARIOS,
@@ -20,10 +20,13 @@ import {
   textoSinGastosParaComparar,
   textoVs,
   textoYMasEnGastos,
-  TITULO_GASTOS,
+  TITULO_COMO_PAGASTE,
+  TITULO_EN_QUE_GASTASTE,
+  TITULO_GASTO_POR_CAMION,
 } from './resumen-pantalla-textos';
 import type { ResumenGastos, ResumenGastosVarios } from './resumen-parse';
-import { ETIQUETAS_GRUPO_GASTO, etiquetaCamionResumen, etiquetaMetodoPago } from './resumen-textos';
+import { PlegadoResumen } from './resumen-plegado';
+import { etiquetaCamionResumen, etiquetaMetodoPago } from './resumen-textos';
 
 /** Cuántas categorías se ven antes de sumar el resto en "Otras". */
 const CATEGORIAS_A_LA_VISTA = 5;
@@ -39,44 +42,40 @@ interface GastosDelMesProps {
 }
 
 /**
- * El gasto del mes: el total (monto y cantidad) con la comparación, y debajo los desgloses (por categoría, por método de
- * pago y por camión), que salen de la misma consulta: solo se muestran cuando hay gastos.
+ * "En qué gastaste" del mes: cuántos gastos, las barras por categoría y la comparación con el mes anterior. El total no
+ * va acá: es el "Gastaste" de la primera tarjeta.
  */
 export function GastosDelMes({ mes, enCurso, gastos, comparacion, gastosVarios }: GastosDelMesProps) {
   const periodo = periodoDeComparacion(mes, enCurso);
   return (
-    <>
-      <BloqueResumen id="resumen-gastos" titulo={TITULO_GASTOS} consulta={gastos}>
-        {(datos) =>
-          datos.total.cantidad === 0 ? (
-            <p className="text-muted-foreground">{textoSinGastosDelMes(mes, enCurso)}</p>
-          ) : (
-            <>
-              <div>
-                <p className="text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(datos.total.monto)}</p>
-                <p className="text-base text-muted-foreground">{textoCantidadGastos(datos.total.cantidad)}</p>
-              </div>
-              <ComparacionDelGasto actual={datos.total.monto} consulta={comparacion} periodo={periodo} />
-            </>
-          )
-        }
-      </BloqueResumen>
-      {gastos.data !== undefined && gastos.data.total.cantidad > 0 ? <DesglosesDelGasto datos={gastos.data} variosDelMes={{ mes, consulta: gastosVarios }} /> : null}
-    </>
+    <BloqueResumen id="resumen-gastos" titulo={TITULO_EN_QUE_GASTASTE} consulta={gastos}>
+      {(datos) =>
+        datos.total.cantidad === 0 ? (
+          <p className="text-muted-foreground">{textoSinGastosDelMes(mes, enCurso)}</p>
+        ) : (
+          <>
+            <p className="text-base text-muted-foreground">{textoCantidadGastos(datos.total.cantidad)}</p>
+            <BarrasPorCategoria datos={datos} variosDelMes={{ mes, consulta: gastosVarios }} />
+            <ComparacionDelGasto actual={datos.total.monto} consulta={comparacion} periodo={periodo} />
+          </>
+        )
+      }
+    </BloqueResumen>
   );
 }
 
 /**
  * La comparación, con SU estado (es otra consulta): mientras carga, una línea gris; si falla, su error con "Reintentar"
- * (el total del mes se sigue viendo). Si el período con que se compara no tuvo gastos, no hay porcentaje posible.
+ * (lo demás de la tarjeta se sigue viendo). Si el período con que se compara no tuvo gastos, no hay porcentaje posible.
+ * La raya de arriba la separa de la última barra: habla del total, no de esa categoría.
  */
 function ComparacionDelGasto({ actual, consulta, periodo }: { actual: number; consulta: ConsultaDeBloque<ResumenGastos>; periodo: string }) {
   const anterior = consulta.data?.total.monto;
   return (
-    <div data-comparacion="" className="space-y-2">
+    <div data-comparacion="" className="space-y-2 border-t border-border pt-3">
       {consulta.isError ? <ErrorDeBloque consulta={consulta} prefijo={textoErrorComparacion(periodo)} /> : null}
       {anterior === undefined ? (
-        consulta.isError ? null : <div aria-hidden="true" data-cargando="" className="h-6 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+        consulta.isError ? null : <LineaCargando />
       ) : anterior > 0 ? (
         <p className="text-base">
           <span className="font-medium">{textoDiferencia(compararGasto(actual, anterior))}</span>{' '}
@@ -90,19 +89,43 @@ function ComparacionDelGasto({ actual, consulta, periodo }: { actual: number; co
 }
 
 /**
- * Los tres desgloses del gasto de un período (el mes o el año: la misma respuesta de `resumen_gastos`). El de camión solo
- * si al menos un gasto tiene camión.
+ * Las barras por categoría de un período (el mes o el año: la misma respuesta de `resumen_gastos`), las 5 de mayor monto
+ * y "Otras". En el Mes, con el detalle de "Gastos varios".
  */
-export function DesglosesDelGasto({ datos, variosDelMes }: { datos: ResumenGastos; variosDelMes?: VariosDelMes }) {
-  const total = datos.total.monto;
+export function BarrasPorCategoria({ datos, variosDelMes }: { datos: ResumenGastos; variosDelMes?: VariosDelMes }) {
   const categorias = filasDeBarras(
     principalesYOtras(
       datos.porCategoria.map((fila) => ({ clave: fila.categoriaId, etiqueta: fila.nombre, monto: fila.monto, cantidad: fila.cantidad })),
       CATEGORIAS_A_LA_VISTA,
       textoOtrasCategorias,
     ),
-    total,
+    datos.total.monto,
   );
+
+  return (
+    <div id="resumen-por-categoria">
+      <ListaDeBarras
+        filas={categorias}
+        detalle={variosDelMes ? (clave) => (clave === GASTOS_VARIOS_CATEGORIA_ID ? <DetalleGastosVarios {...variosDelMes} /> : null) : undefined}
+      />
+      {/* "Gastos varios" puede haber quedado dentro de "Otras": el detalle va igual, debajo de las barras y con su título. */}
+      {variosDelMes && !categorias.some((fila) => fila.clave === GASTOS_VARIOS_CATEGORIA_ID) && tieneVarios(datos) ? (
+        <DetalleGastosVarios {...variosDelMes} conTitulo />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Los otros dos desgloses del gasto de un período, plegados: "Cómo pagaste" y "Gasto por camión" (este solo si al menos
+ * un gasto tiene camión). Salen de la misma consulta que "En qué gastaste": solo aparecen cuando hay gastos, y su carga y
+ * su error se ven allá.
+ */
+export function DesglosesPlegados({ gastos }: { gastos: ConsultaDeBloque<ResumenGastos> }) {
+  const datos = gastos.data;
+  if (datos === undefined || datos.total.cantidad === 0) return null;
+
+  const total = datos.total.monto;
   const metodos = filasDeBarras(
     datos.porMetodo.map((fila) => ({ clave: fila.metodo ?? 'sin-especificar', etiqueta: etiquetaMetodoPago(fila.metodo), monto: fila.monto, cantidad: fila.cantidad })),
     total,
@@ -115,23 +138,13 @@ export function DesglosesDelGasto({ datos, variosDelMes }: { datos: ResumenGasto
 
   return (
     <>
-      <TarjetaResumen id="resumen-por-categoria" titulo={ETIQUETAS_GRUPO_GASTO.categoria}>
-        <ListaDeBarras
-          filas={categorias}
-          detalle={variosDelMes ? (clave) => (clave === GASTOS_VARIOS_CATEGORIA_ID ? <DetalleGastosVarios {...variosDelMes} /> : null) : undefined}
-        />
-        {/* "Gastos varios" puede haber quedado dentro de "Otras": el detalle va igual, debajo de las barras y con su título. */}
-        {variosDelMes && !categorias.some((fila) => fila.clave === GASTOS_VARIOS_CATEGORIA_ID) && tieneVarios(datos) ? (
-          <DetalleGastosVarios {...variosDelMes} conTitulo />
-        ) : null}
-      </TarjetaResumen>
-      <TarjetaResumen id="resumen-por-metodo" titulo={ETIQUETAS_GRUPO_GASTO.metodo_pago}>
+      <PlegadoResumen id="resumen-por-metodo" titulo={TITULO_COMO_PAGASTE}>
         <ListaDeBarras filas={metodos} />
-      </TarjetaResumen>
+      </PlegadoResumen>
       {conCamion ? (
-        <TarjetaResumen id="resumen-por-camion" titulo={ETIQUETAS_GRUPO_GASTO.camion}>
+        <PlegadoResumen id="resumen-por-camion" titulo={TITULO_GASTO_POR_CAMION}>
           <ListaDeBarras filas={camiones} />
-        </TarjetaResumen>
+        </PlegadoResumen>
       ) : null}
     </>
   );

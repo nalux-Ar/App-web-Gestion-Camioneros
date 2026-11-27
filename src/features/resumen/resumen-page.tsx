@@ -10,7 +10,7 @@ import { EstadoDeCarga } from './resumen-bloque';
 import { CombustibleDelPeriodo } from './resumen-combustible';
 import { esMesEnCurso } from './resumen-fechas';
 import { readResumenFiltro, resumenFiltroToParams, type ResumenFiltro } from './resumen-filtros';
-import { GastosDelMes } from './resumen-gastos';
+import { DesglosesPlegados, GastosDelMes } from './resumen-gastos';
 import { RESUMEN_TITULO, textoSinCombustible } from './resumen-pantalla-textos';
 import { ResultadoDelMes } from './resumen-resultado';
 import { SelectorDeAnio, SelectorDeVista } from './resumen-selectores';
@@ -22,13 +22,15 @@ import { useResumenDelMes } from './use-resumen';
  * (`?mes=2026-08`, `?vista=anio&anio=2025`), validados con `readResumenFiltro`: lo inválido se ignora y se usa el valor
  * por defecto (la vista Mes, el mes actual o el año actual), que no se escribe.
  *
- * - Mes: el gasto del mes (con la comparación y los desgloses), los ingresos y el resultado, el combustible por camión y
- *   los viajes.
- * - Año: el gasto del año (con el promedio por mes, el gasto mes a mes y los desgloses), los ingresos y el resultado (con
- *   el resultado de cada mes) y el combustible por camión. Sin lista de viajes (ver `ResumenDelAnio`).
+ * Las dos vistas empiezan igual, a la vista: "¿Cuánto te quedó?" (lo cobrado, lo gastado y el resultado) y "En qué
+ * gastaste" (por categoría, con la comparación en el Mes y el promedio en el Año). Lo demás va plegado, cerrado al entrar
+ * (`PlegadoResumen`):
+ * - Mes: cómo pagaste, gasto por camión, combustible por camión y los viajes del mes.
+ * - Año: mes por mes (viajes, km, gasto y resultado de cada mes), cómo pagaste, gasto por camión y combustible por
+ *   camión. Sin lista de viajes (ver `ResumenDelAnio`).
  *
  * Cada bloque usa SU consulta con su propio estado: uno que carga, falla o está vacío no tapa a los demás, y su
- * "Reintentar" vuelve a pedir solo lo suyo.
+ * "Reintentar" vuelve a pedir solo lo suyo. Un plegado con consulta propia que falla se abre solo para que se vea.
  */
 export function ResumenPage() {
   useScrollToTopOnMount();
@@ -45,7 +47,7 @@ export function ResumenPage() {
     <div className="space-y-5">
       <PageHeader title={RESUMEN_TITULO} ayuda={AYUDA_RESUMEN} />
       <SelectorDeVista filtro={filtro} />
-      {/* `key`: al cambiar de período los bloques se arman de nuevo (sin estados de despliegue del período anterior). */}
+      {/* `key`: al cambiar de período los bloques se arman de nuevo (los plegados vuelven a arrancar cerrados). */}
       {filtro.vista === 'mes' ? (
         <>
           <MonthPicker value={filtro.mes} onChange={(mes) => cambiarFiltro({ vista: 'mes', mes })} />
@@ -74,8 +76,9 @@ function ResumenDelMes({ mes }: { mes: YearMonth }) {
         consultas={[resumen.gastos, resumen.comparacion, resumen.mensual, resumen.combustible, resumen.viajes]}
         periodo={formatMonthLabel(mes)}
       />
-      <GastosDelMes mes={mes} enCurso={enCurso} gastos={resumen.gastos} comparacion={resumen.comparacion} gastosVarios={resumen.gastosVarios} />
       <ResultadoDelMes mes={mes} mensual={resumen.mensual} />
+      <GastosDelMes mes={mes} enCurso={enCurso} gastos={resumen.gastos} comparacion={resumen.comparacion} gastosVarios={resumen.gastosVarios} />
+      <DesglosesPlegados gastos={resumen.gastos} />
       <CombustibleDelPeriodo vacio={textoSinCombustible(mes, enCurso)} combustible={resumen.combustible} />
       <ViajesDelMes mes={mes} enCurso={enCurso} viajes={resumen.viajes} />
     </>

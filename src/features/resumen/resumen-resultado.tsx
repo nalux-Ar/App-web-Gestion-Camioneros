@@ -7,9 +7,9 @@ import type { YearMonth } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { BloqueResumen, type ConsultaDeBloque } from './resumen-bloque';
 import {
-  ETIQUETA_GASTOS_DEL_MES,
-  ETIQUETA_INGRESOS,
-  etiquetaResultado,
+  ETIQUETA_COBRASTE,
+  ETIQUETA_GASTASTE,
+  etiquetaDeLoQueQuedo,
   formatMonto,
   formatResultado,
   TEXTO_COMO_SE_CALCULA_RESULTADO,
@@ -22,9 +22,9 @@ import {
 import type { ResumenDelMes } from './resumen-parse';
 
 /**
- * Ingresos y resultado del mes (la fila de `resumen_mensual`). El resultado lo calcula la base: ingresos de los viajes
- * del mes − todos los gastos del mes, y es null si NINGÚN viaje del mes tiene ingreso. Las reglas de la pantalla están en
- * `ContenidoDelResultado` (las mismas para el Año).
+ * La primera tarjeta del Mes: lo que cobraste, lo que gastaste y cuánto te quedó (la fila de `resumen_mensual`). El
+ * resultado lo calcula la base: ingresos de los viajes del mes − todos los gastos del mes, y es null si NINGÚN viaje del
+ * mes tiene ingreso. Las reglas de la pantalla están en `ContenidoDelResultado` (las mismas para el Año).
  */
 export function ResultadoDelMes({ mes, mensual }: { mes: YearMonth; mensual: ConsultaDeBloque<ResumenDelMes[]> }) {
   return (
@@ -32,7 +32,6 @@ export function ResultadoDelMes({ mes, mensual }: { mes: YearMonth; mensual: Con
       {(filas) => (
         <ContenidoDelResultado
           datos={filas[0]!}
-          etiquetaGastos={ETIQUETA_GASTOS_DEL_MES}
           comoSeCalcula={TEXTO_COMO_SE_CALCULA_RESULTADO}
           sinResultado={textoSinResultado(filas[0]!.viajesCantidad)}
           accionSinResultado={
@@ -62,69 +61,69 @@ export interface DatosDelResultado {
 
 interface ContenidoDelResultadoProps {
   datos: DatosDelResultado;
-  /** "Gastos del mes" / "Gastos del año". */
-  etiquetaGastos: string;
   /** Qué es el resultado (se muestra solo si hay resultado). */
   comoSeCalcula: string;
   /** El texto que invita a cargar los ingresos cuando no hay resultado. */
   sinResultado: string;
   /** Debajo de ese texto: a dónde ir a cargarlos (el Mes: sus viajes). */
   accionSinResultado?: ReactNode;
-  /** Datos de más, después de ingresos y gastos (el Año: los viajes y los km). */
-  extras?: ReadonlyArray<{ etiqueta: string; valor: string }>;
+}
+
+/** Un renglón de la cuenta: el rótulo a la izquierda y el monto a la derecha; si no entran, el monto baja. */
+function Renglon({ etiqueta, monto, detalle }: { etiqueta: string; monto: number; detalle?: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+      <dt className="text-base text-muted-foreground">{etiqueta}</dt>
+      <dd className="min-w-0 text-xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(monto)}</dd>
+      {detalle ? <dd className="basis-full text-base text-muted-foreground">{detalle}</dd> : null}
+    </div>
+  );
 }
 
 /**
- * Ingresos y resultado de un período. Reglas:
+ * "Cobraste", "Gastaste" y, tras un separador, el resultado de un período. Reglas:
  *  - resultado null: no se muestra ningún resultado (sería solo "gastos" con signo menos, y engañaría); se invita a
  *    cargar el ingreso;
  *  - con viajes sin ingreso: el resultado se muestra CON el aviso de que puede estar incompleto;
- *  - negativo: se dice "Pérdida" (con la palabra), el monto lleva "−" delante y además va en el color de error: tres
- *    señales, ninguna es la única (`formatResultado`). Las filas de Viajes y de "Resultado por mes" hacen lo mismo.
+ *  - negativo: se dice "Perdiste" (con la palabra), el monto lleva "−" delante y además va en el color de error: tres
+ *    señales, ninguna es la única (`formatResultado`). Las filas de viajes y de "Resultado por mes" hacen lo mismo con
+ *    "Pérdida".
  */
-export function ContenidoDelResultado({ datos, etiquetaGastos, comoSeCalcula, sinResultado, accionSinResultado, extras = [] }: ContenidoDelResultadoProps) {
+export function ContenidoDelResultado({ datos, comoSeCalcula, sinResultado, accionSinResultado }: ContenidoDelResultadoProps) {
   const { resultado } = datos;
   return (
     <>
+      <dl className="space-y-3">
+        <Renglon
+          etiqueta={ETIQUETA_COBRASTE}
+          monto={datos.viajesIngreso}
+          detalle={datos.viajesCantidad > 0 ? textoViajesConIngreso(datos.viajesConIngreso, datos.viajesCantidad) : undefined}
+        />
+        <Renglon etiqueta={ETIQUETA_GASTASTE} monto={datos.gastosMonto} />
+      </dl>
+      <hr className="border-border" />
       {resultado === null ? (
         <div className="space-y-2">
           <p className="text-muted-foreground">{sinResultado}</p>
           {accionSinResultado}
         </div>
       ) : (
-        <div data-resultado="">
-          <p className="text-base font-medium text-muted-foreground">{etiquetaResultado(resultado)}</p>
-          <p className={cn('text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]', resultado < 0 && 'text-destructive-text')}>
-            {formatResultado(resultado)}
-          </p>
-          {datos.viajesSinIngreso > 0 ? (
-            <p className="mt-2 flex items-start gap-2 text-base">
-              <AlertTriangle className="mt-1 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              {textoViajesSinIngreso(datos.viajesSinIngreso)}
+        <>
+          <div data-resultado="">
+            <p className="text-lg font-semibold">{etiquetaDeLoQueQuedo(resultado)}</p>
+            <p className={cn('text-3xl font-semibold tabular-nums [overflow-wrap:anywhere]', resultado < 0 && 'text-destructive-text')}>
+              {formatResultado(resultado)}
             </p>
-          ) : null}
-        </div>
-      )}
-      <dl className="grid grid-cols-2 gap-3">
-        <div>
-          <dt className="text-base text-muted-foreground">{ETIQUETA_INGRESOS}</dt>
-          <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(datos.viajesIngreso)}</dd>
-          {datos.viajesCantidad > 0 ? (
-            <dd className="text-base text-muted-foreground">{textoViajesConIngreso(datos.viajesConIngreso, datos.viajesCantidad)}</dd>
-          ) : null}
-        </div>
-        <div>
-          <dt className="text-base text-muted-foreground">{etiquetaGastos}</dt>
-          <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{formatMonto(datos.gastosMonto)}</dd>
-        </div>
-        {extras.map(({ etiqueta, valor }) => (
-          <div key={etiqueta}>
-            <dt className="text-base text-muted-foreground">{etiqueta}</dt>
-            <dd className="text-lg font-semibold tabular-nums [overflow-wrap:anywhere]">{valor}</dd>
+            {datos.viajesSinIngreso > 0 ? (
+              <p className="mt-2 flex items-start gap-2 text-base">
+                <AlertTriangle className="mt-1 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {textoViajesSinIngreso(datos.viajesSinIngreso)}
+              </p>
+            ) : null}
           </div>
-        ))}
-      </dl>
-      {resultado === null ? null : <p className="text-base text-muted-foreground">{comoSeCalcula}</p>}
+          <p className="text-base text-muted-foreground">{comoSeCalcula}</p>
+        </>
+      )}
     </>
   );
 }

@@ -82,7 +82,7 @@ export const AYUDA_SUMAR_GASTOS: AyudaPantalla = {
     'Aquí ves los gastos sin viaje. Los más cercanos a la fecha de este viaje van primero.',
     'Marca los que fueron de este viaje y toca «Sumar». «Marcar todos» los marca de una vez.',
     'Uno de otro camión, o que ya está en otro viaje, no se suma: te avisamos cuál.',
-    'Sumar cambia la ganancia del viaje y «Por camión» del Resumen, pero no los totales por fecha.',
+    'Sumar cambia la ganancia del viaje y «Gasto por camión» del Resumen, pero no los totales por fecha.',
   ],
 };
 
@@ -91,7 +91,7 @@ export const AYUDA_QUITAR_GASTOS: AyudaPantalla = {
   puntos: [
     'Aquí ves los gastos de este viaje. Marca los que quieres sacar y toca «Quitar».',
     'Los gastos no se borran: quedan sin viaje. Puedes quitar hasta 100 por vez.',
-    'Quitar cambia la ganancia del viaje y «Por camión» del Resumen, pero no los totales por fecha.',
+    'Quitar cambia la ganancia del viaje y «Gasto por camión» del Resumen, pero no los totales por fecha.',
     'Para volver a ponerlos en un viaje, usa «Sumar gastos que ya cargué».',
   ],
 };
@@ -148,9 +148,10 @@ export const AYUDA_CLIENTE_FORM: AyudaPantalla = {
 export const AYUDA_RESUMEN: AyudaPantalla = {
   titulo: 'Ayuda del Resumen',
   puntos: [
-    'Aquí ves cuánto gastaste, en qué y cuánto te quedó según lo que cobraste por los viajes.',
+    'Primero ves cuánto te quedó: lo que cobraste por los viajes menos lo que gastaste.',
+    'Debajo, en «En qué gastaste», ves tus gastos separados por categoría.',
+    'Lo demás se abre tocando su título: cómo pagaste, cuánto rinde tu camión y más.',
     'Cambia entre Mes y Año con las pestañas de arriba.',
-    'También ves cuánto rinde el combustible de tu camión.',
     'Los números salen de los viajes y gastos que anotaste: cuanto más completos, más útil el resumen.',
   ],
 };

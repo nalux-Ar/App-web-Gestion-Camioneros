@@ -518,6 +518,24 @@ const barras = (id: string) =>
     const spans = li.querySelectorAll('span');
     return [plano(spans[0]?.textContent), plano(spans[1]?.textContent), plano(li.querySelector('p')?.textContent)];
   });
+/**
+ * "En qué gastaste" de un año de `gastosDelAnio` ya cargado: la cantidad y las dos categorías (80 % y 20 %). El total NO se
+ * repite en esa tarjeta (es el "Gastaste" de la primera): por eso se mira que cada pieza esté y que el total no.
+ */
+function gastosALaVista(cantidad: string, combustible: string, peajes: string, totalDelAnio: string) {
+  expect(textoDe('resumen-gastos')).toContain(cantidad);
+  expect(barras('resumen-por-categoria').map((f) => [f[0], f[1]])).toEqual([
+    ['Combustible', combustible],
+    ['Peajes', peajes],
+  ]);
+  expect(textoDe('resumen-gastos')).not.toContain(totalDelAnio);
+}
+const gastos2026 = () => gastosALaVista('55 gastos', '$ 44.000', '$ 11.000', '$ 55.000');
+const gastos2025 = () => gastosALaVista('78 gastos', '$ 62.400', '$ 15.600', '$ 78.000');
+/** Los datos de un `dl` dentro de una sección: "Etiqueta valor [detalle]". */
+const datosDe = (id: string) =>
+  [...(byId(id)?.querySelectorAll('dl > div') ?? [])].map((d) => [...d.querySelectorAll('dt, dd')].map((el) => plano(el.textContent)).join(' '));
+const titulosH3 = (id: string) => [...(byId(id)?.querySelectorAll('h3') ?? [])].map((el) => el.textContent);
 /** El promedio como se lee: etiqueta, valor y sobre cuántos meses (cada `dt`/`dd` separado por un espacio). */
 const promedio = () =>
   [...(byId('resumen-gastos')?.querySelectorAll('[data-promedio] dt, [data-promedio] dd') ?? [])].map((el) => plano(el.textContent)).join(' ');
@@ -525,15 +543,16 @@ const promedio = () =>
 describe('Resumen, vista Año: gastos del año y promedio por mes', () => {
   it('año en curso: total, cantidad y promedio de los 10 meses transcurridos (no /12)', async () => {
     await mount();
-    expect(byId('resumen-gastos')!.querySelector('h2')!.textContent).toBe('Gastos del año');
-    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
-    expect(textoDe('resumen-gastos')).toContain('55 gastos');
+    expect(byId('resumen-gastos')!.querySelector('h2')!.textContent).toBe('En qué gastaste');
+    gastos2026();
+    expect(datosDe('resumen-resultado')[1]).toBe('Gastaste $ 55.000');
     expect(promedio()).toBe('Promedio por mes $ 5.500 promedio de los 10 meses transcurridos');
   });
 
   it('año pasado: promedio de los 12 meses', async () => {
     await mount('/resumen?vista=anio&anio=2025');
-    expect(textoDe('resumen-gastos')).toContain('$ 78.000');
+    gastos2025();
+    expect(datosDe('resumen-resultado')[1]).toBe('Gastaste $ 78.000');
     expect(promedio()).toBe('Promedio por mes $ 6.500 promedio de los 12 meses del año');
   });
 
@@ -553,7 +572,7 @@ describe('Resumen, vista Año: gastos del año y promedio por mes', () => {
   it('sin gastos en el año en curso: "Todavía no anotaste gastos en 2026", sin promedio ni desgloses', async () => {
     route.gastos = () => ok(gastosDelAnio(0, 0));
     await mount();
-    expect(textoDe('resumen-gastos')).toBe('Gastos del añoTodavía no anotaste gastos en 2026');
+    expect(textoDe('resumen-gastos')).toBe('En qué gastasteTodavía no anotaste gastos en 2026');
     expect(byId('resumen-gastos')!.querySelector('[data-promedio]')).toBeNull();
     expect(byId('resumen-por-categoria')).toBeNull();
     expect(byId('resumen-por-metodo')).toBeNull();
@@ -587,7 +606,8 @@ describe('Resumen, vista Año: gastos del año y promedio por mes', () => {
     await mount();
     expect(byId('resumen-gastos')!.getAttribute('aria-busy')).toBe('true');
     expect(byId('resumen-gastos')!.querySelector('[data-cargando]')).not.toBeNull();
-    expect(byId('resumen-gasto-por-mes')!.getAttribute('aria-busy')).toBe('false');
+    expect(byId('resumen-mes-por-mes')!.getAttribute('aria-busy')).toBe('false');
+    expect(byId('resumen-gasto-por-mes')!.querySelectorAll('li[data-mes]')).toHaveLength(10);
     expect(byId('resumen-por-categoria')).toBeNull();
   });
 
@@ -604,7 +624,7 @@ describe('Resumen, vista Año: gastos del año y promedio por mes', () => {
     await click(botonEn('resumen-gastos', 'Reintentar'));
     expect(rpcs('resumen_gastos')).toHaveLength(gastos + 1);
     expect(h.calls.length - rpcs('resumen_gastos').length).toBe(otros);
-    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
+    gastos2026();
   });
 });
 
@@ -627,7 +647,9 @@ describe('Resumen, vista Año: gasto por mes', () => {
     expect(filasPorMes().map((li) => li.getAttribute('data-mes'))).toEqual(
       ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'].map((m) => `2026-${m}`),
     );
-    expect(byId('resumen-gasto-por-mes')!.querySelector('h2')!.textContent).toBe('Gasto por mes');
+    expect(byId('resumen-gasto-por-mes')!.querySelector('h3')!.textContent).toBe('Gasto por mes');
+    expect(byId('resumen-gasto-por-mes')!.querySelector('ul')!.getAttribute('aria-labelledby')).toBe(byId('resumen-gasto-por-mes')!.querySelector('h3')!.id);
+    expect(byId('resumen-gasto-por-mes')!.closest('section')).toBe(byId('resumen-mes-por-mes'));
   });
 
   it('cada mes con su nombre, monto y cantidad en texto', async () => {
@@ -703,24 +725,28 @@ describe('Resumen, vista Año: gasto por mes', () => {
     expect(filasPorMes()[0]!.parentElement!.className).toContain('space-y-2');
   });
 
-  it('mientras carga la serie mensual: `aria-busy`; los gastos del año ya se ven', async () => {
+  it('mientras carga la serie mensual: `aria-busy` y filas grises adentro de "Mes por mes"; los gastos del año ya se ven', async () => {
     route.mensual = () => new Promise<Resp>(() => {});
     await mount();
-    expect(byId('resumen-gasto-por-mes')!.getAttribute('aria-busy')).toBe('true');
-    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
+    expect(byId('resumen-mes-por-mes')!.getAttribute('aria-busy')).toBe('true');
+    expect(byId('resumen-mes-por-mes')!.querySelector('[data-cargando]')).not.toBeNull();
+    expect(byId('resumen-gasto-por-mes')).toBeNull();
+    gastos2026();
   });
 
-  it('si falla la serie mensual: error con "Reintentar" que pide SOLO esa serie; los gastos del año se siguen viendo', async () => {
+  it('si falla la serie mensual: UN solo error (arriba), cuyo "Reintentar" pide SOLO esa serie; los gastos del año se siguen viendo', async () => {
     let falla = true;
     const normal = route.mensual;
     route.mensual = (call) => (falla ? sinRed() : normal(call));
     await mount();
-    expect(textoDe('resumen-gasto-por-mes')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
+    expect(textoDe('resumen-resultado')).toContain(NETWORK_ERROR_MESSAGE);
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(byId('resumen-gasto-por-mes')).toBeNull();
+    gastos2026();
     const mensuales = rpcs('resumen_mensual').length;
     const otros = h.calls.length - mensuales;
     falla = false;
-    await click(botonEn('resumen-gasto-por-mes', 'Reintentar'));
+    await click(botonEn('resumen-resultado', 'Reintentar'));
     expect(rpcs('resumen_mensual')).toHaveLength(mensuales + 1);
     expect(h.calls.length - rpcs('resumen_mensual').length).toBe(otros);
     expect(filasPorMes()).toHaveLength(10);
@@ -733,8 +759,9 @@ describe('Resumen, vista Año: gasto por mes', () => {
       return ok((r.data as unknown[]).slice(0, 11));
     };
     await mount();
-    expect(textoDe('resumen-gasto-por-mes')).toContain(RESUMEN_ERROR_INESPERADO);
+    expect(textoDe('resumen-resultado')).toContain(RESUMEN_ERROR_INESPERADO);
     expect(filasPorMes()).toHaveLength(0);
+    expect(textoDe('resumen-mes-por-mes')).toBe('Mes por mes' + 'No pudimos cargar los meses. Mira el aviso en «¿Cuánto te quedó?», arriba.');
   });
 });
 
@@ -745,38 +772,34 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
   /** El resultado como se lee: etiqueta, monto y aviso (cada `p` separado por un espacio). */
   const resultado = () =>
     [...(byId('resumen-resultado')?.querySelectorAll('[data-resultado] p') ?? [])].map((p) => plano(p.textContent)).join(' ');
-  /** Los datos del `dl`: "Etiqueta valor [detalle]". */
-  const datos = () =>
-    [...(byId('resumen-resultado')?.querySelectorAll('dl > div') ?? [])].map((d) =>
-      [...d.querySelectorAll('dt, dd')].map((el) => plano(el.textContent)).join(' '),
-    );
+  /** Cobrado y gastado (la primera tarjeta). */
+  const datos = () => datosDe('resumen-resultado');
+  /** Viajes y km del año (dentro de "Mes por mes"). */
+  const viajesYKm = () => datosDe('resumen-mes-por-mes');
   const sinIngreso = { viajes_con_ingreso: 0, viajes_sin_ingreso: 2, viajes_ingreso: 0, resultado: null };
 
-  it('suma los meses: Ganancia, ingresos, gastos, viajes y km del año, y qué es el resultado', async () => {
+  it('suma los meses: Te quedó, lo cobrado y lo gastado del año (y qué es el resultado); los viajes y los km van en "Mes por mes"', async () => {
     await mount();
-    expect(resultado()).toBe('Ganancia $ 27.500');
-    expect(datos()).toEqual([
-      'Lo que cobraste $ 82.500 20 viajes con cobro anotado',
-      'Gastos del año $ 55.000',
-      'Viajes 20 viajes',
-      'Km recorridos 4.000 km',
-    ]);
+    expect(resultado()).toBe('Te quedó $ 27.500');
+    expect(datos()).toEqual(['Cobraste $ 82.500 20 viajes con cobro anotado', 'Gastaste $ 55.000']);
+    expect(viajesYKm()).toEqual(['Viajes 20 viajes', 'Km recorridos 4.000 km']);
+    expect(textoDe('resumen-resultado')).not.toContain('Km recorridos');
     expect(textoDe('resumen-resultado')).toContain('lo que cobraste por los viajes del año menos todos los gastos del año');
     expect(textoDe('resumen-resultado')).not.toContain('incompleto');
   });
 
   it('año pasado: los 12 meses', async () => {
     await mount('/resumen?vista=anio&anio=2025');
-    expect(resultado()).toBe('Ganancia $ 39.000');
-    expect(datos()[0]).toBe('Lo que cobraste $ 117.000 24 viajes con cobro anotado');
-    expect(datos()[3]).toBe('Km recorridos 4.800 km');
+    expect(resultado()).toBe('Te quedó $ 39.000');
+    expect(datos()).toEqual(['Cobraste $ 117.000 24 viajes con cobro anotado', 'Gastaste $ 78.000']);
+    expect(viajesYKm()).toEqual(['Viajes 24 viajes', 'Km recorridos 4.800 km']);
   });
 
-  it('pérdida: "Pérdida" escrita, el monto con "−" delante y en el color de error del tema (tres señales)', async () => {
+  it('pérdida: "Perdiste" escrito, el monto con "−" delante y en el color de error del tema (tres señales)', async () => {
     porMes = (_anio, m) => ({ viajes_ingreso: m * 500, resultado: m * -500 });
     await mount();
     // `plano` pasa el signo menos tipográfico a "-": acá se ve que el signo está pegado al monto.
-    expect(resultado()).toBe('Pérdida -$ 27.500');
+    expect(resultado()).toBe('Perdiste -$ 27.500');
     // El texto crudo lleva el signo menos tipográfico (U+2212), no el guion.
     expect(byId('resumen-resultado')!.querySelector('[data-resultado] .text-destructive-text')!.textContent).toBe('\u2212$\u00a027.500');
   });
@@ -786,48 +809,52 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
     await mount();
     expect(byId('resumen-resultado')!.querySelector('[data-resultado]')).toBeNull();
     expect(textoDe('resumen-resultado')).toContain(
-      'Ninguno de tus 20 viajes del año tiene anotado lo que cobraste. Anótalo para ver si el año dio ganancia o pérdida.',
+      'Ninguno de tus 20 viajes del año tiene anotado lo que cobraste. Anótalo para saber cuánto te quedó en el año.',
     );
-    expect(textoDe('resumen-resultado')).not.toMatch(/Ganancia|Pérdida|El resultado es lo que cobraste/); // ni la explicación de cómo se calcula
-    expect(datos()[0]).toBe('Lo que cobraste $ 0 0 de 20 viajes con cobro anotado');
+    expect(textoDe('resumen-resultado')).not.toMatch(/Te quedó|Perdiste|Ganancia|Pérdida|El resultado es lo que cobraste/); // ni la explicación de cómo se calcula
+    expect(datos()).toEqual(['Cobraste $ 0 0 de 20 viajes con cobro anotado', 'Gastaste $ 55.000']);
+    // En el Año no hay enlace a "los viajes del mes".
+    expect(byId('resumen-resultado')!.querySelector('a')).toBeNull();
   });
 
   it('sin viajes en el año: "No hay viajes en el año…"', async () => {
     porMes = () => ({ viajes_cantidad: 0, viajes_km: 0, viajes_con_ingreso: 0, viajes_sin_ingreso: 0, viajes_ingreso: 0, resultado: null });
     await mount();
-    expect(textoDe('resumen-resultado')).toContain('No hay viajes en el año. Anota tus viajes con lo que cobraste para ver si el año dio ganancia o pérdida.');
-    expect(datos()).toEqual(['Lo que cobraste $ 0', 'Gastos del año $ 55.000', 'Viajes 0 viajes', 'Km recorridos 0 km']);
+    expect(textoDe('resumen-resultado')).toContain('No hay viajes en el año. Anota tus viajes con lo que cobraste para saber cuánto te quedó en el año.');
+    expect(datos()).toEqual(['Cobraste $ 0', 'Gastaste $ 55.000']);
+    expect(viajesYKm()).toEqual(['Viajes 0 viajes', 'Km recorridos 0 km']);
   });
 
   it('con viajes sin ingreso en el año: el resultado CON el aviso de que puede estar incompleto', async () => {
     porMes = (_anio, m) => (m <= 3 ? { viajes_con_ingreso: 1, viajes_sin_ingreso: 1 } : {});
     await mount();
-    expect(resultado()).toBe('Ganancia $ 27.500 3 viajes sin cobro anotado: el resultado puede estar incompleto.');
-    expect(datos()[0]).toBe('Lo que cobraste $ 82.500 17 de 20 viajes con cobro anotado');
+    expect(resultado()).toBe('Te quedó $ 27.500 3 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    expect(datos()[0]).toBe('Cobraste $ 82.500 17 de 20 viajes con cobro anotado');
   });
 
   it('meses con y sin ingreso: el resultado resta TODOS los gastos del año (no suma solo los meses con ingreso)', async () => {
     porMes = (_anio, m) => (m > 5 ? sinIngreso : {});
     await mount();
     // Ingresos de enero a mayo: 1.500 × (1+2+3+4+5) = 22.500; gastos del año: 55.000. Sumar los resultados de los meses con
-    // ingreso daría "Ganancia $ 7.500".
-    expect(resultado()).toBe('Pérdida -$ 32.500 10 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    // ingreso daría "Te quedó $ 7.500".
+    expect(resultado()).toBe('Perdiste -$ 32.500 10 viajes sin cobro anotado: el resultado puede estar incompleto.');
   });
 
   it('un ingreso 0 cuenta como cargado: hay resultado (los gastos, como pérdida)', async () => {
     porMes = (_anio, m) => (m === 4 ? { viajes_con_ingreso: 1, viajes_sin_ingreso: 1, viajes_ingreso: 0, resultado: -4000 } : sinIngreso);
     await mount();
-    expect(resultado()).toBe('Pérdida -$ 55.000 19 viajes sin cobro anotado: el resultado puede estar incompleto.');
+    expect(resultado()).toBe('Perdiste -$ 55.000 19 viajes sin cobro anotado: el resultado puede estar incompleto.');
   });
 
   it('no hay lista de viajes: una línea lo explica y lleva a la vista Mes (el mes actual / diciembre de un año pasado)', async () => {
     await mount();
-    const linea = byId('resumen-resultado')!.querySelector('[data-viajes-por-mes]')!;
+    expect(byId('resumen-resultado')!.querySelector('[data-viajes-por-mes]')).toBeNull();
+    const linea = byId('resumen-mes-por-mes')!.querySelector('[data-viajes-por-mes]')!;
     expect(plano(linea.textContent)).toBe('La lista de viajes se ve mes a mes: toca un mes o pasa a la vista Mes. Ir a la vista Mes');
     expect(linea.querySelector('a')!.getAttribute('href')).toBe('/resumen');
     await desmontar();
     await mount('/resumen?vista=anio&anio=2025');
-    const enlace = byId('resumen-resultado')!.querySelector<HTMLAnchorElement>('[data-viajes-por-mes] a')!;
+    const enlace = byId('resumen-mes-por-mes')!.querySelector<HTMLAnchorElement>('[data-viajes-por-mes] a')!;
     expect(enlace.getAttribute('href')).toBe('/resumen?mes=2025-12');
     await click(enlace);
     expect(mesMostrado()).toBe('diciembre 2025');
@@ -846,17 +873,18 @@ describe('Resumen, vista Año: ingresos y resultado del año', () => {
     route.mensual = (call) => (falla ? sinRed() : normal(call));
     await mount();
     expect(textoDe('resumen-resultado')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
+    gastos2026();
+    expect(byId('resumen-combustible')!.querySelectorAll('article')).toHaveLength(1);
     const mensuales = rpcs('resumen_mensual').length;
     falla = false;
     await click(botonEn('resumen-resultado', 'Reintentar'));
     expect(rpcs('resumen_mensual')).toHaveLength(mensuales + 1);
-    expect(resultado()).toBe('Ganancia $ 27.500');
+    expect(resultado()).toBe('Te quedó $ 27.500');
   });
 });
 
 describe('Resumen, vista Año: resultado por mes', () => {
-  const filasResultado = () => [...(byId('resumen-resultado')?.querySelectorAll('[data-resultado-por-mes] li[data-mes]') ?? [])];
+  const filasResultado = () => [...(byId('resumen-mes-por-mes')?.querySelectorAll('[data-resultado-por-mes] li[data-mes]') ?? [])];
   /** Una fila: [mes, ingresos y gastos, resultado]. */
   const fila = (li: Element) => {
     const textos = li.querySelectorAll('a > span:first-child > span');
@@ -865,11 +893,13 @@ describe('Resumen, vista Año: resultado por mes', () => {
     return [plano(textos[0]?.textContent), plano(textos[1]?.textContent), partes];
   };
 
-  it('un h3 "Resultado por mes" dentro del bloque, con una fila por mes transcurrido', async () => {
+  it('un h3 "Resultado por mes" dentro de "Mes por mes" (después de "Gasto por mes"), con una fila por mes transcurrido', async () => {
     await mount();
-    const titulo = byId('resumen-resultado')!.querySelector('h3')!;
+    expect(titulosH3('resumen-mes-por-mes')).toEqual(['Gasto por mes', 'Resultado por mes']);
+    expect(byId('resumen-resultado')!.querySelector('h3')).toBeNull();
+    const titulo = byId('resumen-mes-por-mes')!.querySelector('[data-resultado-por-mes] h3')!;
     expect(titulo.textContent).toBe('Resultado por mes');
-    expect(byId('resumen-resultado')!.querySelector('[data-resultado-por-mes] ul')!.getAttribute('aria-labelledby')).toBe(titulo.id);
+    expect(byId('resumen-mes-por-mes')!.querySelector('[data-resultado-por-mes] ul')!.getAttribute('aria-labelledby')).toBe(titulo.id);
     expect(filasResultado().map((li) => li.getAttribute('data-mes'))).toEqual(
       ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'].map((m) => `2026-${m}`),
     );
@@ -920,13 +950,13 @@ describe('Resumen, vista Año: resultado por mes', () => {
     expect(plano(abril.textContent)).not.toContain('Cobraste');
   });
 
-  it('un año SIN NINGÚN viaje: no hay lista "Resultado por mes" (el bloque ya dice que no hay viajes)', async () => {
+  it('un año SIN NINGÚN viaje: no hay lista "Resultado por mes" (la primera tarjeta ya dice que no hay viajes)', async () => {
     porMes = () => SIN_VIAJES_EN_EL_MES;
     await mount();
-    expect(byId('resumen-resultado')!.querySelector('[data-resultado-por-mes]')).toBeNull();
-    expect(byId('resumen-resultado')!.querySelector('h3')).toBeNull();
+    expect(document.querySelector('[data-resultado-por-mes]')).toBeNull();
+    expect(titulosH3('resumen-mes-por-mes')).toEqual(['Gasto por mes']);
     expect(textoDe('resumen-resultado')).toContain('No hay viajes en el año.');
-    expect(byId('resumen-resultado')!.querySelector('[data-viajes-por-mes]')).not.toBeNull();
+    expect(byId('resumen-mes-por-mes')!.querySelector('[data-viajes-por-mes]')).not.toBeNull();
   });
 
   it('un año con viajes en UN solo mes: la lista sigue, con todos los meses transcurridos ("Sin viajes" en los demás)', async () => {
@@ -939,7 +969,7 @@ describe('Resumen, vista Año: resultado por mes', () => {
       expect(fila(li)[2], li.getAttribute('data-mes')!).toBe('Sin viajes');
       expect(fila(li)[1], li.getAttribute('data-mes')!).toBe('');
     }
-    expect(textoDe('resumen-resultado')).not.toContain('Sin cobros anotados');
+    expect(textoDe('resumen-mes-por-mes')).not.toContain('Sin cobros anotados');
   });
 
   it('un año con EXACTAMENTE 1 viaje: la lista se muestra (ese mes con su resultado o "Sin cobros anotados"; los demás "Sin viajes")', async () => {
@@ -953,7 +983,7 @@ describe('Resumen, vista Año: resultado por mes', () => {
     // Junio: 1 viaje con ingreso de 9.000 y gastos de 6.000.
     porMes = (_anio, m) => (m === 6 ? { viajes_cantidad: 1, viajes_km: 400, viajes_con_ingreso: 1, viajes_sin_ingreso: 0, viajes_ingreso: 9000, resultado: 3000 } : sinNada);
     await mount();
-    expect(byId('resumen-resultado')!.querySelector('[data-resultado-por-mes]')).not.toBeNull();
+    expect(byId('resumen-mes-por-mes')!.querySelector('[data-resultado-por-mes]')).not.toBeNull();
     expect(filasResultado()).toHaveLength(10);
     expect(fila(filasResultado()[5]!)).toEqual(['junio', 'Cobraste $ 9.000 · Gastaste $ 6.000', 'Ganancia $ 3.000']);
     otrosMesesSinViajes();
@@ -976,7 +1006,8 @@ describe('Resumen, vista Año: resultado por mes', () => {
     porMesFuturo = (anio, m) => (anio === 2026 && m === 12 ? { viajes_cantidad: 1, viajes_con_ingreso: 1, viajes_ingreso: 99, resultado: 99 } : {});
     await mount();
     expect(filasResultado()).toHaveLength(10);
-    expect(textoDe('resumen-resultado')).not.toContain('diciembre');
+    expect(textoDe('resumen-mes-por-mes')).toContain('octubre');
+    expect(textoDe('resumen-mes-por-mes')).not.toContain('diciembre');
   });
 
   it('año pasado: los 12 meses', async () => {
@@ -1068,7 +1099,7 @@ describe('Resumen, vista Año: combustible por camión', () => {
     estado = 'falla';
     await mount();
     expect(textoDe('resumen-combustible')).toContain(NETWORK_ERROR_MESSAGE);
-    expect(textoDe('resumen-gastos')).toContain('$ 55.000');
+    gastos2026();
     expect(textoDe('resumen-resultado')).toContain('$ 27.500');
     const pedidos = rpcs('resumen_combustible').length;
     const otros = h.calls.length - pedidos;
@@ -1087,22 +1118,33 @@ describe('Resumen, vista Año: la pantalla entera', () => {
   it('el orden de los bloques y la jerarquía de títulos (h1 → h2 → h3, sin saltos)', async () => {
     await mount();
     expect([...document.querySelectorAll('h2')].map((t) => t.textContent)).toEqual([
-      'Gastos del año',
-      'Gasto por mes',
-      'Por categoría',
-      'Por método de pago',
-      'Por camión',
       '¿Cuánto te quedó?',
+      'En qué gastaste',
+      'Mes por mes',
+      'Cómo pagaste',
+      'Gasto por camión',
       'Combustible por camión',
     ]);
-    expect([...document.querySelectorAll('h3')].map((t) => t.textContent)).toEqual(['Resultado por mes', 'AB 123 CD']);
+    expect([...document.querySelectorAll('h3')].map((t) => t.textContent)).toEqual(['Gasto por mes', 'Resultado por mes', 'AB 123 CD']);
+    // El orden en el documento es el de los títulos.
+    expect([...document.querySelectorAll('section')].map((s) => s.id)).toEqual([
+      'resumen-resultado',
+      'resumen-gastos',
+      'resumen-mes-por-mes',
+      'resumen-por-metodo',
+      'resumen-por-camion',
+      'resumen-combustible',
+    ]);
     const titulos = [...document.querySelectorAll('h1, h2, h3')].map((t) => Number(t.tagName[1]));
     expect(titulos[0]).toBe(1);
     titulos.forEach((nivel, i) => {
       if (i > 0) expect(nivel - titulos[i - 1]!).toBeLessThanOrEqual(1);
     });
     for (const seccion of document.querySelectorAll('section')) {
-      expect(byId(seccion.getAttribute('aria-labelledby')!)!.tagName).toBe('H2');
+      // La nombra su título, que está dentro del h2 de esa misma sección.
+      const nombre = byId(seccion.getAttribute('aria-labelledby')!)!;
+      expect(nombre.closest('h2')).toBe(seccion.querySelector('h2'));
+      expect(nombre.textContent).toBe(seccion.querySelector('h2')!.textContent);
     }
   });
 
@@ -1111,12 +1153,17 @@ describe('Resumen, vista Año: la pantalla entera', () => {
     route.mensual = () => sinRed();
     route.combustible = () => sinRed();
     await mount();
-    for (const id of ['resumen-gastos', 'resumen-gasto-por-mes', 'resumen-resultado', 'resumen-combustible']) {
+    for (const id of ['resumen-gastos', 'resumen-resultado', 'resumen-combustible']) {
       expect(byId(id)!.querySelector('[role="alert"]'), id).not.toBeNull();
       expect(botonEn(id, 'Reintentar'), id).toBeDefined();
       expect(byId(id)!.getAttribute('aria-busy'), id).toBe('false');
       expect(byId(id)!.querySelector('[data-cargando]'), id).toBeNull();
     }
+    // "Mes por mes" comparte la serie con la primera tarjeta: ni "cargando" ni un segundo aviso.
+    expect(byId('resumen-mes-por-mes')!.getAttribute('aria-busy')).toBe('false');
+    expect(byId('resumen-mes-por-mes')!.querySelector('[data-cargando]')).toBeNull();
+    expect(byId('resumen-mes-por-mes')!.querySelector('[role="alert"]')).toBeNull();
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(3);
   });
 
   it('al terminar de cargar no queda ningún aviso de carga ni sección ocupada', async () => {
@@ -1133,8 +1180,9 @@ describe('Resumen, vista Año: la pantalla entera', () => {
       details.open = true;
     });
     await click(buttonByLabel('Año anterior'));
-    expect(textoDe('resumen-gastos')).toContain('$ 78.000');
-    expect(textoDe('resumen-gastos')).not.toContain('$ 55.000');
+    gastos2025();
+    expect(datosDe('resumen-resultado')[1]).toBe('Gastaste $ 78.000');
+    expect(bodyText()).not.toContain('55 gastos');
     expect(byId('resumen-gasto-por-mes')!.querySelectorAll('li[data-mes]')).toHaveLength(12);
     expect(byId('resumen-combustible')!.querySelector('details')!.open).toBe(false);
   });
@@ -1151,7 +1199,7 @@ describe('Resumen, vista Año: la pantalla entera', () => {
     h.calls.length = 0;
     await click(buttonByLabel('Año anterior'));
     expect(rpcs('resumen_gastos')).toHaveLength(0); // vino de la caché
-    expect(textoDe('resumen-gastos')).toContain('$ 78.000');
+    gastos2025();
     expect(byId('resumen-combustible')!.querySelector('details')!.open).toBe(false);
   });
 
