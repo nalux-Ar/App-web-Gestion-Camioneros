@@ -247,6 +247,16 @@ async function click(el: HTMLElement | null | undefined) {
 async function abrirCambiar() {
   await click(botonCambiar());
 }
+/** «Agregar nota o viaje»: despliega el pliegue donde está el viaje (si ya está desplegado, no hace nada). */
+async function abrirNotaYViaje() {
+  const boton = buttons().find((b) => b.getAttribute('aria-controls') === 'gasto-pliegue');
+  if (boton) await click(boton);
+}
+/** Elige un viaje en el selector (que vive en el pliegue: antes se despliega). */
+async function elegirViaje(valor: string) {
+  await abrirNotaYViaje();
+  await selectValue(byId<HTMLSelectElement>('gasto-viaje'), valor);
+}
 async function typeText(el: HTMLInputElement | null, value: string) {
   if (!el) throw new Error('no se encontró el campo');
   await act(async () => {
@@ -565,7 +575,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
   it('elegir un viaje con camión: "Camión del viaje: X" (sin botones) y va ese', async () => {
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    await elegirViaje(V_B.id);
     expect(radiosCamion()).toHaveLength(0);
     expect(bodyText()).toContain('Camión del viaje: ABC 123');
     await guardar();
@@ -575,8 +585,8 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
   it('cambiar de viaje cambia el camión', async () => {
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_A.id);
+    await elegirViaje(V_B.id);
+    await elegirViaje(V_A.id);
     expect(bodyText()).toContain('Camión del viaje: AB 123 CD');
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(A.id);
@@ -585,8 +595,8 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
   it('"Sin viaje" lo vuelve editable, con el camión que tenía elegido', async () => {
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), '');
+    await elegirViaje(V_B.id);
+    await elegirViaje('');
     expect(radioCamion('ABC 123')!.checked).toBe(true);
     await click(radioCamion('AB 123 CD'));
     await guardar();
@@ -596,7 +606,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
   it('un viaje SIN camión no bloquea: se elige como sin viaje', async () => {
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_SIN.id);
+    await elegirViaje(V_SIN.id);
     expect(radiosCamion()).toHaveLength(2);
     await guardar();
     expect(errorCamion()).toBe(CAMION_FALTA_MESSAGE);
@@ -614,7 +624,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
     route.camiones = () => ok([A, B, X]);
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_X.id);
+    await elegirViaje(V_X.id);
     expect(bodyText()).toContain('Camión del viaje: XY 987 ZW (ya no se usa)');
     await guardar();
     expect(errorCamion()).toBe('El camión de este viaje (XY 987 ZW) ya no se usa: reactívalo desde Camiones o anota el gasto sin viaje.');
@@ -626,7 +636,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
     route.camiones = () => ok([A]);
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    await elegirViaje(V_B.id);
     expect(bodyText()).toContain('Camión del viaje: Camión no disponible');
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert').camion_id).toBe(B.id);
@@ -637,7 +647,7 @@ describe('carga de combustible en un viaje con camión: el del viaje, bloqueado'
     await click(casillaOf(PEAJES_ID));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     await elegirMetodo('efectivo');
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    await elegirViaje(V_B.id);
     await guardar();
     expect(payloadOf(inserts()[0]!, 'insert')).toMatchObject({ camion_id: null, viaje_id: V_B.id });
   });
@@ -704,7 +714,7 @@ describe('errores del camión al guardar', () => {
     route.insertar = () => fail('23514', 'El camión del gasto no coincide con el del viaje (gastos_camion_viaje_chk)');
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    await elegirViaje(V_B.id);
     await guardar();
     expect(bodyText()).toContain('El camión no coincide con el del viaje: el viaje cambió de camión. Vuelve a elegir el viaje.');
     expect(bodyText()).not.toContain('gastos_camion_viaje_chk');
@@ -752,7 +762,7 @@ describe('errores del camión al guardar', () => {
       fail('23503', 'insert or update on table "gastos" violates foreign key constraint "gastos_viaje_fk"', 409);
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    await elegirViaje(V_B.id);
     await guardar();
     expect(bodyText()).toContain('El viaje elegido ya no existe. Elige otro o déjalo sin viaje.');
     expect(invalido(viajesKeys.recientes(T))).toBe(true);
@@ -871,7 +881,7 @@ describe('carga de combustible nueva: el camión activo (Etapa 5c)', () => {
     await mount();
     await llenarCombustible();
     expect(lineaCamion()).toBe('Camión: AB 123 CD');
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
+    await elegirViaje(V_B.id);
     expect(lineaCamion()).toBeNull();
     expect(botonCambiar()).toBeNull();
     expect(bodyText()).toContain('Camión del viaje: ABC 123');
@@ -883,8 +893,8 @@ describe('carga de combustible nueva: el camión activo (Etapa 5c)', () => {
     CAMION_ACTIVO = A.id;
     await mount();
     await llenarCombustible();
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_B.id);
-    await selectValue(byId<HTMLSelectElement>('gasto-viaje'), '');
+    await elegirViaje(V_B.id);
+    await elegirViaje('');
     expect(lineaCamion()).toBe('Camión: ABC 123');
     expect(ayudaCamion()).toBeNull(); // no es el camión activo
     await guardar();

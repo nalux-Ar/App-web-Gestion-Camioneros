@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { MAX_GASTOS_POR_VEZ } from '@/features/gastos/constants';
+import { textoDelPliegue } from '@/features/gastos/gasto-pliegue';
 import { ACCESO_RESUMEN, ACCESO_VER_VIAJES, ACCION_ANOTAR_GASTO, ACCION_ANOTAR_VIAJE } from '@/features/home/inicio-textos';
 import { ELEGIR_EL_VIAJE as BOTON_ELEGIR_EL_VIAJE } from '@/features/gastos/sumar-a-viaje-textos';
 import { BOTON_ENTRADA_SUMAR_GASTOS } from '@/features/gastos/sumar-gastos-textos';
@@ -294,6 +295,15 @@ describe('la ayuda de «Nuevo gasto»: se puede marcar más de una categoría', 
     const punto = ayuda.puntos.find((p) => p.includes('«Cambiar»'));
     expect(punto).toBe('Elige la categoría y anota el monto. La fecha es la de hoy: toca «Cambiar» si fue otro día.');
     expect(punto!.length).toBeLessThanOrEqual(100);
+  });
+
+  it('dice que la nota y el viaje se agregan con el botón «Agregar nota o viaje» (el mismo texto del botón) y que en «Gastos varios» hay que contar en qué se gastó', () => {
+    const punto = ayuda.puntos.find((p) => p.includes('«Agregar nota o viaje»'));
+    expect(punto).toBe('Con «Agregar nota o viaje» sumas una nota o lo unes a un viaje. En «Gastos varios» cuenta en qué gastaste.');
+    expect(punto).toContain(`«${textoDelPliegue(1)}»`);
+    expect(punto).toContain('«Gastos varios»');
+    expect(punto!.length).toBeLessThanOrEqual(115);
+    expect(ayuda.puntos).toHaveLength(5); // ya está en el máximo: se cambió un punto, no se agregó otro
   });
 
   it('lo de siempre sigue: categoría, monto y fecha, cómo se pagó, combustible, viaje y «Gastos varios»', () => {

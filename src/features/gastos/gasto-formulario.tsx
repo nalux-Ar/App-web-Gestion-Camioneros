@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Plus } from 'lucide-react';
 import { useNavigate } from 'react-router';
 
 import { ChoiceGroup } from '@/components/shared/choice-group';
@@ -70,6 +71,14 @@ import { LoteDeGastosDistintoError } from './gasto-lote-errores';
 import type { GastoParaGuardar } from './gasto-lote-save';
 import { GUARDAR_LOTE_CONTEXT } from './gasto-lote-textos';
 import { GastoNoEncontrado } from './gasto-no-encontrado';
+import {
+  AYUDA_EN_QUE_GASTASTE,
+  ETIQUETA_DESCRIPCION,
+  ETIQUETA_EN_QUE_GASTASTE,
+  etiquetaDeNota,
+  hayDatosEnElPliegue,
+  textoDelPliegue,
+} from './gasto-pliegue';
 import { textoPreguntaEliminar } from './gasto-textos';
 import {
   SIN_ERRORES,
@@ -125,6 +134,7 @@ const IDS = {
   tanque: 'gasto-tanque', // el grupo; la primera opción es `gasto-tanque-0`
   fecha: 'gasto-fecha',
   viaje: 'gasto-viaje',
+  pliegue: 'gasto-pliegue', // la región de «Agregar nota o viaje»: SIEMPRE está en la página (oculta mientras está plegada)
   metodo: 'gasto-metodo', // el grupo de 4 botones; la primera opción es `gasto-metodo-0`
 } as const;
 
@@ -219,10 +229,13 @@ interface GastoFormularioProps {
  * mismos textos, mismos ids y el mismo guardado de UN gasto (`useCrearGasto`); con dos o más se guardan todos juntos en UN solo pedido
  * (`useCrearGastos`: quedan todos o ninguno), cada uno con su propia clave de idempotencia. La edición sigue siendo de UNA categoría.
  *
- * Orden en pantalla: categoría, descripción, monto (y el recuadro de Combustible), «¿Cómo pagaste?», fecha y viaje. Con varias categorías:
- * los bloques, el grupo «¿Cómo pagaste cada gasto?» y después la fecha y el viaje compartidos. La fecha va plegada («Fecha: hoy» con
- * «Cambiar»): el campo aparece al tocar «Cambiar» o ante un error de la fecha, y una vez abierto queda abierto. El foco al primer error
- * sigue ese mismo orden (`camposEnOrdenVisual`).
+ * Orden en pantalla: categoría, monto (y el recuadro de Combustible), «¿Cómo pagaste?», fecha y el pliegue «Agregar nota o viaje» (la
+ * nota y el viaje). Con varias categorías: los bloques, el grupo «¿Cómo pagaste cada gasto?» y después la fecha y el pliegue compartidos
+ * (una nota por categoría y el viaje). La descripción de «Gastos varios» es obligatoria y NO se pliega: «¿En qué gastaste?», arriba,
+ * debajo de la categoría. La fecha va plegada («Fecha: hoy» con «Cambiar»): el campo aparece al tocar «Cambiar» o ante un error de la
+ * fecha. El pliegue de nota y viaje se ve abierto desde el principio si ya hay algo adentro (un gasto con nota o viaje, un viaje que llega
+ * elegido) o se abre con el botón o ante un error de la nota o del viaje. Lo abierto queda abierto. El foco al primer error sigue ese
+ * mismo orden (`camposEnOrdenVisual`).
  *
  * Resiliencia (patrón de src/lib/use-submit-feedback.ts):
  *  - El estado de los campos vive acá, en memoria, y NO se limpia si el guardado falla.
@@ -284,6 +297,9 @@ export function GastoFormulario({
   // abierto queda abierto (aunque se corrija el error o se vuelva a hoy). Una fecha que no se entiende (la base acepta cosas raras) no se
   // puede resumir en una línea: el campo arranca abierto.
   const [fechaAbierta, setFechaAbierta] = useState(() => !isValidDateString(valoresIniciales.fecha));
+  // El pliegue «Agregar nota o viaje» (la nota de cada categoría común y el viaje). `pliegueAbierto` = ya se abrió: con el botón, por un
+  // error o porque en algún momento hubo algo adentro (más abajo). Una vez abierto queda abierto, como la fecha.
+  const [pliegueAbierto, setPliegueAbierto] = useState(false);
   const [viajeId, setViajeId] = useState(valoresIniciales.viajeId);
   const [combustible, setCombustible] = useState<DatosDeCombustible>({
     camionId: valoresIniciales.camionId,
@@ -344,6 +360,27 @@ export function GastoFormulario({
     [categoriasEnOrden, carga.elegidas],
   );
   const categoriaUnica = categorias.find((categoria) => categoria.id === claveUnica);
+
+  // «Gastos varios»: su descripción es obligatoria y va SIEMPRE a la vista, arriba («¿En qué gastaste?»). La de las demás categorías (o la
+  // de ninguna marcada) es una nota opcional que va en el pliegue «Agregar nota o viaje», junto con el viaje. Estas son las claves de cada uno.
+  const clavesDeVarios = varias
+    ? categoriasElegidas.filter((categoria) => isGastosVarios(categoria)).map((categoria) => categoria.id)
+    : isGastosVarios(categoriaUnica)
+      ? [claveUnica]
+      : [];
+  const clavesConNota = varias
+    ? categoriasElegidas.filter((categoria) => !isGastosVarios(categoria)).map((categoria) => categoria.id)
+    : isGastosVarios(categoriaUnica)
+      ? []
+      : [claveUnica];
+  // El pliegue se ve abierto si ya se abrió O si tiene algo adentro (derivado de lo escrito y del viaje: un pliegue cerrado no puede
+  // esconder datos, ni al editar, ni al llegar desde un viaje, ni cuando una nota pasa a otra categoría).
+  const hayDatosAdentro = hayDatosEnElPliegue({ viajeId, notas: clavesConNota.map((clave) => bloqueDe(carga, clave).descripcion) });
+  const pliegueVisible = pliegueAbierto || hayDatosAdentro;
+  // Lo que se vio abierto queda abierto: se recuerda acá, en un solo lugar, para que no se pliegue bajo el dedo al borrar la nota, al
+  // elegir «Sin viaje» o al cambiar de categoría. Es un ajuste de estado durante el render (condicional: React vuelve a dibujar antes de
+  // pintar), así no depende de que cada campo o manejador se acuerde de hacerlo.
+  if (pliegueVisible && !pliegueAbierto) setPliegueAbierto(true);
 
   // Con `run` de una vez: el contexto de errores es el de UN gasto o el de varios (que además sabe de "las categorías de antes").
   const { run, pending, lento, error, retryable, clearError } = useSubmitFeedback({
@@ -460,6 +497,12 @@ export function GastoFormulario({
     setErrores((previos) => sinErrorCompartido(previos, 'fecha'));
   }
 
+  /** «Agregar nota o viaje»: se despliega el pliegue y el foco pasa a su primer campo (la primera nota, o el viaje si no hay notas). */
+  function abrirPliegue() {
+    setPliegueAbierto(true);
+    pedirFoco(clavesConNota.length > 0 ? idsDelBloque(varias ? clavesConNota[0]! : null).descripcion : IDS.viaje);
+  }
+
   function handleViajeChange(id: string) {
     setViajeId(id);
     setErrores((previos) => sinErrorCompartido(previos, 'viajeId'));
@@ -492,9 +535,17 @@ export function GastoFormulario({
     // Un error de la fecha nunca queda escondido en la fila plegada: se abre el campo en el MISMO ciclo que se pinta el error (todo
     // esto va junto en un solo render), así cuando corre el efecto del foco el campo ya existe.
     if (nuevos.compartidos.fecha !== undefined) setFechaAbierta(true);
-    // El foco va al PRIMER error en el orden en que se ven los campos (el método de pago antes que la fecha y el viaje; con varias
-    // categorías, los de todos los bloques juntos).
-    const puesto = primerErrorVisual(nuevos, disposicion, claves);
+    // Lo mismo con el pliegue «Agregar nota o viaje»: un error del viaje o de una nota (p. ej. de largo) lo abre en este mismo render. Con
+    // la validación de hoy esos errores implican algo adentro (ya se vería abierto); esto lo garantiza igual si la validación cambia.
+    if (
+      nuevos.compartidos.viajeId !== undefined ||
+      clavesConNota.some((clave) => Object.hasOwn(nuevos.bloques, clave) && nuevos.bloques[clave]!.descripcion !== undefined)
+    ) {
+      setPliegueAbierto(true);
+    }
+    // El foco va al PRIMER error en el orden en que se ven los campos (el método de pago antes que la fecha, la nota y el viaje; con varias
+    // categorías, los de todos los bloques juntos; la descripción de «Gastos varios» arriba, la nota de las demás en el pliegue).
+    const puesto = primerErrorVisual(nuevos, disposicion, claves, clavesDeVarios);
     if (puesto) pedirFoco(idDelPuesto(puesto, disposicion === 'varias', decisionCamion));
   }
 
@@ -661,39 +712,55 @@ export function GastoFormulario({
 
   // --- lo que se ve ---
 
-  /** Descripción, monto y, en Combustible, su recuadro: lo que lleva cada bloque (o la pantalla de siempre, con una categoría). */
+  /**
+   * La descripción de un bloque. Dos lugares, según la categoría:
+   *  - «Gastos varios»: «¿En qué gastaste?», obligatoria y SIEMPRE a la vista, justo debajo de la categoría (o del título de su bloque).
+   *  - las demás: una nota opcional que vive en el pliegue «Agregar nota o viaje». Con una sola categoría se llama «Descripción» (como
+   *    siempre); con varias, «Nota de Peajes», para saber de cuál es.
+   * El id es el de siempre en los dos casos (`gasto-descripcion`, o `gasto-descripcion-<categoría>` con varias): nunca están los dos a la vez.
+   */
+  function campoDescripcion(clave: string, categoria: Categoria | undefined, enVarias: boolean) {
+    const bloque = bloqueDe(carga, clave);
+    const delBloque = Object.hasOwn(errores.bloques, clave) ? errores.bloques[clave]! : {};
+    // "Gastos varios": la descripción es obligatoria (ver `validateGastoForm`).
+    const esVarios = categoria !== undefined && isGastosVarios(categoria);
+    // Con tope: un texto enorme pegado no se recorre entero en cada render.
+    const descripcionLength = charLength(bloque.descripcion, MAX_DESCRIPCION);
+    return (
+      <TextareaField
+        id={idsDelBloque(enVarias ? clave : null).descripcion}
+        label={esVarios ? ETIQUETA_EN_QUE_GASTASTE : enVarias ? etiquetaDeNota(nombreParaMostrar(categoria!)) : ETIQUETA_DESCRIPCION}
+        optional={!esVarios}
+        value={bloque.descripcion}
+        onChange={(value) => setCampoDelBloque(clave, 'descripcion', value)}
+        hint={
+          descripcionLength > MAX_DESCRIPCION
+            ? `Más de ${MAX_DESCRIPCION} caracteres: acórtala.`
+            : descripcionLength >= DESCRIPCION_COUNTER_FROM
+              ? `${descripcionLength} de ${MAX_DESCRIPCION} caracteres`
+              : esVarios
+                ? AYUDA_EN_QUE_GASTASTE
+                : undefined
+        }
+        error={delBloque.descripcion}
+      />
+    );
+  }
+
+  /** «¿En qué gastaste?» (solo «Gastos varios»), monto y, en Combustible, su recuadro: lo que lleva cada bloque. La nota de las demás va en el pliegue. */
   function camposDelBloque(clave: string, categoria: Categoria | undefined, enVarias: boolean) {
     const ids = idsDelBloque(enVarias ? clave : null);
     const bloque = bloqueDe(carga, clave);
     const delBloque = Object.hasOwn(errores.bloques, clave) ? errores.bloques[clave]! : {};
     const esCombustible = categoria !== undefined && isCombustible(categoria);
-    // "Gastos varios": la descripción es obligatoria (ver `validateGastoForm`).
     const esVarios = categoria !== undefined && isGastosVarios(categoria);
-    // Con tope: un texto enorme pegado no se recorre entero en cada render.
-    const descripcionLength = charLength(bloque.descripcion, MAX_DESCRIPCION);
     const precioPorLitro = esCombustible ? previewPrecioPorLitro(bloque.monto, combustible.litros) : null;
 
     return (
       <>
-        {/* Justo debajo de la categoría: es lo que dice de qué se trata el gasto. En "Gastos varios" (la
-            categoría más ambigua) es obligatoria; en las demás, opcional. */}
-        <TextareaField
-          id={ids.descripcion}
-          label="Descripción"
-          optional={!esVarios}
-          value={bloque.descripcion}
-          onChange={(value) => setCampoDelBloque(clave, 'descripcion', value)}
-          hint={
-            descripcionLength > MAX_DESCRIPCION
-              ? `Más de ${MAX_DESCRIPCION} caracteres: acórtala.`
-              : descripcionLength >= DESCRIPCION_COUNTER_FROM
-                ? `${descripcionLength} de ${MAX_DESCRIPCION} caracteres`
-                : esVarios
-                  ? 'Obligatoria en Gastos varios: escribe de qué se trata.'
-                  : undefined
-          }
-          error={delBloque.descripcion}
-        />
+        {/* Justo debajo de la categoría: en "Gastos varios" (la categoría más ambigua) dice de qué se trata el gasto y es obligatoria, así
+            que no se pliega. */}
+        {esVarios ? campoDescripcion(clave, categoria, enVarias) : null}
 
         <NumberField
           id={ids.monto}
@@ -811,7 +878,7 @@ export function GastoFormulario({
       error={errores.compartidos.fecha}
     />
   ) : (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <p id={`${IDS.fecha}-linea`} className="text-base">
         {ROTULO_FECHA} <span className="font-semibold">{textoDeLaFecha(fecha, today)}</span>
       </p>
@@ -849,6 +916,38 @@ export function GastoFormulario({
         />
       ) : null}
     </div>
+  );
+
+  // El pliegue «Agregar nota o viaje»: la nota de cada categoría común y el viaje, que casi nunca se completan. Plegado es SOLO un botón de
+  // ancho completo; desplegado (a propósito, por un error o porque ya hay algo adentro) quedan los campos de siempre, con sus ids, y el
+  // botón desaparece. La región (`gasto-pliegue`) está siempre en la página, oculta mientras está plegada, así el `aria-controls` del
+  // botón apunta a un elemento que existe; su contenido solo se dibuja desplegado (no hay campos ocultos ni ids repetidos).
+  const pliegue = (
+    <>
+      <div id={IDS.pliegue} hidden={!pliegueVisible} className="space-y-5">
+        {pliegueVisible ? (
+          <>
+            {clavesConNota.map((clave) => (
+              <div key={clave}>{campoDescripcion(clave, categorias.find((categoria) => categoria.id === clave), varias)}</div>
+            ))}
+            {campoViaje}
+          </>
+        ) : null}
+      </div>
+      {!pliegueVisible ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto min-h-12 w-full whitespace-normal py-2"
+          aria-expanded="false"
+          aria-controls={IDS.pliegue}
+          onClick={abrirPliegue}
+        >
+          <Plus aria-hidden="true" />
+          {textoDelPliegue(clavesConNota.length)}
+        </Button>
+      ) : null}
+    </>
   );
 
   // La categoría: en la edición, UNA opción (como siempre); en el alta, casillas (una o más).
@@ -916,10 +1015,11 @@ export function GastoFormulario({
               ))}
             </div>
 
-            {/* La fecha y el viaje son uno solo para todos los gastos. */}
+            {/* La fecha y el viaje son uno solo para todos los gastos. El viaje y las notas de las categorías (menos «Gastos varios», que
+                tiene su pregunta arriba) van todos en UN solo pliegue, después de la fecha. */}
             <div className="space-y-5 border-t border-border pt-5">
               {campoFecha}
-              {campoViaje}
+              {pliegue}
             </div>
           </>
         ) : (
@@ -927,7 +1027,7 @@ export function GastoFormulario({
             {camposDelBloque(claveUnica, categoriaUnica, false)}
             {campoMetodoDePago(claveUnica, LEYENDA_COMO_PAGASTE, false)}
             {campoFecha}
-            {campoViaje}
+            {pliegue}
           </>
         )}
 

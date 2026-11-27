@@ -257,6 +257,15 @@ async function escribirMonto(value: string) {
   await typeText(byId<HTMLInputElement>('gasto-monto')!, value);
   await elegirMetodo();
 }
+/** «Agregar nota o viaje»: despliega el pliegue donde viven la descripción (nota) y el viaje (si ya está desplegado, no hace nada). */
+async function abrirNotaYViaje() {
+  const boton = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.getAttribute('aria-controls') === 'gasto-pliegue');
+  if (!boton) return;
+  await act(async () => {
+    boton.click();
+  });
+  await settle(3);
+}
 async function submit() {
   await act(async () => {
     guardar().click();
@@ -285,41 +294,53 @@ afterEach(async () => {
   errorSpy.mockRestore();
 });
 
-describe('formulario de gasto: la descripcion arriba del monto y obligatoria en Gastos varios', () => {
-  it('orden en pantalla: Categoria -> Descripcion -> Monto -> Metodo de pago -> Fecha (la descripcion ya no queda al final)', async () => {
+describe('formulario de gasto: la descripcion (nota) en el pliegue, y obligatoria y a la vista en Gastos varios', () => {
+  it('orden en pantalla: Categoria -> Monto -> Metodo de pago -> Fecha -> (nota y viaje en el pliegue); Gastos varios: la descripcion queda arriba', async () => {
     installResponder();
     await mountForm();
     const cat = byId('gasto-categoria-0')!.closest('fieldset')!;
-    const desc = byId('gasto-descripcion')!;
     const monto = byId('gasto-monto')!;
     const metodo = byId('gasto-metodo-0')!;
     const fecha = byId('gasto-fecha-linea')!; // la fecha va plegada: «Fecha: hoy» con «Cambiar»
-    expect(cat && desc && monto && fecha && metodo).toBeTruthy();
+    expect(cat && monto && fecha && metodo).toBeTruthy();
     const before = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(before(cat, desc)).toBe(true);
-    expect(before(desc, monto)).toBe(true);
+    expect(before(cat, monto)).toBe(true);
     expect(before(monto, metodo)).toBe(true);
     expect(before(metodo, fecha)).toBe(true);
-    // Y despues de la descripcion no queda otro textarea (no esta duplicada al final).
+    // La descripcion no esta a la vista: vive en el pliegue «Agregar nota o viaje», DESPUES de la fecha.
+    expect(byId('gasto-descripcion')).toBeNull();
+    expect(document.querySelectorAll('textarea')).toHaveLength(0);
+    await abrirNotaYViaje();
+    const desc = byId('gasto-descripcion')!;
+    expect(before(fecha, desc)).toBe(true);
+    // Y no esta duplicada: un solo textarea.
+    expect(document.querySelectorAll('textarea')).toHaveLength(1);
+    // Con Gastos varios la descripcion sube: justo debajo de la categoria y antes del monto.
+    await choose(GASTOS_VARIOS_CATEGORIA_ID);
+    expect(before(cat, byId('gasto-descripcion')!)).toBe(true);
+    expect(before(byId('gasto-descripcion')!, monto)).toBe(true);
     expect(document.querySelectorAll('textarea')).toHaveLength(1);
   });
 
   it('sin categoria o con una opcional: la etiqueta dice "(opcional)" y no hay ayuda de obligatoria', async () => {
     installResponder();
     await mountForm();
+    await abrirNotaYViaje();
     expect(labelOf('gasto-descripcion').textContent).toContain('(opcional)');
     await choose(PEAJES_ID);
     expect(labelOf('gasto-descripcion').textContent).toContain('(opcional)');
     expect(bodyText()).not.toContain('Obligatoria en Gastos varios');
+    expect(bodyText()).not.toContain('Es obligatorio: cuéntanos de qué se trata.');
     expect(byId('gasto-descripcion')!.getAttribute('aria-required')).toBeNull();
   });
 
-  it('Gastos varios: la etiqueta pierde "(opcional)", aparece la ayuda y el campo queda aria-required', async () => {
+  it('Gastos varios: «¿En qué gastaste?» sin "(opcional)", con su ayuda corta y el campo aria-required, SIN tocar ningun pliegue', async () => {
     installResponder();
     await mountForm();
     await choose(GASTOS_VARIOS_CATEGORIA_ID);
-    expect(labelOf('gasto-descripcion').textContent).toBe('Descripción');
-    expect(bodyText()).toContain('Obligatoria en Gastos varios: escribe de qué se trata.');
+    expect(labelOf('gasto-descripcion').textContent).toBe('¿En qué gastaste?');
+    expect(bodyText()).toContain('Es obligatorio: cuéntanos de qué se trata.');
+    expect(bodyText()).not.toContain('Obligatoria en Gastos varios');
     expect(byId('gasto-descripcion')!.getAttribute('aria-required')).toBe('true');
     expect(byId('gasto-descripcion')!.getAttribute('aria-describedby')).toContain('gasto-descripcion-hint');
   });
@@ -335,6 +356,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     expect(document.activeElement?.id).toBe('gasto-descripcion');
     expect(inserts()).toHaveLength(0);
     expect(byId('lista-de-gastos')).toBeNull(); // sigue en el formulario
+    expect(document.querySelector('label[for="gasto-descripcion"]')!.textContent).toBe('¿En qué gastaste?');
   });
 
   it('Gastos varios con descripcion: se guarda con esa descripcion (recortada) y vuelve a la lista', async () => {
@@ -367,6 +389,7 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
     installResponder();
     await mountForm();
     await choose(PROPIA_ID);
+    await abrirNotaYViaje(); // es una categoria comun: su descripcion es una nota, en el pliegue
     expect(labelOf('gasto-descripcion').textContent).toContain('(opcional)');
     await escribirMonto('300');
     await submit();
@@ -384,6 +407,8 @@ describe('formulario de gasto: la descripcion arriba del monto y obligatoria en 
 
     await choose(PEAJES_ID);
     expect(bodyText()).not.toContain('Escribe de qué se trata este gasto.');
+    expect(byId('gasto-descripcion')).toBeNull(); // la nota de Peajes esta en el pliegue, plegado
+    await abrirNotaYViaje();
     expect(byId('gasto-descripcion')!.getAttribute('aria-invalid')).toBeNull();
     expect(labelOf('gasto-descripcion').textContent).toContain('(opcional)');
 

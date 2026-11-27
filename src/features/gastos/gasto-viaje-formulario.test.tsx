@@ -266,6 +266,11 @@ async function elegirMetodo(valor: string) {
 }
 /** El método marcado en los 4 botones ('' si no hay ninguno). */
 const metodoMarcado = () => document.querySelector<HTMLInputElement>('input[type="radio"][id^="gasto-metodo-"]:checked')?.value ?? '';
+/** «Agregar nota o viaje»: despliega el pliegue donde vive el viaje (si ya está desplegado, no hace nada). */
+async function abrirNotaYViaje() {
+  const boton = buttons().find((b) => b.getAttribute('aria-controls') === 'gasto-pliegue');
+  if (boton) await click(boton);
+}
 async function guardar() {
   await act(async () => {
     buttonByText('Guardar gasto')!.click();
@@ -306,9 +311,11 @@ afterEach(async () => {
 // Alta: el selector "Viaje"
 // ---------------------------------------------------------------------------
 describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
-  it('va despues del metodo de pago y de la fecha (la fila plegada), al final, con "(opcional)" en la etiqueta', async () => {
+  it('va despues del metodo de pago y de la fecha (la fila plegada), al final, en el pliegue «Agregar nota o viaje», con "(opcional)" en la etiqueta', async () => {
     await mount();
     const fecha = byId('gasto-fecha-linea')!;
+    expect(byId('gasto-viaje')).toBeNull(); // plegado: no esta a la vista hasta tocar «Agregar nota o viaje»
+    await abrirNotaYViaje();
     const viaje = selectViaje();
     const metodo = byId('gasto-metodo-0')!;
     const antes = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -321,12 +328,14 @@ describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
 
   it('un gasto comun NO preselecciona ningun viaje: queda en "Sin viaje" (valor vacio)', async () => {
     await mount();
+    await abrirNotaYViaje();
     expect(selectViaje().value).toBe('');
     expect(seleccionado()).toBe('Sin viaje');
   });
 
   it('ofrece "Sin viaje" y los 50 viajes recientes, con la etiqueta "2 oct · Pilar → Villa María" (el año solo si no es el actual)', async () => {
     await mount();
+    await abrirNotaYViaje();
     const opciones = opcionesDelSelect();
     expect(opciones).toHaveLength(51);
     expect(opciones[0]).toEqual({ value: '', label: 'Sin viaje' });
@@ -352,12 +361,15 @@ describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
 
   it('con 50 recientes avisa que son los mas recientes; con menos, no', async () => {
     await mount();
+    expect(bodyText()).not.toContain('Se muestran los 50 viajes más recientes.'); // el selector está en el pliegue: plegado no se ve
+    await abrirNotaYViaje();
     expect(bodyText()).toContain('Se muestran los 50 viajes más recientes.');
   });
 
   it('con menos de 50 viajes no hay aviso', async () => {
     route.recientes = () => ok(RECIENTES.slice(0, 3));
     await mount();
+    await abrirNotaYViaje();
     expect(bodyText()).not.toContain('Se muestran los 50');
     expect(opcionesDelSelect()).toHaveLength(4);
   });
@@ -377,6 +389,7 @@ describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
 
   it('eligiendo un viaje el INSERT lo manda', async () => {
     await mount();
+    await abrirNotaYViaje();
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     expect(seleccionado()).toBe('5 mar 2020 · Rosario → Córdoba');
@@ -386,6 +399,7 @@ describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
 
   it('elegir un viaje y volver a "Sin viaje" manda null', async () => {
     await mount();
+    await abrirNotaYViaje();
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     await selectValue(selectViaje(), '');
@@ -395,6 +409,7 @@ describe('formulario de gasto (alta): selector "Viaje (opcional)"', () => {
 
   it('el viaje elegido sigue como opcion (y elegido) aunque una actualizacion de la lista ya no lo traiga', async () => {
     await mount();
+    await abrirNotaYViaje();
     await selectValue(selectViaje(), V_OTRO);
     // Aparece un viaje nuevo y el 50º (el ultimo) sale de la lista; el elegido ya no viene entre los recientes.
     const conOtroNuevo = [viajeFila(uuidViaje(300), `${ANIO_ACTUAL}-01-20`, 'Nuevo', 'Viaje'), ...RECIENTES.filter((v) => v.id !== V_OTRO).slice(0, 49)];
@@ -420,6 +435,7 @@ describe('formulario de gasto: si la lista de viajes no carga', () => {
   it('muestra el error con "Reintentar" junto al campo y NO bloquea el guardado (se guarda sin viaje)', async () => {
     route.recientes = () => sinRed();
     await mount();
+    await abrirNotaYViaje();
     expect(bodyText()).toContain('No pudimos cargar los viajes.');
     expect(bodyText()).toContain('No hay señal');
     const reintentar = buttonByText('Reintentar')!;
@@ -441,6 +457,7 @@ describe('formulario de gasto: si la lista de viajes no carga', () => {
     let conSenal = false;
     route.recientes = () => (conSenal ? ok(RECIENTES) : sinRed());
     await mount();
+    await abrirNotaYViaje();
     await typeText(byId<HTMLInputElement>('gasto-monto'), '777');
     await click(casillaOf(PEAJES_ID));
     expect(bodyText()).toContain('No pudimos cargar los viajes.');
@@ -463,6 +480,7 @@ describe('formulario de gasto: si la lista de viajes no carga', () => {
 
   it('un refresco fallido con la lista YA cargada no muestra ningun error ni saca las opciones', async () => {
     await mount();
+    await abrirNotaYViaje();
     route.recientes = () => sinRed();
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: viajesKeys.recientes('tenant-a') });
@@ -476,6 +494,7 @@ describe('formulario de gasto: si la lista de viajes no carga', () => {
   it('mientras carga dice "Cargando viajes…" y se puede guardar sin viaje', async () => {
     route.recientes = () => new Promise<Resp>(() => {}); // nunca responde
     await mount();
+    await abrirNotaYViaje();
     expect(bodyText()).toContain('Cargando viajes…');
     expect(buttonByText('Guardar gasto')!.disabled).toBe(false);
     await llenarLoMinimo();
@@ -500,6 +519,7 @@ describe('formulario de gasto (edicion): el viaje vinculado', () => {
 
   it('un viaje vinculado que NO esta entre los 50 recientes se agrega igual a las opciones y queda elegido', async () => {
     await mount(`/gastos/${GASTO_ID}/editar`);
+    await abrirNotaYViaje();
     const opciones = opcionesDelSelect();
     expect(opciones).toHaveLength(52); // Sin viaje + el vinculado + los 50
     expect(opciones[0]).toEqual({ value: '', label: 'Sin viaje' });
@@ -512,6 +532,7 @@ describe('formulario de gasto (edicion): el viaje vinculado', () => {
   it('si el vinculado YA esta entre los recientes no se duplica', async () => {
     route.detalle = () => ok(gastoDetalle({ viaje_id: V_OTRO, viajes: RECIENTES[1] }));
     await mount(`/gastos/${GASTO_ID}/editar`);
+    await abrirNotaYViaje();
     expect(opcionesDelSelect()).toHaveLength(51);
     expect(opcionesDelSelect().filter((o) => o.value === V_OTRO)).toHaveLength(1);
     expect(selectViaje().value).toBe(V_OTRO);
@@ -526,6 +547,7 @@ describe('formulario de gasto (edicion): el viaje vinculado', () => {
 
   it('desvincular: elegir "Sin viaje" manda viaje_id = null EXPLICITO en el UPDATE', async () => {
     await mount(`/gastos/${GASTO_ID}/editar`);
+    await abrirNotaYViaje();
     await selectValue(selectViaje(), '');
     await guardar();
     expect(updates()).toHaveLength(1);
@@ -539,6 +561,7 @@ describe('formulario de gasto (edicion): el viaje vinculado', () => {
 
   it('cambiar de viaje manda el nuevo', async () => {
     await mount(`/gastos/${GASTO_ID}/editar`);
+    await abrirNotaYViaje();
     await selectValue(selectViaje(), V_PILAR);
     await guardar();
     expect(payloadOf(updates()[0]!, 'update').viaje_id).toBe(V_PILAR);
@@ -547,6 +570,7 @@ describe('formulario de gasto (edicion): el viaje vinculado', () => {
   it('un gasto SIN viaje arranca en "Sin viaje" y guardar manda null', async () => {
     route.detalle = () => ok(gastoDetalle({ viaje_id: null, viajes: null }));
     await mount(`/gastos/${GASTO_ID}/editar`);
+    await abrirNotaYViaje();
     expect(selectViaje().value).toBe('');
     expect(opcionesDelSelect()).toHaveLength(51);
     await guardar();
@@ -556,6 +580,7 @@ describe('formulario de gasto (edicion): el viaje vinculado', () => {
   it('si la lista de recientes falla, el viaje YA vinculado sigue siendo elegible y se guarda sin perder el vinculo', async () => {
     route.recientes = () => sinRed();
     await mount(`/gastos/${GASTO_ID}/editar`);
+    await abrirNotaYViaje();
     expect(bodyText()).toContain('No pudimos cargar los viajes.');
     expect(opcionesDelSelect().map((o) => o.value)).toEqual(['', V_VIEJO]);
     expect(selectViaje().value).toBe(V_VIEJO);
@@ -571,6 +596,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
   it('un uuid valido de un viaje que existe llega preseleccionado (aunque no este entre los 50) y se guarda con ese viaje', async () => {
     route.opcion = () => ok(PRESELECCIONADO);
     await mount(`/gastos/nuevo?viaje=${V_PRESELECCIONADO}`);
+    await abrirNotaYViaje();
     expect(opcionCalls()).toHaveLength(1);
     expect(opcionCalls()[0]!.ops.find((o) => o.m === 'eq')!.args).toEqual(['id', V_PRESELECCIONADO]);
     expect(selectViaje().value).toBe(V_PRESELECCIONADO);
@@ -586,6 +612,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
   it('un uuid valido de un viaje que SI esta entre los 50 tambien llega preseleccionado y sin duplicarse', async () => {
     route.opcion = () => ok(RECIENTES[1]);
     await mount(`/gastos/nuevo?viaje=${V_OTRO}`);
+    await abrirNotaYViaje();
     expect(selectViaje().value).toBe(V_OTRO);
     expect(opcionesDelSelect()).toHaveLength(51);
     expect(opcionesDelSelect().filter((o) => o.value === V_OTRO)).toHaveLength(1);
@@ -594,6 +621,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
   it('el uuid en MAYUSCULAS se acepta y se usa el id que devuelve la base', async () => {
     route.opcion = () => ok(PRESELECCIONADO);
     await mount(`/gastos/nuevo?viaje=${V_PRESELECCIONADO.toUpperCase()}`);
+    await abrirNotaYViaje();
     expect(selectViaje().value).toBe(V_PRESELECCIONADO);
   });
 
@@ -601,6 +629,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
     for (const raro of ['no-es-un-uuid', '123', '', '../../etc/passwd', `${V_PRESELECCIONADO}x`, '<script>alert(1)</script>', 'null']) {
       h.calls.length = 0;
       await mount(`/gastos/nuevo?viaje=${encodeURIComponent(raro)}`);
+      await abrirNotaYViaje();
       expect(opcionCalls(), raro).toHaveLength(0);
       expect(selectViaje().value, raro).toBe('');
       expect(seleccionado(), raro).toBe('Sin viaje');
@@ -615,6 +644,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
   it('un uuid que no existe (o es de otro transportista: la base no distingue) se ignora sin preseleccionar ni mostrar error', async () => {
     route.opcion = () => ok(null);
     await mount(`/gastos/nuevo?viaje=${V_INEXISTENTE}`);
+    await abrirNotaYViaje();
     expect(opcionCalls()).toHaveLength(1);
     expect(selectViaje().value).toBe('');
     expect(opcionesDelSelect()).toHaveLength(51);
@@ -632,6 +662,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
       return intento === 1 ? sinRed() : ok(PRESELECCIONADO);
     };
     await mount(`/gastos/nuevo?viaje=${V_PRESELECCIONADO}`);
+    await abrirNotaYViaje();
     expect(bodyText()).toContain('No hay señal');
     expect(byId('gasto-monto')).toBeNull();
     await click(buttonByText('Reintentar'));
@@ -643,6 +674,7 @@ describe('formulario de gasto: /gastos/nuevo?viaje=<uuid>', () => {
   it('?viaje= no hace nada al EDITAR un gasto: manda el viaje del gasto', async () => {
     route.detalle = () => ok(gastoDetalle({ viaje_id: null, viajes: null }));
     await mount(`/gastos/${GASTO_ID}/editar?viaje=${V_PRESELECCIONADO}`);
+    await abrirNotaYViaje();
     expect(opcionCalls()).toHaveLength(0);
     expect(selectViaje().value).toBe('');
   });
@@ -661,6 +693,7 @@ describe('formulario de gasto: abierto desde el detalle de un viaje', () => {
   it('alta: guardar vuelve al DETALLE de ESE viaje (con el aviso "gasto-guardado" y el mes para su enlace)', async () => {
     route.opcion = () => ok(RECIENTES[0]);
     await mount(desdeDetalle());
+    await abrirNotaYViaje();
     expect(selectViaje().value).toBe(V_PILAR);
     await llenarLoMinimo();
     await guardar();
@@ -749,6 +782,7 @@ describe('formulario de gasto: abierto desde el detalle de un viaje', () => {
   it('con ?viaje= pero SIN desdeViaje (un enlace pegado a mano) el viaje llega preseleccionado y se vuelve a /gastos', async () => {
     route.opcion = () => ok(RECIENTES[0]);
     await mount(`/gastos/nuevo?viaje=${V_PILAR}`);
+    await abrirNotaYViaje();
     expect(selectViaje().value).toBe(V_PILAR);
     await llenarLoMinimo();
     await guardar();
@@ -808,6 +842,7 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
   it('el viaje elegido ya no existe: mensaje del viaje (sin el nombre del constraint), sin "Reintentar", lo tipeado queda y se vuelve a pedir la lista de recientes', async () => {
     route.insertar = () => fail('23503', MSG_FK_VIAJE, 'Key (transportista_id, viaje_id)=(...) is not present in table "viajes".');
     await mount();
+    await abrirNotaYViaje();
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     expect(recientesCalls()).toHaveLength(1);
@@ -831,6 +866,7 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
       return intento === 1 ? fail('23503', MSG_FK_VIAJE) : ok(null);
     };
     await mount();
+    await abrirNotaYViaje();
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     await guardar();
@@ -845,6 +881,7 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
   it('el nombre del constraint puede venir solo en los details', async () => {
     route.insertar = () => fail('23503', 'violates foreign key constraint', 'constraint "gastos_viaje_fk" on table "gastos"');
     await mount();
+    await abrirNotaYViaje();
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     await guardar();
@@ -862,6 +899,7 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
   it('el 23503 de la CATEGORIA (el trigger, sin constraint) sigue igual: mensaje de categoria y NO se vuelve a pedir la lista de viajes', async () => {
     route.insertar = () => fail('23503', MSG_CATEGORIA);
     await mount();
+    await abrirNotaYViaje();
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     await guardar();
@@ -878,6 +916,7 @@ describe('formulario de gasto: el 23503 segun el constraint', () => {
       return intento === 1 ? sinRed() : ok(null);
     };
     await mount();
+    await abrirNotaYViaje();
     await llenarLoMinimo();
     await selectValue(selectViaje(), V_OTRO);
     await guardar();
@@ -900,6 +939,7 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
 
   it('la leyenda ya no dice "(opcional)", los botones son requeridos y ninguno viene marcado (no hay "Sin especificar")', async () => {
     await mount();
+    await abrirNotaYViaje();
     expect(grupoMetodo().querySelector('legend')!.textContent).not.toContain('(opcional)');
     expect(grupoMetodo().querySelector('legend')!.textContent).toBe('¿Cómo pagaste?');
     expect(radiosMetodo().every((radio) => radio.required)).toBe(true);
@@ -914,6 +954,7 @@ describe('formulario de gasto: el método de pago es obligatorio', () => {
     ['Gastos varios', GASTOS_VARIOS_CATEGORIA_ID],
   ])('%s sin método: error visible, el foco va al método y NO se manda nada', async (_nombre, categoriaId) => {
     await mount();
+    await abrirNotaYViaje();
     await click(casillaOf(categoriaId));
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
     if (categoriaId === GASTOS_VARIOS_CATEGORIA_ID) {

@@ -107,17 +107,27 @@ const CAMPOS_DEL_BLOQUE: readonly CampoDeBloque[] = GASTO_FIELD_ORDER.filter(
   (campo): campo is CampoDeBloque => campo !== 'categoriaId' && campo !== 'metodoPago' && !esCampoCompartido(campo),
 );
 
+/** Lo del bloque que está SIEMPRE a su lado: todo menos la descripción (que o va arriba, en «Gastos varios», o va en el pliegue de notas). */
+const CAMPOS_DEL_BLOQUE_SIN_DESCRIPCION: readonly CampoDeBloque[] = CAMPOS_DEL_BLOQUE.filter((campo) => campo !== 'descripcion');
+
+/** Lo que va ANTES del método de pago con un solo bloque: categoría, descripción, monto, camión, litros, km y tanque (el orden de `GASTO_FIELD_ORDER`). */
+const CAMPOS_ANTES_DEL_METODO: readonly GastoFormField[] = GASTO_FIELD_ORDER.filter(
+  (campo) => campo !== 'metodoPago' && campo !== 'fecha' && campo !== 'viajeId',
+);
+
 /**
- * El orden de TODOS los campos con un solo bloque, tal como se ven: lo de siempre hasta el tanque lleno, después el método de pago y,
- * al final, la fecha y el viaje. NO es `GASTO_FIELD_ORDER` (ese es el de la validación, que sigue con la fecha y el viaje antes del
- * método de pago): el método de pago se pasó ANTES de la fecha y el viaje en la pantalla.
+ * El orden de TODOS los campos con un solo bloque, tal como se ven. NO es `GASTO_FIELD_ORDER` (ese es el de la validación): en pantalla
+ * el método de pago va ANTES de la fecha y el viaje, y la descripción de una categoría común va en el pliegue «Agregar nota o viaje»
+ * (después de la fecha, antes del viaje). La de «Gastos varios» no se pliega: queda arriba, justo debajo de la categoría.
  */
-const ORDEN_VISUAL_DE_UN_BLOQUE: readonly GastoFormField[] = [
-  ...GASTO_FIELD_ORDER.filter((campo) => campo !== 'metodoPago' && campo !== 'fecha' && campo !== 'viajeId'),
+const ORDEN_VISUAL_DE_UN_BLOQUE_COMUN: readonly GastoFormField[] = [
+  ...CAMPOS_ANTES_DEL_METODO.filter((campo) => campo !== 'descripcion'),
   'metodoPago',
   'fecha',
+  'descripcion',
   'viajeId',
 ];
+const ORDEN_VISUAL_DE_UN_BLOQUE_VARIOS: readonly GastoFormField[] = [...CAMPOS_ANTES_DEL_METODO, 'metodoPago', 'fecha', 'viajeId'];
 
 function mensajeDe(errores: ErroresDeCarga, puesto: PuestoDeCampo): string | undefined {
   if (puesto.clave === null) {
@@ -131,22 +141,37 @@ function mensajeDe(errores: ErroresDeCarga, puesto: PuestoDeCampo): string | und
 /**
  * Los campos de la pantalla EN EL ORDEN EN QUE SE VEN, para llevar el foco al primero con error.
  *
- *  - Con un solo bloque (`'una'`: una categoría marcada, ninguna o la edición): categoría, descripción, monto, camión, litros, km,
- *    tanque, método de pago, fecha y viaje.
- *  - Con varios (`'varias'`): el grupo de categorías; después, bloque por bloque (en el orden de los bloques), su descripción, monto y lo
- *    del combustible; después el método de pago de cada bloque (van juntos, en el grupo «¿Cómo pagaste cada gasto?»); y AL FINAL la
- *    fecha y el viaje, que son de toda la carga.
+ * `clavesDeVarios` son los bloques que son «Gastos varios» (su descripción es obligatoria y va arriba, a la vista); en los demás la
+ * descripción es una nota que va en el pliegue «Agregar nota o viaje», DESPUÉS de la fecha. Sin ese dato todos los bloques cuentan como
+ * comunes.
+ *
+ *  - Con un solo bloque (`'una'`: una categoría marcada, ninguna o la edición):
+ *      común:          categoría, monto, camión, litros, km, tanque, método de pago, fecha, descripción (nota), viaje.
+ *      «Gastos varios»: categoría, descripción, monto, camión, litros, km, tanque, método de pago, fecha, viaje.
+ *  - Con varios (`'varias'`): el grupo de categorías; después, bloque por bloque (en el orden de los bloques), [su descripción si es
+ *    «Gastos varios»], monto y lo del combustible; después el método de pago de cada bloque (van juntos, en el grupo «¿Cómo pagaste cada
+ *    gasto?»); la fecha; las notas de los bloques que no son «Gastos varios» (en el orden de los bloques, en el pliegue); y AL FINAL el viaje.
  */
-export function camposEnOrdenVisual(disposicion: 'una' | 'varias', claves: readonly string[]): PuestoDeCampo[] {
+export function camposEnOrdenVisual(
+  disposicion: 'una' | 'varias',
+  claves: readonly string[],
+  clavesDeVarios: readonly string[] = [],
+): PuestoDeCampo[] {
   if (disposicion === 'una') {
     const clave = claves[0] ?? '';
-    return ORDEN_VISUAL_DE_UN_BLOQUE.map((campo) => ({ campo, clave: campo === 'categoriaId' || esCampoCompartido(campo) ? null : clave }));
+    const orden = clavesDeVarios.includes(clave) ? ORDEN_VISUAL_DE_UN_BLOQUE_VARIOS : ORDEN_VISUAL_DE_UN_BLOQUE_COMUN;
+    return orden.map((campo) => ({ campo, clave: campo === 'categoriaId' || esCampoCompartido(campo) ? null : clave }));
   }
+  const comunes = claves.filter((clave) => !clavesDeVarios.includes(clave));
   return [
     { campo: 'categoriaId', clave: null },
-    ...claves.flatMap((clave) => CAMPOS_DEL_BLOQUE.map((campo) => ({ campo, clave }))),
+    ...claves.flatMap((clave) => [
+      ...(clavesDeVarios.includes(clave) ? [{ campo: 'descripcion' as const, clave }] : []),
+      ...CAMPOS_DEL_BLOQUE_SIN_DESCRIPCION.map((campo) => ({ campo, clave })),
+    ]),
     ...claves.map((clave) => ({ campo: 'metodoPago' as const, clave })),
     { campo: 'fecha', clave: null },
+    ...comunes.map((clave) => ({ campo: 'descripcion' as const, clave })),
     { campo: 'viajeId', clave: null },
   ];
 }
@@ -156,6 +181,7 @@ export function primerErrorVisual(
   errores: ErroresDeCarga,
   disposicion: 'una' | 'varias',
   claves: readonly string[],
+  clavesDeVarios: readonly string[] = [],
 ): PuestoDeCampo | null {
-  return camposEnOrdenVisual(disposicion, claves).find((puesto) => mensajeDe(errores, puesto) !== undefined) ?? null;
+  return camposEnOrdenVisual(disposicion, claves, clavesDeVarios).find((puesto) => mensajeDe(errores, puesto) !== undefined) ?? null;
 }

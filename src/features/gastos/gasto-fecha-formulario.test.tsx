@@ -213,6 +213,11 @@ async function guardar(rotulo = 'Guardar gasto') {
   await click(buttons().find((b) => b.type === 'submit' && b.textContent === rotulo));
   await settle(4);
 }
+/** «Agregar nota o viaje»: despliega el pliegue donde viven la descripción (nota) y el viaje (si ya está desplegado, no hace nada). */
+async function abrirNotaYViaje() {
+  const boton = buttons().find((b) => b.getAttribute('aria-controls') === 'gasto-pliegue');
+  if (boton) await click(boton);
+}
 /** «Cambiar» en la fila «Fecha: hoy». */
 async function abrirFecha() {
   await click(botonCambiar());
@@ -283,70 +288,66 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 // El orden de los campos
 // ---------------------------------------------------------------------------
-describe('el orden de los campos: «¿Cómo pagaste?» ANTES de la fecha y del viaje', () => {
-  it('una categoría (o ninguna): Categoría → Descripción → Monto → ¿Cómo pagaste? → Fecha → Viaje', async () => {
+describe('el orden de los campos: «¿Cómo pagaste?» ANTES de la fecha (y de la nota y el viaje, que van en el pliegue)', () => {
+  it('una categoría (o ninguna): Categoría → Monto → ¿Cómo pagaste? → Fecha y, desplegado el pliegue, Descripción → Viaje', async () => {
     await mount();
-    expect(camposEnPantalla()).toEqual(['Categoría', 'Descripción', 'Monto', '¿Cómo pagaste?', 'Fecha: hoy', 'Viaje']);
+    expect(camposEnPantalla()).toEqual(['Categoría', 'Monto', '¿Cómo pagaste?', 'Fecha: hoy']);
     await marcar(PEAJES_ID);
-    expect(camposEnPantalla()).toEqual(['Categoría', 'Descripción', 'Monto', '¿Cómo pagaste?', 'Fecha: hoy', 'Viaje']);
+    expect(camposEnPantalla()).toEqual(['Categoría', 'Monto', '¿Cómo pagaste?', 'Fecha: hoy']);
+    await abrirNotaYViaje();
+    expect(camposEnPantalla()).toEqual(['Categoría', 'Monto', '¿Cómo pagaste?', 'Fecha: hoy', 'Descripción', 'Viaje']);
     expect(ultimoCampo()).toBe('gasto-viaje');
   });
 
   it('con Combustible: el recuadro del combustible queda donde estaba (después del monto) y el método de pago va después de él', async () => {
     await mount();
     await marcar(COMBUSTIBLE_CATEGORIA_ID);
-    expect(camposEnPantalla()).toEqual([
-      'Categoría',
-      'Descripción',
-      'Monto',
-      'Litros',
-      'Kilómetros del camión',
-      '¿Llenaste el tanque?',
-      '¿Cómo pagaste?',
-      'Fecha: hoy',
-      'Viaje',
-    ]);
+    expect(camposEnPantalla()).toEqual(['Categoría', 'Monto', 'Litros', 'Kilómetros del camión', '¿Llenaste el tanque?', '¿Cómo pagaste?', 'Fecha: hoy']);
+    await abrirNotaYViaje();
     const orden = ['gasto-monto', 'gasto-litros', 'gasto-km', 'gasto-tanque-0', 'gasto-metodo-0', 'gasto-fecha-linea', 'gasto-viaje'].map((id) => byId(id)!);
     for (let i = 0; i < orden.length - 1; i++) expect(antes(orden[i]!, orden[i + 1]!), `${orden[i]!.id} antes de ${orden[i + 1]!.id}`).toBe(true);
   });
 
-  it('al editar un gasto es el mismo orden', async () => {
+  it('al editar un gasto es el mismo orden (sin nota ni viaje el pliegue queda plegado)', async () => {
     await mount(EDITAR);
-    expect(camposEnPantalla()).toEqual(['Categoría', 'Descripción', 'Monto', '¿Cómo pagaste?', 'Fecha: 1 oct', 'Viaje']);
+    expect(camposEnPantalla()).toEqual(['Categoría', 'Monto', '¿Cómo pagaste?', 'Fecha: 1 oct']);
+    await abrirNotaYViaje();
+    expect(camposEnPantalla()).toEqual(['Categoría', 'Monto', '¿Cómo pagaste?', 'Fecha: 1 oct', 'Descripción', 'Viaje']);
     expect(ultimoCampo()).toBe('gasto-viaje');
   });
 
   it('al editar un gasto de Combustible: el método de pago después del tanque lleno, antes de la fecha', async () => {
     route.detalle = () => ok(detalle({ categoria_id: COMBUSTIBLE_CATEGORIA_ID, litros: 40, precio_por_litro: 22.5, camion_id: CAM_A.id }));
     await mount(EDITAR);
+    await abrirNotaYViaje();
     const orden = ['gasto-litros', 'gasto-km', 'gasto-tanque-0', 'gasto-metodo-0', 'gasto-fecha-linea', 'gasto-viaje'].map((id) => byId(id)!);
     for (let i = 0; i < orden.length - 1; i++) expect(antes(orden[i]!, orden[i + 1]!), `${orden[i]!.id} antes de ${orden[i + 1]!.id}`).toBe(true);
   });
 
-  it('varias categorías: los bloques, el grupo «¿Cómo pagaste cada gasto?» (un método por gasto) y al final la fecha y el viaje', async () => {
+  it('varias categorías: los bloques, el grupo «¿Cómo pagaste cada gasto?» (un método por gasto), la fecha y, en el pliegue, una nota por categoría y el viaje', async () => {
     await mount();
     await marcar(PEAJES_ID, COMBUSTIBLE_CATEGORIA_ID);
     expect(camposEnPantalla()).toEqual([
       'Categoría',
-      'Descripción',
       'Monto',
       'Litros',
       'Kilómetros del camión',
       '¿Llenaste el tanque?',
-      'Descripción',
       'Monto',
       '¿Cómo pagaste cada gasto?',
       '¿Cómo pagaste Combustible?',
       '¿Cómo pagaste Peajes?',
       'Fecha: hoy',
-      'Viaje',
     ]);
+    await abrirNotaYViaje();
+    expect(camposEnPantalla().slice(-4)).toEqual(['Fecha: hoy', 'Nota de Combustible', 'Nota de Peajes', 'Viaje']);
     expect(ultimoCampo()).toBe('gasto-viaje');
   });
 
   it('varias categorías: el grupo de métodos viene después de TODOS los bloques (también del tanque lleno de Combustible) y antes de la fecha', async () => {
     await mount();
     await marcar(PEAJES_ID, COMBUSTIBLE_CATEGORIA_ID);
+    await abrirNotaYViaje();
     const orden = [
       byId(`gasto-tanque-${COMBUSTIBLE_CATEGORIA_ID}-0`)!,
       monto(PEAJES_ID)!,
@@ -359,20 +360,20 @@ describe('el orden de los campos: «¿Cómo pagaste?» ANTES de la fecha y del v
     for (let i = 0; i < orden.length - 1; i++) expect(antes(orden[i]!, orden[i + 1]!), `${orden[i]!.id} antes de ${orden[i + 1]!.id}`).toBe(true);
   });
 
-  it('con la fecha ya desplegada el orden es el mismo: ¿Cómo pagaste? → Fecha → Viaje', async () => {
+  it('con la fecha ya desplegada el orden es el mismo: ¿Cómo pagaste? → Fecha → nota → Viaje', async () => {
     await mount();
     await marcar(PEAJES_ID);
     await abrirFecha();
-    expect(camposEnPantalla()).toEqual(['Categoría', 'Descripción', 'Monto', '¿Cómo pagaste?', 'Fecha', 'Viaje']);
+    await abrirNotaYViaje();
+    expect(camposEnPantalla()).toEqual(['Categoría', 'Monto', '¿Cómo pagaste?', 'Fecha', 'Descripción', 'Viaje']);
     await marcar(LAVADO_ID);
-    expect(camposEnPantalla().slice(-4)).toEqual(['¿Cómo pagaste Lavado?', '¿Cómo pagaste Peajes?', 'Fecha', 'Viaje']);
+    expect(camposEnPantalla().slice(-6)).toEqual(['¿Cómo pagaste Lavado?', '¿Cómo pagaste Peajes?', 'Fecha', 'Nota de Lavado', 'Nota de Peajes', 'Viaje']);
   });
 
-  it('la descripción y el viaje no se pliegan ni se mueven: siguen a la vista donde estaban', async () => {
+  it('el viaje es el selector de siempre, con su rótulo y su id, y está en el pliegue (no a la vista hasta desplegarlo)', async () => {
     await mount();
-    expect(byId('gasto-descripcion')).not.toBeNull();
-    expect(antes(byId('gasto-descripcion')!, byId('gasto-monto')!)).toBe(true);
-    expect(byId('gasto-viaje')).not.toBeNull();
+    expect(byId('gasto-viaje')).toBeNull();
+    await abrirNotaYViaje();
     expect(byId('gasto-viaje')!.tagName).toBe('SELECT');
     expect(document.querySelector('label[for="gasto-viaje"]')!.textContent).toBe('Viaje (opcional)');
   });
@@ -423,6 +424,20 @@ describe('la fecha plegada: «Fecha: hoy» y el botón «Cambiar»', () => {
   it('la fila y el botón van en la misma línea del formulario, uno junto al otro', async () => {
     await mount();
     expect(filaFecha()!.parentElement).toBe(botonCambiar()!.parentElement);
+  });
+
+  it('el botón queda PEGADO al texto (no empujado al borde derecho en pantalla ancha): sin «justify-between» y con una separación fija entre los dos', async () => {
+    await mount();
+    const fila = filaFecha()!.parentElement!;
+    const clases = fila.className;
+    expect(clases).not.toContain('justify-between');
+    expect(clases).not.toMatch(/(?:^|\s)justify-(?:end|around|evenly|center)(?:\s|$)/);
+    expect(clases).toMatch(/(?:^|\s)flex(?:\s|$)/);
+    expect(clases).toMatch(/(?:^|\s)flex-wrap(?:\s|$)/); // y si no entra (320 px o letra grande), el botón baja a la línea de abajo
+    expect(clases).toMatch(/(?:^|\s)gap-x-4(?:\s|$)/);
+    expect(clases).toMatch(/(?:^|\s)items-center(?:\s|$)/);
+    // el texto no se estira para ocupar todo el ancho (eso también separaría el botón)
+    expect(filaFecha()!.className).not.toMatch(/(?:^|\s)(?:flex-1|grow|w-full)(?:\s|$)/);
   });
 
   it('tocar «Cambiar» no guarda nada ni muestra errores', async () => {

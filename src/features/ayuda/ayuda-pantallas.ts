@@ -113,7 +113,7 @@ export const AYUDA_GASTO_FORM: AyudaPantalla = {
     'Puedes marcar más de una categoría: cada una se guarda como un gasto, con su monto.',
     'Elige siempre cómo pagaste: efectivo, tarjeta o transferencia.',
     'En el combustible suma los litros y los kilómetros que marca el tablero: así calculamos cuánto rinde tu camión.',
-    'Si fue de un viaje, únelo a ese viaje. En «Gastos varios» cuéntanos en qué fue.',
+    'Con «Agregar nota o viaje» sumas una nota o lo unes a un viaje. En «Gastos varios» cuenta en qué gastaste.',
   ],
 };
 

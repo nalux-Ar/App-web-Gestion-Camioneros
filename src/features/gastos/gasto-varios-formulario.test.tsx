@@ -284,6 +284,11 @@ async function reintentar() {
   await click(buttonByText('Reintentar'));
   await settle(4);
 }
+/** «Agregar nota o viaje»: despliega el pliegue donde viven las notas y el viaje (si ya está desplegado, no hace nada). */
+async function abrirNotaYViaje() {
+  const boton = buttons().find((b) => b.getAttribute('aria-controls') === 'gasto-pliegue');
+  if (boton) await click(boton);
+}
 /** «Cambiar» en la fila «Fecha: hoy»: despliega el campo de la fecha (y le pasa el foco). */
 async function abrirFecha() {
   await click(buttons().find((b) => b.getAttribute('aria-label') === 'Cambiar la fecha'));
@@ -439,9 +444,12 @@ describe('alta: el grupo «Categoría» son casillas', () => {
 // Con UNA categoría la pantalla es la de siempre
 // ---------------------------------------------------------------------------
 describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
-  it('sin nada marcado: Categoría → Descripción → Monto → Método de pago → Fecha → Viaje, con los ids y rótulos de siempre', async () => {
+  it('sin nada marcado: Categoría → Monto → Método de pago → Fecha → (Descripción → Viaje en el pliegue), con los ids y rótulos de siempre', async () => {
     await mount();
-    const orden = ['gasto-categoria-0', 'gasto-descripcion', 'gasto-monto', 'gasto-metodo-0', 'gasto-fecha-linea', 'gasto-viaje'].map((id) => byId(id)!);
+    expect(byId('gasto-descripcion')).toBeNull();
+    expect(byId('gasto-viaje')).toBeNull();
+    await abrirNotaYViaje();
+    const orden = ['gasto-categoria-0', 'gasto-monto', 'gasto-metodo-0', 'gasto-fecha-linea', 'gasto-descripcion', 'gasto-viaje'].map((id) => byId(id)!);
     expect(orden.every(Boolean)).toBe(true);
     for (let i = 0; i < orden.length - 1; i++) expect(antes(orden[i]!, orden[i + 1]!), `${orden[i]!.id} antes de ${orden[i + 1]!.id}`).toBe(true);
     expect(leyendaDe('gasto-metodo-0')).toBe('¿Cómo pagaste?');
@@ -455,7 +463,9 @@ describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
     await mount();
     await marcar(PEAJES_ID);
     expect(titulosDeBloques()).toEqual([]);
-    for (const id of ['gasto-descripcion', 'gasto-monto', 'gasto-fecha-linea', 'gasto-viaje', 'gasto-metodo-0']) expect(byId(id), id).not.toBeNull();
+    for (const id of ['gasto-monto', 'gasto-fecha-linea', 'gasto-metodo-0']) expect(byId(id), id).not.toBeNull();
+    await abrirNotaYViaje();
+    for (const id of ['gasto-descripcion', 'gasto-viaje']) expect(byId(id), id).not.toBeNull();
     expect(document.querySelectorAll('input[id^="gasto-monto"]')).toHaveLength(1);
     expect(buttonByText('Guardar gasto')).toBeTruthy();
     expect(buttonByText('Guardar 1 gasto')).toBeUndefined();
@@ -509,6 +519,7 @@ describe('alta con una categoría (o ninguna): la pantalla de siempre', () => {
     await mount();
     await marcar(PEAJES_ID);
     await typeText(byId<HTMLInputElement>('gasto-monto'), '800');
+    await abrirNotaYViaje();
     await typeText(byId<HTMLTextAreaElement>('gasto-descripcion'), 'Peaje de la ruta');
     await elegirMetodo('tarjeta_debito');
     await click(casilla(PEAJES_ID)); // sin ninguna marcada: sigue la misma pantalla
@@ -535,9 +546,12 @@ describe('alta con varias categorías: un bloque por categoría', () => {
     expect(titulosDeBloques().slice(0, 4)).toEqual(['Combustible', 'Gastos varios', 'Lavado', 'Peajes']);
   });
 
-  it('cada bloque lleva su descripción y su monto con el id de SU categoría al final; los ids de un solo bloque ya no están', async () => {
+  it('cada bloque lleva su monto con el id de SU categoría al final (y «Gastos varios» su descripción; la nota de las demás, en el pliegue); los ids de un solo bloque ya no están', async () => {
     await mount();
     await marcar(PEAJES_ID, GASTOS_VARIOS_CATEGORIA_ID);
+    expect(descripcion(GASTOS_VARIOS_CATEGORIA_ID)).not.toBeNull();
+    expect(descripcion(PEAJES_ID)).toBeNull(); // la nota de Peajes está en el pliegue, plegado
+    await abrirNotaYViaje();
     for (const id of [PEAJES_ID, GASTOS_VARIOS_CATEGORIA_ID]) {
       expect(descripcion(id), id).not.toBeNull();
       expect(monto(id), id).not.toBeNull();
@@ -555,6 +569,8 @@ describe('alta con varias categorías: un bloque por categoría', () => {
     expect(document.querySelectorAll('input[type="date"]')).toHaveLength(0);
     expect(document.querySelectorAll('#gasto-fecha-linea')).toHaveLength(1);
     expect(buttons().filter((b) => b.getAttribute('aria-label') === 'Cambiar la fecha')).toHaveLength(1);
+    expect(document.querySelectorAll('select#gasto-viaje')).toHaveLength(0); // el viaje está en el pliegue
+    await abrirNotaYViaje();
     expect(document.querySelectorAll('select#gasto-viaje')).toHaveLength(1);
     expect(document.querySelectorAll('label[for^="gasto-viaje"]')).toHaveLength(1);
     await abrirFecha();
@@ -564,9 +580,10 @@ describe('alta con varias categorías: un bloque por categoría', () => {
     expect(document.querySelectorAll('#gasto-fecha-linea')).toHaveLength(0);
   });
 
-  it('el orden en pantalla: los bloques, después el método de pago de cada gasto (juntos) y al final la fecha y el viaje', async () => {
+  it('el orden en pantalla: los bloques, el método de pago de cada gasto (juntos), la fecha y, en el pliegue, una nota por gasto y el viaje', async () => {
     await mount();
     await marcar(PEAJES_ID, COMBUSTIBLE_CATEGORIA_ID);
+    await abrirNotaYViaje();
     const orden = [
       byId('gasto-categoria-0')!,
       monto(COMBUSTIBLE_CATEGORIA_ID)!,
@@ -574,6 +591,8 @@ describe('alta con varias categorías: un bloque por categoría', () => {
       metodo(COMBUSTIBLE_CATEGORIA_ID)!,
       metodo(PEAJES_ID)!,
       byId('gasto-fecha-linea')!,
+      descripcion(COMBUSTIBLE_CATEGORIA_ID)!,
+      descripcion(PEAJES_ID)!,
       byId('gasto-viaje')!,
     ];
     for (let i = 0; i < orden.length - 1; i++) expect(antes(orden[i]!, orden[i + 1]!), `${orden[i]!.id} antes de ${orden[i + 1]!.id}`).toBe(true);
@@ -667,13 +686,16 @@ describe('alta con varias categorías: un bloque por categoría', () => {
     expect(bodyText()).toContain(`Sale a $\u00a01.000 el litro`);
   });
 
-  it('«Gastos varios»: SU descripción es obligatoria (sin «(opcional)» y con su ayuda) y la de los demás sigue opcional', async () => {
+  it('«Gastos varios»: «¿En qué gastaste?» es obligatoria (sin «(opcional)», con su ayuda y SIEMPRE a la vista) y la nota de los demás sigue opcional, en el pliegue', async () => {
     await mount();
     await marcar(PEAJES_ID, GASTOS_VARIOS_CATEGORIA_ID);
-    expect(document.querySelector(`label[for="gasto-descripcion-${GASTOS_VARIOS_CATEGORIA_ID}"]`)!.textContent).toBe('Descripción');
+    expect(document.querySelector(`label[for="gasto-descripcion-${GASTOS_VARIOS_CATEGORIA_ID}"]`)!.textContent).toBe('¿En qué gastaste?');
     expect(descripcion(GASTOS_VARIOS_CATEGORIA_ID)!.getAttribute('aria-required')).toBe('true');
-    expect(document.querySelector(`label[for="gasto-descripcion-${PEAJES_ID}"]`)!.textContent).toContain('(opcional)');
-    expect(bodyText().match(/Obligatoria en Gastos varios/g)).toHaveLength(1);
+    expect(bodyText().match(/Es obligatorio: cuéntanos de qué se trata\./g)).toHaveLength(1);
+    expect(bodyText()).not.toContain('Obligatoria en Gastos varios');
+    await abrirNotaYViaje();
+    expect(document.querySelector(`label[for="gasto-descripcion-${PEAJES_ID}"]`)!.textContent).toBe('Nota de Peajes (opcional)');
+    expect(bodyText().match(/Es obligatorio: cuéntanos de qué se trata\./g)).toHaveLength(1);
   });
 });
 
@@ -848,6 +870,7 @@ describe('alta con varias categorías: guardado', () => {
   it('la fecha y el viaje son los mismos para todos los gastos', async () => {
     await mount();
     await llenarPeajesYVarios();
+    await abrirNotaYViaje();
     await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_PILAR.id);
     await abrirFecha();
     await typeText(byId<HTMLInputElement>('gasto-fecha'), '2026-09-20');
@@ -861,6 +884,7 @@ describe('alta con varias categorías: guardado', () => {
     route.camiones = () => ok([CAM_A, CAM_B]);
     await mount();
     await llenarCombustibleYPeajes();
+    await abrirNotaYViaje();
     await selectValue(byId<HTMLSelectElement>('gasto-viaje'), V_CON_CAMION.id);
     expect(bodyText()).toContain('Camión del viaje: ABC 123');
     await guardar('Guardar 2 gastos');
@@ -1720,7 +1744,9 @@ describe('editar un gasto: una sola categoría, igual que siempre', () => {
 
   it('los ids de siempre y guardar actualiza UN gasto (nunca un lote)', async () => {
     await mount(`/gastos/${GASTO_ID}/editar`);
-    for (const id of ['gasto-descripcion', 'gasto-monto', 'gasto-fecha-linea', 'gasto-viaje', 'gasto-metodo-0']) expect(byId(id), id).not.toBeNull();
+    for (const id of ['gasto-monto', 'gasto-fecha-linea', 'gasto-metodo-0']) expect(byId(id), id).not.toBeNull();
+    await abrirNotaYViaje(); // este gasto no tiene nota ni viaje: el pliegue arranca plegado
+    for (const id of ['gasto-descripcion', 'gasto-viaje']) expect(byId(id), id).not.toBeNull();
     await guardar();
     expect(updatesGasto()).toHaveLength(1);
     expect(inserts()).toHaveLength(0);
